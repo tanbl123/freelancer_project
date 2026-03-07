@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:freelancer_project/src/constants/app_constants.dart';
 
 import 'src/routing/app_router.dart';
 
@@ -12,7 +13,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Freelancer Marketplace',
+      title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
