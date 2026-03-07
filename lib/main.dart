@@ -1,58 +1,24 @@
 import 'package:flutter/material.dart';
-
-import 'src/routing/app_router.dart';
+import 'package:freelancer_project/src/features/applications/screens/splash_screen.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const FreelancerApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class FreelancerApp extends StatelessWidget {
+  const FreelancerApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Freelancer Marketplace',
       debugShowCheckedModeBanner: false,
+      title: 'Freelancer Marketplace',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF345CFF)),
+        scaffoldBackgroundColor: const Color(0xFFF6F8FC),
       ),
-      initialRoute: AppRoutes.login,
-      onGenerateRoute: AppRouter.onGenerateRoute,
+      home: const SplashScreen(),
     );
   }
 }
-
-/*
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: .center,
-          children: [
-
-          ],
-        ),
-      ),
-
-    );
-  }
-}
-*/
