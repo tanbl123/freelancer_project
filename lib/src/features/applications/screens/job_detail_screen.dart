@@ -1,59 +1,51 @@
 import 'package:flutter/material.dart';
 
-import '../models/models.dart';
-import '../../../common_widgets/common_widgets.dart';
-import 'apply_screen.dart';
-
 class JobDetailScreen extends StatelessWidget {
-  final JobPost job;
-  const JobDetailScreen({super.key, required this.job});
+  const JobDetailScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Job Details')),
-      body: SingleChildScrollView(
+      appBar: AppBar(title: const Text('Job details')),
+      body: ListView(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(job.title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(job.owner, style: TextStyle(color: Colors.grey.shade700)),
-                const Spacer(),
-                const Icon(Icons.schedule_outlined, size: 18),
-                const SizedBox(width: 6),
-                Text(job.deadline),
-              ],
-            ),
-            const SizedBox(height: 16),
-            InfoTile(label: 'Budget', value: 'RM ${job.budget.toStringAsFixed(0)}'),
-            const SizedBox(height: 12),
-            Text(job.description, style: TextStyle(color: Colors.grey.shade800, height: 1.5)),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: job.skills.map((skill) => Chip(label: Text(skill))).toList(),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ApplyScreen()),
-                  );
-                },
-                style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-                child: const Text('Apply for This Job'),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text('Mobile App UI Design', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                  SizedBox(height: 10),
+                  Text('RM 800 - RM 1200', style: TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.w800)),
+                  SizedBox(height: 12),
+                  Text('Looking for a freelancer to design a clean mobile app interface with onboarding, job feed, service cards, and profile screens.'),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+          const ListTile(
+            leading: Icon(Icons.camera_alt_rounded),
+            title: Text('Camera capture placeholder'),
+            subtitle: Text('Advanced feature: capture live photo proof from the device camera'),
+          ),
+          const ListTile(
+            leading: Icon(Icons.offline_bolt_rounded),
+            title: Text('Offline cache placeholder'),
+            subtitle: Text('Advanced feature: latest 20 job posts cached locally with SQLite'),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: () => Navigator.pushNamed(context, '/applications'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              minimumSize: const Size.fromHeight(52),
+            ),
+            child: const Text('Apply for this job'),
+          ),
+        ],
       ),
     );
   }

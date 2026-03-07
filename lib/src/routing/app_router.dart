@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:freelancer_project/src/features/applications/screens/job_applications_page.dart';
 import 'package:freelancer_project/src/features/authentication/screens/login_page.dart';
 import 'package:freelancer_project/src/features/marketplace/screens/marketplace_feed_page.dart';
 import 'package:freelancer_project/src/features/profile/screens/profile_page.dart';
@@ -22,8 +21,6 @@ class AppRouter{
         return MaterialPageRoute(builder: (_) => const LoginPage());
       case AppRoutes.marketplace:
         return MaterialPageRoute(builder: (_)=> const MarketplaceFeedPage());
-      case AppRoutes.applications:
-        return MaterialPageRoute(builder: (_)=> const JobApplicationsPage());
       case AppRoutes.transactions:
         return MaterialPageRoute(builder: (_)=> const ProjectDetailPage());
       case AppRoutes.ratings:

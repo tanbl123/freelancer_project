@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../../common_widgets/common_widgets.dart';
-import 'main_shell.dart';
 
 class RegisterScreen extends StatelessWidget {
   const RegisterScreen({super.key});
@@ -8,43 +6,38 @@ class RegisterScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Register')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: const [
-            AppTextField(label: 'Full Name', icon: Icons.person_outline),
-            SizedBox(height: 12),
-            AppTextField(label: 'Email', icon: Icons.email_outlined),
-            SizedBox(height: 12),
-            AppTextField(label: 'Phone Number', icon: Icons.phone_outlined),
-            SizedBox(height: 12),
-            AppTextField(label: 'Password', icon: Icons.lock_outline, obscure: true),
-            SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: RoleChip(label: 'Client', selected: true)),
-                SizedBox(width: 12),
-                Expanded(child: RoleChip(label: 'Freelancer')),
-              ],
+      appBar: AppBar(title: const Text('Create account')),
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ListView(
+          children: [
+            const Text(
+              'Create your account',
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
             ),
-            SizedBox(height: 12),
-            AppTextField(label: 'Skills / Experience (Freelancer)', icon: Icons.auto_awesome_outlined),
+            const SizedBox(height: 8),
+            const Text(
+              'All users start as clients. You can become a freelancer later from profile or settings.',
+              style: TextStyle(color: Color(0xFF6B7280)),
+            ),
+            const SizedBox(height: 24),
+            const TextField(decoration: InputDecoration(labelText: 'Full name')),
+            const SizedBox(height: 16),
+            const TextField(decoration: InputDecoration(labelText: 'Email')),
+            const SizedBox(height: 16),
+            const TextField(decoration: InputDecoration(labelText: 'Phone number')),
+            const SizedBox(height: 16),
+            const TextField(obscureText: true, decoration: InputDecoration(labelText: 'Password')),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/clientHome', (_) => false),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF4F46E5),
+                minimumSize: const Size.fromHeight(54),
+              ),
+              child: const Text('Create account'),
+            ),
           ],
-        ),
-      ),
-      bottomNavigationBar: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: FilledButton(
-          onPressed: () {
-            Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(builder: (_) => const MainShell()),
-              (_) => false,
-            );
-          },
-          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-          child: const Text('Create Account'),
         ),
       ),
     );

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:freelancer_project/src/common_widgets/module_menu_card.dart';
+import 'package:freelancer_project/src/widgets/module_menu_card.dart';
 
 import '../../../routing/app_router.dart';
 

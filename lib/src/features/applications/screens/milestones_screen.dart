@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
-
-import '../data/app_data.dart';
-import '../../../common_widgets/common_widgets.dart';
-import 'milestone_detail_screen.dart';
+import '../data/mock_data.dart';
 
 class MilestonesScreen extends StatelessWidget {
   const MilestonesScreen({super.key});
@@ -10,51 +7,39 @@ class MilestonesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Project Milestones')),
+      appBar: AppBar(
+        title: const Text('Project milestones', style: TextStyle(fontWeight: FontWeight.w800)),
+      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         children: [
-          const FeatureBanner(
-            title: 'Project Order Created',
-            subtitle: 'This starts automatically when the client accepts an application.',
-            icon: Icons.inventory_2_outlined,
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.draw_rounded),
+              title: Text('Signature pad feature'),
+              subtitle: Text('Advanced feature placeholder for client approval with digital signature'),
+            ),
           ),
           const SizedBox(height: 12),
-          ...AppData.milestones.map(
-            (milestone) => GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => MilestoneDetailScreen(milestone: milestone)),
-                );
-              },
-              child: Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(child: Text(milestone.title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))),
-                        StatusBadge(status: milestone.status),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(milestone.description, style: TextStyle(color: Colors.grey.shade700)),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Icon(Icons.calendar_today_outlined, size: 16, color: Colors.grey.shade600),
-                        const SizedBox(width: 6),
-                        Text(milestone.deadline),
-                        const Spacer(),
-                        Text('RM ${milestone.amount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                  ],
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.credit_card_rounded),
+              title: Text('Stripe sandbox simulation'),
+              subtitle: Text('Advanced feature placeholder for simulated milestone payment'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...MockData.milestones.map(
+            (item) => Card(
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(16),
+                title: Text(item['title']!, style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text('${item['amount']} • ${item['deadline']}'),
                 ),
+                trailing: Text(item['status']!, style: const TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.w700)),
+                onTap: () => Navigator.pushNamed(context, '/rating'),
               ),
             ),
           ),

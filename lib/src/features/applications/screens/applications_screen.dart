@@ -1,69 +1,83 @@
 import 'package:flutter/material.dart';
-import '../../../common_widgets/common_widgets.dart';
+import '../data/mock_data.dart';
 
 class ApplicationsScreen extends StatelessWidget {
   const ApplicationsScreen({super.key});
 
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'New':
+        return const Color(0xFF2563EB);
+      case 'Shortlisted':
+        return const Color(0xFF059669);
+      default:
+        return const Color(0xFFDC2626);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Applications')),
+      appBar: AppBar(
+        title: const Text('Applications', style: TextStyle(fontWeight: FontWeight.w800)),
+      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         children: [
-          const FeatureBanner(
-            title: 'Real-Time Updates',
-            subtitle: 'Use StreamBuilder with Firebase or WebSockets for instant new applications.',
-            icon: Icons.wifi_tethering_outlined,
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.mic_rounded),
+              title: Text('Voice pitch feature'),
+              subtitle: Text('Advanced feature placeholder for 30-second voice note recording'),
+            ),
           ),
           const SizedBox(height: 12),
-          ...List.generate(
-            3,
-            (index) => Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      CircleAvatar(child: Text('F${index + 1}')),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Freelancer ${index + 1}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text('UI/UX Designer • RM ${500 + (index * 100)}', style: TextStyle(color: Colors.grey.shade700)),
-                          ],
+          ...MockData.applications.map(
+            (item) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item['name']!, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    Text(item['role']!, style: const TextStyle(color: Color(0xFF6B7280))),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Text('Budget: ${item['price']}'),
+                        const SizedBox(width: 14),
+                        Text('Timeline: ${item['timeline']}'),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: _statusColor(item['status']!).withOpacity(.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            item['status']!,
+                            style: TextStyle(
+                              color: _statusColor(item['status']!),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8EEFF),
-                          borderRadius: BorderRadius.circular(30),
+                        const Spacer(),
+                        TextButton(onPressed: () {}, child: const Text('Reject')),
+                        FilledButton(
+                          onPressed: () => Navigator.pushNamed(context, '/milestones'),
+                          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF4F46E5)),
+                          child: const Text('Accept'),
                         ),
-                        child: const Text('Pending'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('Proposal includes attached resume and voice pitch introduction.'),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(onPressed: () {}, child: const Text('Reject')),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton(onPressed: () {}, child: const Text('Accept')),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
