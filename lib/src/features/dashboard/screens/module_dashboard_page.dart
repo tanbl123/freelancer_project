@@ -28,7 +28,7 @@ class ModuleDashboardPage extends StatelessWidget{
               height: 12,
             ),
             ModuleMenuCard(
-                title: 'Marketplace Module',
+                title: 'Marketplace',
                 subtitle: 'Browse jobs/services and create post screens',
                 icon: Icons.storefront,
                 onTap: ()=>Navigator.pushNamed(
@@ -36,7 +36,7 @@ class ModuleDashboardPage extends StatelessWidget{
                 ),
             ),
             ModuleMenuCard(
-              title: 'Applications Module',
+              title: 'Applications',
               subtitle: 'Freelancer proposals and client applicant list',
               icon: Icons.description,
               onTap: ()=>Navigator.pushNamed(
@@ -44,7 +44,7 @@ class ModuleDashboardPage extends StatelessWidget{
               ),
             ),
             ModuleMenuCard(
-              title: 'Transactions Module',
+              title: 'Transactions',
               subtitle: 'Project milestones and progress tracking',
               icon: Icons.assignment_turned_in,
               onTap: ()=>Navigator.pushNamed(
@@ -52,7 +52,7 @@ class ModuleDashboardPage extends StatelessWidget{
               ),
             ),
             ModuleMenuCard(
-              title: 'Ratings Module',
+              title: 'Review and Ratings',
               subtitle: 'Review form and rating summary',
               icon: Icons.star,
               onTap: ()=>Navigator.pushNamed(
@@ -60,7 +60,7 @@ class ModuleDashboardPage extends StatelessWidget{
               ),
             ),
             ModuleMenuCard(
-              title: 'User Profile Module',
+              title: 'User Profile',
               subtitle: 'View and edit account information',
               icon: Icons.person,
               onTap: ()=>Navigator.pushNamed(

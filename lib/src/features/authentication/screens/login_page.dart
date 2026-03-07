@@ -20,7 +20,7 @@ class LoginPage extends StatelessWidget{
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Text(
-              'UI Prototype Only',
+              'Freelancer',
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: 24,

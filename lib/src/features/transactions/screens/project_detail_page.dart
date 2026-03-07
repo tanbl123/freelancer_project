@@ -17,7 +17,7 @@ class ProjectDetailPage extends StatelessWidget{
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Transaction Module',
+              'Transaction',
               style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold
