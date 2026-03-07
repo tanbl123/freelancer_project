@@ -11,10 +11,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:freelancer_project/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  //testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+  testWidgets('Login entry point', (WidgetTester tester) async{
     // Build our app and trigger a frame.
     await tester.pumpWidget(const MyApp());
 
+    /*
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);
     expect(find.text('1'), findsNothing);
@@ -26,5 +28,9 @@ void main() {
     // Verify that our counter has incremented.
     expect(find.text('0'), findsNothing);
     expect(find.text('1'), findsOneWidget);
+     */
+
+    expect(find.text('Freelancer Login'), findsOneWidget);
+    expect(find.text('Enter Dashboard'), findsOneWidget);
   });
 }

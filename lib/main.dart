@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'src/routing/app_router.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -10,11 +12,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Freelancer Marketplace',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: .fromSeed(seedColor: Colors.green),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
       ),
-      home: const MyHomePage(title: 'Home Page'),
+      initialRoute: AppRoutes.login,
+      onGenerateRoute: AppRouter.onGenerateRoute,
     );
   }
 }
