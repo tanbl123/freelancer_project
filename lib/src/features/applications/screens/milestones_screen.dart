@@ -13,24 +13,26 @@ class MilestonesScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Card(
+          Card(
             child: ListTile(
-              leading: Icon(Icons.draw_rounded),
-              title: Text('Signature pad feature'),
-              subtitle: Text('Advanced feature placeholder for client approval with digital signature'),
+              leading: const Icon(Icons.draw_rounded),
+              title: const Text('Signature pad feature'),
+              subtitle: const Text('Advanced feature placeholder for client approval with digital signature'),
+              onTap: () => Navigator.pushNamed(context, '/signatureApproval'),
             ),
           ),
           const SizedBox(height: 12),
-          const Card(
+          Card(
             child: ListTile(
-              leading: Icon(Icons.credit_card_rounded),
-              title: Text('Stripe sandbox simulation'),
-              subtitle: Text('Advanced feature placeholder for simulated milestone payment'),
+              leading: const Icon(Icons.credit_card_rounded),
+              title: const Text('Stripe sandbox simulation'),
+              subtitle: const Text('Advanced feature placeholder for simulated milestone payment'),
+              onTap: () => Navigator.pushNamed(context, '/paymentSimulation'),
             ),
           ),
           const SizedBox(height: 12),
           ...MockData.milestones.map(
-            (item) => Card(
+                (item) => Card(
               child: ListTile(
                 contentPadding: const EdgeInsets.all(16),
                 title: Text(item['title']!, style: const TextStyle(fontWeight: FontWeight.w800)),
@@ -38,8 +40,14 @@ class MilestonesScreen extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 8),
                   child: Text('${item['amount']} • ${item['deadline']}'),
                 ),
-                trailing: Text(item['status']!, style: const TextStyle(color: Color(0xFF4F46E5), fontWeight: FontWeight.w700)),
-                onTap: () => Navigator.pushNamed(context, '/rating'),
+                trailing: Text(
+                  item['status']!,
+                  style: const TextStyle(
+                    color: Color(0xFF4F46E5),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                onTap: () => Navigator.pushNamed(context, '/milestoneDetail'),
               ),
             ),
           ),

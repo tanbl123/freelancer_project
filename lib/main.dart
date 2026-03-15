@@ -12,6 +12,19 @@ import 'src/features/applications/screens/rating_screen.dart';
 import 'src/features/applications/screens/create_post_screen.dart';
 import 'src/features/applications/screens/main_shell.dart';
 
+// New screens
+import 'src/features/applications/screens/chat_list_screen.dart';
+import 'src/features/applications/screens/chat_detail_screen.dart';
+import 'src/features/applications/screens/application_form_screen.dart';
+import 'src/features/applications/screens/my_posts_screen.dart';
+import 'src/features/applications/screens/edit_post_screen.dart';
+import 'src/features/applications/screens/milestone_detail_screen.dart';
+import 'src/features/applications/screens/deliverable_submission_screen.dart';
+import 'src/features/applications/screens/signature_approval_screen.dart';
+import 'src/features/applications/screens/payment_simulation_screen.dart';
+import 'src/features/applications/screens/review_list_screen.dart';
+import 'src/features/applications/screens/edit_review_screen.dart';
+
 void main() {
   runApp(const FreelancerMarketplaceApp());
 }
@@ -78,6 +91,18 @@ class FreelancerMarketplaceApp extends StatelessWidget {
         '/profile': (_) => const ProfileScreen(isFreelancer: false),
         '/rating': (_) => const RatingScreen(),
         '/createPost': (_) => const CreatePostScreen(),
+
+        '/chatList': (_) => const ChatListScreen(),
+        '/chatDetail': (_) => const ChatDetailScreen(),
+        '/applicationForm': (_) => const ApplicationFormScreen(),
+        '/myPosts': (_) => const MyPostsScreen(),
+        '/editPost': (_) => const EditPostScreen(),
+        '/milestoneDetail': (_) => const MilestoneDetailScreen(),
+        '/deliverableSubmission': (_) => const DeliverableSubmissionScreen(),
+        '/signatureApproval': (_) => const SignatureApprovalScreen(),
+        '/paymentSimulation': (_) => const PaymentSimulationScreen(),
+        '/reviewList': (_) => const ReviewListScreen(),
+        '/editReview': (_) => const EditReviewScreen(),
       },
     );
   }
