@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:freelancer_project/src/constants/app_constants.dart';
 
+import 'src/config/firebase_bootstrap.dart';
 import 'src/routing/app_router.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await FirebaseBootstrap.initialize();
   runApp(const MyApp());
 }
 
