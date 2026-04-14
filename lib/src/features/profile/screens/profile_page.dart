@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../state/app_state.dart';
-import '../models/profile_user.dart';
+import '../../../features/ratings/screens/freelancer_stats_page.dart';
+import 'edit_profile_page.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
@@ -17,22 +21,35 @@ class ProfilePage extends StatelessWidget {
             body: Center(child: Text('Not logged in.')),
           );
         }
+        final isFreelancer = user.role == 'freelancer';
         final reviews = AppState.instance.reviews
             .where((r) => r.freelancerId == user.uid)
             .toList();
-        final avgRating = reviews.isEmpty
-            ? null
-            : reviews.map((r) => r.stars).reduce((a, b) => a + b) /
-                reviews.length;
 
         return Scaffold(
           appBar: AppBar(
             title: const Text('My Profile'),
             actions: [
+              if (isFreelancer)
+                IconButton(
+                  icon: const Icon(Icons.share),
+                  tooltip: 'Share Profile',
+                  onPressed: () {
+                    Share.share(
+                        'Check out ${user.displayName} on FreelancerApp!\n'
+                        'Rating: ${user.averageRating?.toStringAsFixed(1) ?? 'New'}/5'
+                        ' (${user.totalReviews ?? 0} reviews)\n'
+                        'Skills: ${user.skills.take(5).join(', ')}');
+                  },
+                ),
               IconButton(
                 icon: const Icon(Icons.edit),
                 tooltip: 'Edit Profile',
-                onPressed: () => _showEditDialog(context, user),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const EditProfilePage()),
+                ),
               ),
             ],
           ),
@@ -47,15 +64,24 @@ class ProfilePage extends StatelessWidget {
                     padding: const EdgeInsets.all(16),
                     child: Row(
                       children: [
+                        // Profile photo
                         CircleAvatar(
-                          radius: 36,
+                          radius: 40,
                           backgroundColor:
                               Theme.of(context).colorScheme.primaryContainer,
-                          child: Text(
-                            user.displayName[0].toUpperCase(),
-                            style: const TextStyle(
-                                fontSize: 28, fontWeight: FontWeight.bold),
-                          ),
+                          backgroundImage: user.photoUrl != null &&
+                                  File(user.photoUrl!).existsSync()
+                              ? FileImage(File(user.photoUrl!))
+                              : null,
+                          child: user.photoUrl == null ||
+                                  !File(user.photoUrl!).existsSync()
+                              ? Text(
+                                  user.displayName[0].toUpperCase(),
+                                  style: const TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold),
+                                )
+                              : null,
                         ),
                         const SizedBox(width: 16),
                         Expanded(
@@ -65,7 +91,8 @@ class ProfilePage extends StatelessWidget {
                               Text(
                                 user.displayName,
                                 style: const TextStyle(
-                                    fontSize: 20, fontWeight: FontWeight.bold),
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold),
                               ),
                               const SizedBox(height: 2),
                               Row(
@@ -86,16 +113,30 @@ class ProfilePage extends StatelessWidget {
                                   ),
                                 ],
                               ),
-                              if (avgRating != null) ...[
-                                const SizedBox(height: 4),
+                              if (user.email.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(user.email,
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 13)),
+                              ],
+                              if (user.phone.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(user.phone,
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 13)),
+                              ],
+                              if (isFreelancer &&
+                                  (user.averageRating ?? 0) > 0) ...[
+                                const SizedBox(height: 6),
                                 Row(
                                   children: [
                                     const Icon(Icons.star,
-                                        size: 14, color: Colors.amber),
+                                        size: 16, color: Colors.amber),
                                     Text(
-                                      ' ${avgRating.toStringAsFixed(1)} (${reviews.length} reviews)',
+                                      ' ${user.averageRating!.toStringAsFixed(1)} (${user.totalReviews ?? 0} reviews)',
                                       style: const TextStyle(
-                                          fontSize: 13, color: Colors.grey),
+                                          fontSize: 13,
+                                          color: Colors.grey),
                                     ),
                                   ],
                                 ),
@@ -107,7 +148,7 @@ class ProfilePage extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
                 // Bio
                 _SectionCard(
@@ -121,12 +162,24 @@ class ProfilePage extends StatelessWidget {
                       color: user.bio?.isNotEmpty == true
                           ? Colors.black87
                           : Colors.grey,
+                      height: 1.4,
                     ),
                   ),
                 ),
 
+                // Experience (freelancer only)
+                if (isFreelancer && user.experience != null) ...[
+                  const SizedBox(height: 12),
+                  _SectionCard(
+                    title: 'Experience',
+                    icon: Icons.work_history_outlined,
+                    child: Text(user.experience!,
+                        style: const TextStyle(height: 1.4)),
+                  ),
+                ],
+
                 // Skills
-                if (user.role == 'freelancer') ...[
+                if (isFreelancer) ...[
                   const SizedBox(height: 12),
                   _SectionCard(
                     title: 'Skills',
@@ -140,14 +193,15 @@ class ProfilePage extends StatelessWidget {
                             children: user.skills
                                 .map((s) => Chip(
                                       label: Text(s),
-                                      visualDensity: VisualDensity.compact,
+                                      visualDensity:
+                                          VisualDensity.compact,
                                     ))
                                 .toList(),
                           ),
                   ),
                 ],
 
-                // Stats
+                // Activity stats
                 const SizedBox(height: 12),
                 _SectionCard(
                   title: 'Activity',
@@ -162,10 +216,15 @@ class ProfilePage extends StatelessWidget {
                             .toString(),
                       ),
                       _StatRow(
-                        label: 'Applications Submitted',
+                        label: 'Applications',
                         value: AppState.instance.applications
                             .where((a) => a.freelancerId == user.uid)
                             .length
+                            .toString(),
+                      ),
+                      _StatRow(
+                        label: 'Projects',
+                        value: AppState.instance.userProjects.length
                             .toString(),
                       ),
                       _StatRow(
@@ -176,13 +235,36 @@ class ProfilePage extends StatelessWidget {
                   ),
                 ),
 
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+
+                // Action buttons
+                if (isFreelancer) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.bar_chart),
+                      label: const Text('View Earnings & Stats'),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              FreelancerStatsPage(freelancerId: user.uid),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 SizedBox(
                   width: double.infinity,
-                  child: OutlinedButton.icon(
+                  child: FilledButton.icon(
                     icon: const Icon(Icons.edit),
                     label: const Text('Edit Profile'),
-                    onPressed: () => _showEditDialog(context, user),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const EditProfilePage()),
+                    ),
                   ),
                 ),
               ],
@@ -192,17 +274,11 @@ class ProfilePage extends StatelessWidget {
       },
     );
   }
-
-  void _showEditDialog(BuildContext context, ProfileUser user) {
-    showDialog(
-      context: context,
-      builder: (_) => _EditProfileDialog(user: user),
-    );
-  }
 }
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({required this.title, required this.icon, required this.child});
+  const _SectionCard(
+      {required this.title, required this.icon, required this.child});
   final String title;
   final IconData icon;
   final Widget child;
@@ -217,7 +293,9 @@ class _SectionCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon, size: 16, color: Theme.of(context).colorScheme.primary),
+                Icon(icon,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 6),
                 Text(title,
                     style: const TextStyle(
@@ -247,108 +325,10 @@ class _StatRow extends StatelessWidget {
         children: [
           Text(label, style: const TextStyle(color: Colors.black87)),
           Text(value,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold, fontSize: 16)),
         ],
       ),
-    );
-  }
-}
-
-class _EditProfileDialog extends StatefulWidget {
-  const _EditProfileDialog({required this.user});
-  final ProfileUser user;
-
-  @override
-  State<_EditProfileDialog> createState() => _EditProfileDialogState();
-}
-
-class _EditProfileDialogState extends State<_EditProfileDialog> {
-  late final TextEditingController _nameController;
-  late final TextEditingController _bioController;
-  late final TextEditingController _skillsController;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: widget.user.displayName);
-    _bioController = TextEditingController(text: widget.user.bio ?? '');
-    _skillsController =
-        TextEditingController(text: widget.user.skills.join(', '));
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _bioController.dispose();
-    _skillsController.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    final name = _nameController.text.trim();
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Name cannot be empty.')),
-      );
-      return;
-    }
-    final updated = ProfileUser(
-      uid: widget.user.uid,
-      displayName: name,
-      role: widget.user.role,
-      bio: _bioController.text.trim(),
-      skills: _skillsController.text
-          .split(',')
-          .map((s) => s.trim())
-          .where((s) => s.isNotEmpty)
-          .toList(),
-    );
-    AppState.instance.updateProfile(updated);
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Profile updated!')),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Edit Profile'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                  labelText: 'Display Name', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _bioController,
-              decoration: const InputDecoration(
-                  labelText: 'Bio', border: OutlineInputBorder()),
-              maxLines: 3,
-            ),
-            if (widget.user.role == 'freelancer') ...[
-              const SizedBox(height: 12),
-              TextField(
-                controller: _skillsController,
-                decoration: const InputDecoration(
-                  labelText: 'Skills (comma-separated)',
-                  border: OutlineInputBorder(),
-                  hintText: 'Flutter, Firebase, Dart',
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: _save, child: const Text('Save')),
-      ],
     );
   }
 }

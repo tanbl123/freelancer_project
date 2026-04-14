@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 class ReviewItem {
   const ReviewItem({
     required this.id,
@@ -21,29 +19,50 @@ class ReviewItem {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  factory ReviewItem.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? <String, dynamic>{};
+  Map<String, dynamic> toMap() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return {
+      'id': id,
+      'project_id': projectId,
+      'reviewer_id': reviewerId,
+      'freelancer_id': freelancerId,
+      'stars': stars,
+      'comment': comment,
+      'created_at': createdAt?.millisecondsSinceEpoch ?? now,
+      'updated_at': updatedAt?.millisecondsSinceEpoch ?? now,
+    };
+  }
+
+  factory ReviewItem.fromMap(Map<String, dynamic> map) {
     return ReviewItem(
-      id: doc.id,
-      projectId: data['projectId'] as String? ?? '',
-      reviewerId: data['reviewerId'] as String? ?? '',
-      freelancerId: data['freelancerId'] as String? ?? '',
-      stars: data['stars'] as int? ?? 0,
-      comment: data['comment'] as String? ?? '',
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+      id: map['id'] as String,
+      projectId: map['project_id'] as String,
+      reviewerId: map['reviewer_id'] as String,
+      freelancerId: map['freelancer_id'] as String,
+      stars: map['stars'] as int,
+      comment: map['comment'] as String,
+      createdAt: map['created_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int)
+          : null,
+      updatedAt: map['updated_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int)
+          : null,
     );
   }
 
-  Map<String, dynamic> toFirestore() {
-    return {
-      'projectId': projectId,
-      'reviewerId': reviewerId,
-      'freelancerId': freelancerId,
-      'stars': stars,
-      'comment': comment,
-      'createdAt': createdAt == null ? FieldValue.serverTimestamp() : Timestamp.fromDate(createdAt!),
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
+  ReviewItem copyWith({
+    int? stars,
+    String? comment,
+  }) {
+    return ReviewItem(
+      id: id,
+      projectId: projectId,
+      reviewerId: reviewerId,
+      freelancerId: freelancerId,
+      stars: stars ?? this.stars,
+      comment: comment ?? this.comment,
+      createdAt: createdAt,
+      updatedAt: DateTime.now(),
+    );
   }
 }

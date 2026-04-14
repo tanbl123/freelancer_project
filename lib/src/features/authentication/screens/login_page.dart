@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../routing/app_router.dart';
 import '../../../state/app_state.dart';
-import '../../dashboard/screens/module_dashboard_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -11,185 +11,161 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _nameController = TextEditingController();
-  final _bioController = TextEditingController();
-  final _skillsController = TextEditingController();
-  bool _isRegisterMode = false;
-  String _selectedRole = 'freelancer';
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+  bool _obscurePassword = true;
   String? _errorMessage;
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _bioController.dispose();
-    _skillsController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  void _submit() {
-    setState(() => _errorMessage = null);
-    final name = _nameController.text.trim();
-
-    if (_isRegisterMode) {
-      if (name.isEmpty) {
-        setState(() => _errorMessage = 'Please enter your display name.');
-        return;
-      }
-      AppState.instance.register(
-        name: name,
-        role: _selectedRole,
-        bio: _bioController.text.trim(),
-        skills: _skillsController.text
-            .split(',')
-            .map((s) => s.trim())
-            .where((s) => s.isNotEmpty)
-            .toList(),
-      );
-      _goToDashboard();
-    } else {
-      final error = AppState.instance.login(name);
-      if (error != null) {
-        setState(() => _errorMessage = error);
-      } else {
-        _goToDashboard();
-      }
-    }
-  }
-
-  void _goToDashboard() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const ModuleDashboardPage()),
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    final error = await AppState.instance.login(
+      _emailController.text.trim(),
+      _passwordController.text,
     );
-  }
-
-  void _quickLogin(String name) {
-    _nameController.text = name;
-    _submit();
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    if (error != null) {
+      setState(() => _errorMessage = error);
+    } else {
+      Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Freelancer App')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 16),
-            Icon(Icons.work_outline, size: 64, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(height: 12),
-            Text(
-              _isRegisterMode ? 'Create Account' : 'Welcome Back',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 24),
-
-            // Quick login chips
-            if (!_isRegisterMode) ...[
-              const Text('Quick login (demo users):', style: TextStyle(fontSize: 12, color: Colors.grey)),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ActionChip(
-                    avatar: const Icon(Icons.business, size: 16),
-                    label: const Text('Alicia Tan (Client)'),
-                    onPressed: () => _quickLogin('Alicia Tan'),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 48),
+                Icon(Icons.work_outline_rounded,
+                    size: 72, color: colors.primary),
+                const SizedBox(height: 16),
+                Text(
+                  'Freelancer App',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: colors.primary,
                   ),
-                  ActionChip(
-                    avatar: const Icon(Icons.code, size: 16),
-                    label: const Text('Tan Boon Leong (Freelancer)'),
-                    onPressed: () => _quickLogin('Tan Boon Leong'),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Sign in to your account',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 15, color: Colors.grey),
+                ),
+                const SizedBox(height: 40),
+                TextFormField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.next,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Email is required';
+                    if (!v.contains('@')) return 'Enter a valid email';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.lock_outlined),
+                    suffixIcon: IconButton(
+                      icon: Icon(_obscurePassword
+                          ? Icons.visibility_off
+                          : Icons.visibility),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                  ),
+                  obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _submit(),
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return 'Password is required';
+                    return null;
+                  },
+                ),
+                if (_errorMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: colors.errorContainer,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.error_outline,
+                            color: colors.onErrorContainer, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: TextStyle(color: colors.onErrorContainer),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 16),
-            ],
-
-            // Name field
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Display Name',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.person),
-              ),
-              textInputAction: _isRegisterMode ? TextInputAction.next : TextInputAction.done,
-              onSubmitted: (_) => _isRegisterMode ? null : _submit(),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: _isLoading ? null : _submit,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Sign In', style: TextStyle(fontSize: 16)),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text("Don't have an account?"),
+                    TextButton(
+                      onPressed: () =>
+                          Navigator.pushNamed(context, AppRoutes.register),
+                      child: const Text('Register'),
+                    ),
+                  ],
+                ),
+              ],
             ),
-
-            // Register-only fields
-            if (_isRegisterMode) ...[
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedRole,
-                decoration: const InputDecoration(
-                  labelText: 'Role',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.badge),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'freelancer', child: Text('Freelancer')),
-                  DropdownMenuItem(value: 'client', child: Text('Client')),
-                ],
-                onChanged: (v) => setState(() => _selectedRole = v ?? 'freelancer'),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _bioController,
-                decoration: const InputDecoration(
-                  labelText: 'Bio (optional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.info_outline),
-                ),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _skillsController,
-                decoration: const InputDecoration(
-                  labelText: 'Skills (comma-separated, optional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.build_outlined),
-                  hintText: 'Flutter, Firebase, Dart',
-                ),
-              ),
-            ],
-
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
-                child: Text(_errorMessage!, style: TextStyle(color: Colors.red.shade800)),
-              ),
-            ],
-
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: _submit,
-              child: Text(_isRegisterMode ? 'Register & Enter' : 'Login'),
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () => setState(() {
-                _isRegisterMode = !_isRegisterMode;
-                _errorMessage = null;
-              }),
-              child: Text(_isRegisterMode
-                  ? 'Already have an account? Login'
-                  : 'New user? Register'),
-            ),
-          ],
+          ),
         ),
       ),
     );

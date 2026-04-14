@@ -1,5 +1,5 @@
 class AppLocalization {
   const AppLocalization();
 
-  String get Title=> 'Freelancer Login';
+  String get title => 'Freelancer Login';
 }

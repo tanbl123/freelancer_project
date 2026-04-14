@@ -1,79 +1,108 @@
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../../../backend/shared/domain_types.dart';
+import '../../../services/file_storage_service.dart';
 import '../../../state/app_state.dart';
 import '../models/application_item.dart';
+import 'apply_form_page.dart';
 
-class JobApplicationsPage extends StatelessWidget {
+class JobApplicationsPage extends StatefulWidget {
   const JobApplicationsPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: AppState.instance,
-      builder: (context, _) {
-        final user = AppState.instance.currentUser;
-        final apps = AppState.instance.applications;
-        final isFreelancer = user?.role == 'freelancer';
+  State<JobApplicationsPage> createState() => _JobApplicationsPageState();
+}
 
-        return Scaffold(
-          appBar: AppBar(title: const Text('Applications')),
-          floatingActionButton: isFreelancer
-              ? FloatingActionButton.extended(
-                  onPressed: () => _showApplyDialog(context),
-                  icon: const Icon(Icons.send),
-                  label: const Text('Apply'),
-                )
-              : null,
-          body: apps.isEmpty
-              ? const Center(child: Text('No applications yet.'))
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-                  itemCount: apps.length,
-                  itemBuilder: (context, index) {
-                    final item = apps[index];
-                    return _ApplicationCard(
-                      item: item,
-                      currentUserId: user?.uid ?? '',
-                      isClient: user?.role == 'client',
-                    );
-                  },
-                ),
-        );
-      },
-    );
+class _JobApplicationsPageState extends State<JobApplicationsPage> {
+  @override
+  void initState() {
+    super.initState();
+    AppState.instance.reloadApplications();
   }
 
-  void _showApplyDialog(BuildContext context) {
-    final posts = AppState.instance.posts
-        .where((p) => p.type == PostType.jobRequest)
-        .toList();
-    if (posts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No job listings available to apply to.')),
-      );
-      return;
-    }
-    showDialog(
-      context: context,
-      builder: (_) => _ApplyDialog(posts: posts),
+  @override
+  Widget build(BuildContext context) {
+    final user = AppState.instance.currentUser;
+    final isFreelancer = user?.role == 'freelancer';
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Applications')),
+      floatingActionButton: isFreelancer
+          ? FloatingActionButton.extended(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ApplyFormPage()),
+              ).then((_) => AppState.instance.reloadApplications()),
+              icon: const Icon(Icons.send),
+              label: const Text('Apply'),
+            )
+          : null,
+      // Real-time StreamBuilder — Module 2 advanced feature
+      body: StreamBuilder<List<ApplicationItem>>(
+        stream: AppState.instance.applicationsStream,
+        initialData: AppState.instance.userApplications,
+        builder: (context, snapshot) {
+          final allApps = snapshot.data ?? AppState.instance.userApplications;
+
+          if (allApps.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.description_outlined,
+                      size: 64, color: Colors.grey),
+                  const SizedBox(height: 12),
+                  Text(
+                    isFreelancer
+                        ? 'You haven\'t applied to any jobs yet.\nTap + to submit a proposal.'
+                        : 'No applications have been submitted to your jobs yet.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return RefreshIndicator(
+            onRefresh: () => AppState.instance.reloadApplications(),
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+              itemCount: allApps.length,
+              itemBuilder: (context, index) => _ApplicationCard(
+                item: allApps[index],
+                currentUser: user,
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
 
-class _ApplicationCard extends StatelessWidget {
-  const _ApplicationCard({
-    required this.item,
-    required this.currentUserId,
-    required this.isClient,
-  });
-
+class _ApplicationCard extends StatefulWidget {
+  const _ApplicationCard({required this.item, required this.currentUser});
   final ApplicationItem item;
-  final String currentUserId;
-  final bool isClient;
+  final dynamic currentUser;
 
-  Color _statusColor() {
-    switch (item.status) {
+  @override
+  State<_ApplicationCard> createState() => _ApplicationCardState();
+}
+
+class _ApplicationCardState extends State<_ApplicationCard> {
+  final _player = AudioPlayer();
+  bool _isPlaying = false;
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  Color _statusColor(ApplicationStatus status) {
+    switch (status) {
       case ApplicationStatus.accepted:
         return Colors.green;
       case ApplicationStatus.rejected:
@@ -85,37 +114,71 @@ class _ApplicationCard extends StatelessWidget {
     }
   }
 
+  Future<void> _toggleVoicePlayback() async {
+    final path = widget.item.voicePitchUrl;
+    if (path == null || !FileStorageService.instance.fileExists(path)) return;
+    if (_isPlaying) {
+      await _player.stop();
+      setState(() => _isPlaying = false);
+    } else {
+      setState(() => _isPlaying = true);
+      await _player.play(DeviceFileSource(path));
+      _player.onPlayerComplete.listen((_) {
+        if (mounted) setState(() => _isPlaying = false);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isClientView = isClient && item.clientId == currentUserId;
+    final item = widget.item;
+    final user = widget.currentUser;
+    final isClientView =
+        user?.role == 'client' && item.clientId == user?.uid;
+    final isFreelancerView =
+        user?.role == 'freelancer' && item.freelancerId == user?.uid;
+    final statusColor = _statusColor(item.status);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.person_outline, size: 16),
-                const SizedBox(width: 6),
+                CircleAvatar(
+                  radius: 20,
+                  child: Text(item.freelancerName[0].toUpperCase()),
+                ),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    item.freelancerName,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(item.freelancerName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 15)),
+                      Text('Job: ${item.jobId}',
+                          style: const TextStyle(
+                              color: Colors.grey, fontSize: 12),
+                          overflow: TextOverflow.ellipsis),
+                    ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: _statusColor().withValues(alpha: 0.1),
+                    color: statusColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: _statusColor().withValues(alpha: 0.4)),
+                    border: Border.all(color: statusColor.withValues(alpha: 0.4)),
                   ),
                   child: Text(
                     item.status.name.toUpperCase(),
                     style: TextStyle(
-                      color: _statusColor(),
+                      color: statusColor,
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                     ),
@@ -123,9 +186,10 @@ class _ApplicationCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(item.proposalMessage),
-            const SizedBox(height: 6),
+            const SizedBox(height: 10),
+            Text(item.proposalMessage,
+                style: const TextStyle(height: 1.4)),
+            const SizedBox(height: 8),
             Row(
               children: [
                 const Icon(Icons.attach_money, size: 14, color: Colors.grey),
@@ -135,20 +199,43 @@ class _ApplicationCard extends StatelessWidget {
                 const Icon(Icons.schedule, size: 14, color: Colors.grey),
                 Text(' ${item.timelineDays} days',
                     style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                if (item.jobId.isNotEmpty) ...[
-                  const SizedBox(width: 12),
-                  const Icon(Icons.work_outline, size: 14, color: Colors.grey),
-                  Expanded(
-                    child: Text(
-                      ' Job: ${item.jobId}',
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
               ],
             ),
-            // Client actions
+            // Resume + voice pitch attachments
+            if (item.resumeUrl != null || item.voicePitchUrl != null) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                children: [
+                  if (item.resumeUrl != null &&
+                      FileStorageService.instance.fileExists(item.resumeUrl))
+                    ActionChip(
+                      avatar: const Icon(Icons.description, size: 14),
+                      label: const Text('Resume'),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Resume: ${item.resumeUrl}')),
+                        );
+                      },
+                    ),
+                  if (item.voicePitchUrl != null &&
+                      FileStorageService.instance
+                          .fileExists(item.voicePitchUrl))
+                    ActionChip(
+                      avatar: Icon(
+                          _isPlaying ? Icons.stop : Icons.play_arrow,
+                          size: 14),
+                      label:
+                          Text(_isPlaying ? 'Stop' : 'Voice Pitch'),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _toggleVoicePlayback,
+                    ),
+                ],
+              ),
+            ],
+
+            // Client actions (accept/reject)
             if (isClientView && item.status == ApplicationStatus.pending) ...[
               const Divider(height: 16),
               Row(
@@ -157,7 +244,8 @@ class _ApplicationCard extends StatelessWidget {
                   OutlinedButton.icon(
                     icon: const Icon(Icons.close, size: 16),
                     label: const Text('Reject'),
-                    style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red),
                     onPressed: () {
                       AppState.instance.updateApplicationStatus(
                           item.id, ApplicationStatus.rejected);
@@ -170,36 +258,45 @@ class _ApplicationCard extends StatelessWidget {
                   FilledButton.icon(
                     icon: const Icon(Icons.check, size: 16),
                     label: const Text('Accept'),
-                    onPressed: () {
-                      AppState.instance.updateApplicationStatus(
-                          item.id, ApplicationStatus.accepted);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Application accepted!')),
-                      );
-                    },
+                    onPressed: () => _confirmAccept(context),
                   ),
                 ],
               ),
             ],
-            // Freelancer withdraw action
-            if (!isClientView &&
-                item.freelancerId == currentUserId &&
+
+            // Freelancer actions (edit/withdraw)
+            if (isFreelancerView &&
                 item.status == ApplicationStatus.pending) ...[
               const Divider(height: 16),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  icon: const Icon(Icons.undo, size: 16),
-                  label: const Text('Withdraw'),
-                  style: TextButton.styleFrom(foregroundColor: Colors.orange),
-                  onPressed: () {
-                    AppState.instance.updateApplicationStatus(
-                        item.id, ApplicationStatus.withdrawn);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Application withdrawn.')),
-                    );
-                  },
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.edit, size: 16),
+                    label: const Text('Edit'),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ApplyFormPage(existing: item),
+                      ),
+                    ).then((_) => AppState.instance.reloadApplications()),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton.icon(
+                    icon: const Icon(Icons.undo, size: 16),
+                    label: const Text('Withdraw'),
+                    style:
+                        TextButton.styleFrom(foregroundColor: Colors.orange),
+                    onPressed: () {
+                      AppState.instance.updateApplicationStatus(
+                          item.id, ApplicationStatus.withdrawn);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Application withdrawn.')),
+                      );
+                    },
+                  ),
+                ],
               ),
             ],
           ],
@@ -207,135 +304,34 @@ class _ApplicationCard extends StatelessWidget {
       ),
     );
   }
-}
 
-class _ApplyDialog extends StatefulWidget {
-  const _ApplyDialog({required this.posts});
-  final List<dynamic> posts;
-
-  @override
-  State<_ApplyDialog> createState() => _ApplyDialogState();
-}
-
-class _ApplyDialogState extends State<_ApplyDialog> {
-  final _proposalController = TextEditingController();
-  final _budgetController = TextEditingController();
-  final _daysController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
-  String? _selectedJobId;
-
-  @override
-  void dispose() {
-    _proposalController.dispose();
-    _budgetController.dispose();
-    _daysController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
-    if (_selectedJobId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a job.')),
-      );
-      return;
-    }
-    final user = AppState.instance.currentUser!;
-    final job = widget.posts.firstWhere((p) => p.id == _selectedJobId);
-    final app = ApplicationItem(
-      id: AppState.instance.newId,
-      jobId: _selectedJobId!,
-      clientId: job.ownerId,
-      freelancerId: user.uid,
-      freelancerName: user.displayName,
-      proposalMessage: _proposalController.text.trim(),
-      expectedBudget: double.tryParse(_budgetController.text) ?? 0,
-      timelineDays: int.tryParse(_daysController.text) ?? 7,
-      status: ApplicationStatus.pending,
-      createdAt: DateTime.now(),
-    );
-    AppState.instance.addApplication(app);
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Application submitted!')),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Submit Application'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  initialValue: _selectedJobId,
-                  decoration: const InputDecoration(
-                    labelText: 'Select Job',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: widget.posts
-                      .map<DropdownMenuItem<String>>((p) => DropdownMenuItem(
-                            value: p.id as String,
-                            child: Text(p.title as String, overflow: TextOverflow.ellipsis),
-                          ))
-                      .toList(),
-                  onChanged: (v) => setState(() => _selectedJobId = v),
-                  validator: (v) => v == null ? 'Please select a job' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _proposalController,
-                  decoration: const InputDecoration(
-                    labelText: 'Proposal Message',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 3,
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _budgetController,
-                  decoration: const InputDecoration(
-                    labelText: 'Your Quote (RM)',
-                    border: OutlineInputBorder(),
-                    prefixText: 'RM ',
-                  ),
-                  keyboardType: TextInputType.number,
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Required';
-                    if (double.tryParse(v) == null) return 'Enter a valid number';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _daysController,
-                  decoration: const InputDecoration(
-                    labelText: 'Timeline (days)',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Required';
-                    if (int.tryParse(v) == null) return 'Enter a whole number';
-                    return null;
-                  },
-                ),
-              ],
-            ),
+  void _confirmAccept(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Accept Application'),
+        content: Text(
+            'Accept ${widget.item.freelancerName}\'s proposal?\n\nAll other applications for this job will be automatically rejected and a project will be created.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await AppState.instance.acceptApplication(widget.item);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text(
+                          'Application accepted! Project created.')),
+                );
+              }
+            },
+            child: const Text('Accept'),
           ),
-        ),
+        ],
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: _submit, child: const Text('Submit')),
-      ],
     );
   }
 }
