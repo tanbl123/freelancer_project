@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../backend/shared/domain_types.dart';
 import '../../../services/connectivity_service.dart';
-import '../../../services/database_service.dart';
+import '../../../services/supabase_service.dart';
 import '../../../services/file_storage_service.dart';
 import '../../../state/app_state.dart';
 import '../models/marketplace_post.dart';
@@ -42,7 +42,7 @@ class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
       if (mounted) setState(() => _isOffline = true);
     } else {
       // Cache latest 20 jobs in background
-      DatabaseService.instance.cacheJobs(
+      SupabaseService.instance.cacheJobs(
         AppState.instance.posts
             .where((p) => p.type == PostType.jobRequest)
             .take(20)

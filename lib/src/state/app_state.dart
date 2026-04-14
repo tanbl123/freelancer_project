@@ -1,8 +1,5 @@
-import 'dart:async';
-import 'dart:convert';
-
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
 import '../backend/shared/domain_types.dart';
@@ -12,16 +9,14 @@ import '../features/profile/models/profile_user.dart';
 import '../features/ratings/models/review_item.dart';
 import '../features/transactions/models/milestone_item.dart';
 import '../features/transactions/models/project_item.dart';
-import '../services/database_service.dart';
-import '../services/session_service.dart';
+import '../services/supabase_service.dart';
 
 class AppState extends ChangeNotifier {
   static final AppState instance = AppState._internal();
   AppState._internal();
 
   static const _uuid = Uuid();
-  final _db = DatabaseService.instance;
-  final _session = SessionService.instance;
+  final _db = SupabaseService.instance;
 
   // ── In-memory cache ────────────────────────────────────────────────────────
   ProfileUser? _currentUser;
@@ -32,15 +27,19 @@ class AppState extends ChangeNotifier {
   List<MilestoneItem> _milestones = [];
   List<ReviewItem> _reviews = [];
 
-  // ── Stream controllers (real-time UI feature) ──────────────────────────────
-  final _postsController =
-      StreamController<List<MarketplacePost>>.broadcast();
-  final _appsController =
-      StreamController<List<ApplicationItem>>.broadcast();
+  // ── Supabase Realtime streams ──────────────────────────────────────────────
+  Stream<List<MarketplacePost>> get postsStream =>
+      Supabase.instance.client.from('posts').stream(primaryKey: ['id']).order(
+          'created_at',
+          ascending: false).map((rows) =>
+          rows.map(MarketplacePost.fromMap).toList());
 
-  Stream<List<MarketplacePost>> get postsStream => _postsController.stream;
   Stream<List<ApplicationItem>> get applicationsStream =>
-      _appsController.stream;
+      Supabase.instance.client
+          .from('applications')
+          .stream(primaryKey: ['id'])
+          .order('created_at', ascending: false)
+          .map((rows) => rows.map(ApplicationItem.fromMap).toList());
 
   // ── Public getters ─────────────────────────────────────────────────────────
   ProfileUser? get currentUser => _currentUser;
@@ -61,9 +60,10 @@ class AppState extends ChangeNotifier {
     _posts = await _db.getActivePosts();
     _reviews = await _db.getAllReviews();
 
-    final savedId = await _session.getSavedUserId();
-    if (savedId != null) {
-      _currentUser = await _db.getUserById(savedId);
+    // Restore session from Supabase Auth
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session != null) {
+      _currentUser = await _db.getUserById(session.user.id);
       if (_currentUser != null) {
         await _reloadUserData();
       }
@@ -82,28 +82,26 @@ class AppState extends ChangeNotifier {
     _reviews = await _db.getAllReviews();
   }
 
-  // ── Password hashing ───────────────────────────────────────────────────────
-
-  static String hashPassword(String password) {
-    final bytes = utf8.encode(password);
-    final digest = sha256.convert(bytes);
-    return digest.toString();
-  }
-
   // ── Auth ───────────────────────────────────────────────────────────────────
 
   /// Returns null on success, error message on failure.
   Future<String?> login(String email, String password) async {
-    final user = await _db.getUserByEmail(email.trim());
-    if (user == null) return 'No account found for this email.';
-    if (user.passwordHash != hashPassword(password)) {
-      return 'Incorrect password.';
+    try {
+      final response = await Supabase.instance.client.auth
+          .signInWithPassword(email: email.trim(), password: password);
+      if (response.user == null) return 'Login failed. Please try again.';
+
+      _currentUser = await _db.getUserById(response.user!.id);
+      if (_currentUser == null) return 'Profile not found. Please contact support.';
+
+      await _reloadUserData();
+      notifyListeners();
+      return null;
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (e) {
+      return 'An unexpected error occurred.';
     }
-    _currentUser = user;
-    await _session.saveUserId(user.uid);
-    await _reloadUserData();
-    notifyListeners();
-    return null;
   }
 
   /// Returns null on success, error message on failure.
@@ -123,39 +121,50 @@ class AppState extends ChangeNotifier {
     if (password.length < 6) return 'Password must be at least 6 characters.';
     if (phone.trim().isEmpty) return 'Phone number is required.';
 
-    final existing = await _db.getUserByEmail(email.trim());
-    if (existing != null) return 'This email is already registered.';
+    try {
+      final authResponse = await Supabase.instance.client.auth.signUp(
+        email: email.trim(),
+        password: password,
+      );
 
-    final uid = _uuid.v4();
-    final user = ProfileUser(
-      uid: uid,
-      displayName: name.trim(),
-      email: email.trim().toLowerCase(),
-      passwordHash: hashPassword(password),
-      phone: phone.trim(),
-      role: role,
-      bio: bio.trim().isEmpty ? null : bio.trim(),
-      experience: experience.trim().isEmpty ? null : experience.trim(),
-      skills: skills,
-      photoUrl: photoUrl,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
-    await _db.insertUser(user);
-    _users.add(user);
-    _currentUser = user;
-    await _session.saveUserId(uid);
-    await _reloadUserData();
-    notifyListeners();
-    return null;
+      if (authResponse.user == null) {
+        return 'Registration failed. Please try again.';
+      }
+
+      final uid = authResponse.user!.id;
+      final user = ProfileUser(
+        uid: uid,
+        displayName: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        role: role,
+        bio: bio.trim().isEmpty ? null : bio.trim(),
+        experience: experience.trim().isEmpty ? null : experience.trim(),
+        skills: skills,
+        photoUrl: photoUrl,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      await _db.insertUser(user);
+      _users.add(user);
+      _currentUser = user;
+      await _reloadUserData();
+      notifyListeners();
+      return null;
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (e) {
+      return 'An unexpected error occurred: $e';
+    }
   }
 
   Future<void> logout() async {
+    await Supabase.instance.client.auth.signOut();
     _currentUser = null;
     _applications = [];
     _projects = [];
     _milestones = [];
-    await _session.clearSession();
     notifyListeners();
   }
 
@@ -172,7 +181,6 @@ class AppState extends ChangeNotifier {
   Future<void> addPost(MarketplacePost post) async {
     await _db.insertPost(post);
     _posts.insert(0, post);
-    _postsController.add(List.unmodifiable(_posts));
     notifyListeners();
   }
 
@@ -180,14 +188,12 @@ class AppState extends ChangeNotifier {
     await _db.updatePost(post);
     final idx = _posts.indexWhere((p) => p.id == post.id);
     if (idx >= 0) _posts[idx] = post;
-    _postsController.add(List.unmodifiable(_posts));
     notifyListeners();
   }
 
   Future<void> deletePost(String postId) async {
     await _db.deletePost(postId);
     _posts.removeWhere((p) => p.id == postId);
-    _postsController.add(List.unmodifiable(_posts));
     notifyListeners();
   }
 
@@ -198,7 +204,6 @@ class AppState extends ChangeNotifier {
     } else {
       _posts = await _db.getActivePosts();
     }
-    _postsController.add(List.unmodifiable(_posts));
     notifyListeners();
   }
 
@@ -206,18 +211,18 @@ class AppState extends ChangeNotifier {
 
   /// Returns null on success, error message on failure.
   Future<String?> addApplication(ApplicationItem app) async {
-    // Business rules
     final duplicate = await _db.hasApplied(app.jobId, app.freelancerId);
     if (duplicate) return 'You already applied to this job.';
 
     final job = await _db.getPostById(app.jobId);
     if (job == null) return 'Job not found.';
-    if (job.isExpired) return 'This job has expired and is no longer accepting applications.';
+    if (job.isExpired) {
+      return 'This job has expired and is no longer accepting applications.';
+    }
     if (job.isAccepted) return 'This job has already been filled.';
 
     await _db.insertApplication(app);
     _applications.insert(0, app);
-    _appsController.add(List.unmodifiable(_applications));
     notifyListeners();
     return null;
   }
@@ -226,7 +231,6 @@ class AppState extends ChangeNotifier {
     await _db.updateApplication(app);
     final idx = _applications.indexWhere((a) => a.id == app.id);
     if (idx >= 0) _applications[idx] = app;
-    _appsController.add(List.unmodifiable(_applications));
     notifyListeners();
   }
 
@@ -237,21 +241,16 @@ class AppState extends ChangeNotifier {
     if (idx >= 0) {
       _applications[idx] = _applications[idx].copyWith(status: status);
     }
-    _appsController.add(List.unmodifiable(_applications));
     notifyListeners();
   }
 
   /// Accept an application: locks winner, rejects others, marks post accepted,
   /// auto-creates a project.
   Future<void> acceptApplication(ApplicationItem app) async {
-    // 1. Accept the winner
     await _db.updateApplicationStatus(app.id, ApplicationStatus.accepted);
-    // 2. Reject all other pending applications for the same job
     await _db.rejectAllOtherApplications(app.jobId, app.id);
-    // 3. Mark post as accepted (removes from active feed)
     await _db.markPostAccepted(app.jobId);
 
-    // 4. Auto-create project
     final projectId = _uuid.v4();
     final post = await _db.getPostById(app.jobId);
     final freelancer = await _db.getUserById(app.freelancerId);
@@ -271,7 +270,6 @@ class AppState extends ChangeNotifier {
     );
     await _db.insertProject(project);
 
-    // 5. Reload everything
     await _reloadUserData();
     notifyListeners();
   }
@@ -341,13 +339,11 @@ class AppState extends ChangeNotifier {
 
   /// Returns null on success, error message on failure.
   Future<String?> addReview(ReviewItem review) async {
-    // Validate: must have a completed project between reviewer and freelancer
     final completedProject = await _db.getCompletedProjectBetween(
         review.reviewerId, review.freelancerId);
     if (completedProject == null) {
       return 'You can only review a freelancer after completing a project with them.';
     }
-    // Prevent duplicate
     final alreadyReviewed =
         await _db.hasReviewedProject(review.projectId, review.reviewerId);
     if (alreadyReviewed) {
@@ -356,9 +352,7 @@ class AppState extends ChangeNotifier {
 
     await _db.insertReview(review);
     _reviews.insert(0, review);
-    // Recalculate freelancer stats
     await _db.updateFreelancerRatingStats(review.freelancerId);
-    // Update in-memory user
     final updatedFreelancer = await _db.getUserById(review.freelancerId);
     if (updatedFreelancer != null) {
       final idx = _users.indexWhere((u) => u.uid == review.freelancerId);
@@ -388,17 +382,14 @@ class AppState extends ChangeNotifier {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  /// Gets all freelancer users.
   List<ProfileUser> get freelancers =>
       _users.where((u) => u.role == 'freelancer').toList();
 
-  /// Gets a completed project between the current user and a freelancer.
   Future<ProjectItem?> getCompletedProjectWith(String freelancerId) async {
     if (_currentUser == null) return null;
     return _db.getCompletedProjectBetween(_currentUser!.uid, freelancerId);
   }
 
-  /// Gets projects for current user.
   List<ProjectItem> get userProjects {
     if (_currentUser == null) return [];
     return _projects
@@ -408,7 +399,6 @@ class AppState extends ChangeNotifier {
         .toList();
   }
 
-  /// Gets applications visible to the current user.
   List<ApplicationItem> get userApplications {
     if (_currentUser == null) return [];
     if (_currentUser!.role == 'freelancer') {
@@ -422,17 +412,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Stats for charts.
   Future<Map<String, double>> getMonthlyEarnings(String freelancerId) =>
       _db.getMonthlyEarnings(freelancerId);
 
   Future<Map<int, int>> getRatingDistribution(String freelancerId) =>
       _db.getRatingDistribution(freelancerId);
 
-  /// Reload all application data (called after returning to applications screen).
   Future<void> reloadApplications() async {
     _applications = await _db.getAllApplications();
-    _appsController.add(List.unmodifiable(_applications));
     notifyListeners();
   }
 

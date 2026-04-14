@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:freelancer_project/src/constants/app_constants.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'src/config/supabase_config.dart';
 import 'src/routing/app_router.dart';
-import 'src/services/database_service.dart';
 import 'src/services/stripe_service.dart';
+import 'src/services/supabase_service.dart';
 import 'src/state/app_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await DatabaseService.instance.initialize();
+
+  await Supabase.initialize(
+    url: SupabaseConfig.url,
+    anonKey: SupabaseConfig.anonKey,
+  );
+
+  await SupabaseService.instance.initialize(); // init local SQLite cache
   await AppState.instance.initialize();
   StripeService.initialize();
+
   runApp(const MyApp());
 }
 

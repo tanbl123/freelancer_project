@@ -5,7 +5,7 @@ class ProfileUser {
     required this.uid,
     required this.displayName,
     required this.email,
-    required this.passwordHash,
+    this.passwordHash = '',
     required this.phone,
     required this.role,
     this.bio,
@@ -23,7 +23,7 @@ class ProfileUser {
   final String uid;
   final String displayName;
   final String email;
-  final String passwordHash;
+  final String passwordHash; // kept as empty string; Supabase Auth owns credentials
   final String phone;
   final String role; // 'client' | 'freelancer'
   final String? bio;
@@ -37,6 +37,29 @@ class ProfileUser {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  // ── Supabase map (ISO 8601, native arrays, no passwordHash) ─────────────────
+  Map<String, dynamic> toSupabaseMap() {
+    final now = DateTime.now().toIso8601String();
+    return {
+      'uid': uid,
+      'display_name': displayName,
+      'email': email.toLowerCase(),
+      'phone': phone,
+      'role': role,
+      'bio': bio,
+      'skills': skills,
+      'experience': experience,
+      'resume_url': resumeUrl,
+      'portfolio_urls': portfolioUrls,
+      'photo_url': photoUrl,
+      'average_rating': averageRating ?? 0.0,
+      'total_reviews': totalReviews ?? 0,
+      'created_at': createdAt?.toIso8601String() ?? now,
+      'updated_at': now,
+    };
+  }
+
+  // ── SQLite map (epoch ms, JSON-encoded lists) ────────────────────────────────
   Map<String, dynamic> toMap() {
     final now = DateTime.now().millisecondsSinceEpoch;
     return {
@@ -59,14 +82,24 @@ class ProfileUser {
     };
   }
 
+  // ── Dual-format fromMap (handles Supabase ISO 8601 and SQLite epoch int) ─────
   factory ProfileUser.fromMap(Map<String, dynamic> map) {
+    DateTime? parseDate(dynamic v) {
+      if (v == null) return null;
+      if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+      if (v is String) return DateTime.tryParse(v);
+      return null;
+    }
+
     List<String> parseList(dynamic v) {
-      if (v == null || v == '') return [];
-      try {
-        return List<String>.from(jsonDecode(v as String));
-      } catch (_) {
-        return [];
+      if (v == null) return [];
+      if (v is List) return List<String>.from(v);
+      if (v is String && v.isNotEmpty) {
+        try {
+          return List<String>.from(jsonDecode(v) as List);
+        } catch (_) {}
       }
+      return [];
     }
 
     return ProfileUser(
@@ -83,13 +116,9 @@ class ProfileUser {
       portfolioUrls: parseList(map['portfolio_urls']),
       photoUrl: map['photo_url'] as String?,
       averageRating: (map['average_rating'] as num?)?.toDouble(),
-      totalReviews: map['total_reviews'] as int?,
-      createdAt: map['created_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int)
-          : null,
-      updatedAt: map['updated_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int)
-          : null,
+      totalReviews: (map['total_reviews'] as num?)?.toInt(),
+      createdAt: parseDate(map['created_at']),
+      updatedAt: parseDate(map['updated_at']),
     );
   }
 

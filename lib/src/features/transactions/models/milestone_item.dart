@@ -32,6 +32,26 @@ class MilestoneItem {
   bool get isLocked =>
       status == MilestoneStatus.approved || status == MilestoneStatus.locked;
 
+  // ── Supabase map (ISO 8601) ──────────────────────────────────────────────────
+  Map<String, dynamic> toSupabaseMap() {
+    final now = DateTime.now().toIso8601String();
+    return {
+      'id': id,
+      'project_id': projectId,
+      'title': title,
+      'description': description,
+      'deadline': deadline.toIso8601String(),
+      'payment_amount': paymentAmount,
+      'status': status.name,
+      'deliverable_url': deliverableUrl,
+      'client_signature_url': clientSignatureUrl,
+      'payment_token': paymentToken,
+      'created_at': createdAt?.toIso8601String() ?? now,
+      'updated_at': now,
+    };
+  }
+
+  // ── SQLite map (epoch ms) ────────────────────────────────────────────────────
   Map<String, dynamic> toMap() {
     final now = DateTime.now().millisecondsSinceEpoch;
     return {
@@ -50,25 +70,35 @@ class MilestoneItem {
     };
   }
 
+  // ── Dual-format fromMap ──────────────────────────────────────────────────────
   factory MilestoneItem.fromMap(Map<String, dynamic> map) {
+    DateTime parseDate(dynamic v) {
+      if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+      if (v is String) return DateTime.tryParse(v) ?? DateTime.now();
+      return DateTime.now();
+    }
+
+    DateTime? parseDateNullable(dynamic v) {
+      if (v == null) return null;
+      if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+      if (v is String) return DateTime.tryParse(v);
+      return null;
+    }
+
     return MilestoneItem(
       id: map['id'] as String,
       projectId: map['project_id'] as String,
       title: map['title'] as String,
       description: map['description'] as String,
-      deadline: DateTime.fromMillisecondsSinceEpoch(map['deadline'] as int),
+      deadline: parseDate(map['deadline']),
       paymentAmount: (map['payment_amount'] as num).toDouble(),
       status: MilestoneStatus.values
           .byName(map['status'] as String? ?? 'draft'),
       deliverableUrl: map['deliverable_url'] as String?,
       clientSignatureUrl: map['client_signature_url'] as String?,
       paymentToken: map['payment_token'] as String?,
-      createdAt: map['created_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int)
-          : null,
-      updatedAt: map['updated_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int)
-          : null,
+      createdAt: parseDateNullable(map['created_at']),
+      updatedAt: parseDateNullable(map['updated_at']),
     );
   }
 

@@ -35,6 +35,27 @@ class MarketplacePost {
 
   bool get isExpired => deadline.isBefore(DateTime.now());
 
+  // ── Supabase map (ISO 8601, native arrays, native bool) ──────────────────────
+  Map<String, dynamic> toSupabaseMap() {
+    final now = DateTime.now().toIso8601String();
+    return {
+      'id': id,
+      'owner_id': ownerId,
+      'owner_name': ownerName,
+      'title': title,
+      'description': description,
+      'minimum_budget': minimumBudget,
+      'deadline': deadline.toIso8601String(),
+      'skills': skills,
+      'type': type.name,
+      'image_url': imageUrl,
+      'is_accepted': isAccepted,
+      'created_at': createdAt?.toIso8601String() ?? now,
+      'updated_at': now,
+    };
+  }
+
+  // ── SQLite map (epoch ms, JSON-encoded lists) ────────────────────────────────
   Map<String, dynamic> toMap() {
     final now = DateTime.now().millisecondsSinceEpoch;
     return {
@@ -54,14 +75,36 @@ class MarketplacePost {
     };
   }
 
+  // ── Dual-format fromMap ──────────────────────────────────────────────────────
   factory MarketplacePost.fromMap(Map<String, dynamic> map) {
+    DateTime parseDate(dynamic v) {
+      if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+      if (v is String) return DateTime.tryParse(v) ?? DateTime.now();
+      return DateTime.now();
+    }
+
+    DateTime? parseDateNullable(dynamic v) {
+      if (v == null) return null;
+      if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+      if (v is String) return DateTime.tryParse(v);
+      return null;
+    }
+
     List<String> parseList(dynamic v) {
-      if (v == null || v == '') return [];
-      try {
-        return List<String>.from(jsonDecode(v as String));
-      } catch (_) {
-        return [];
+      if (v == null) return [];
+      if (v is List) return List<String>.from(v);
+      if (v is String && v.isNotEmpty) {
+        try {
+          return List<String>.from(jsonDecode(v) as List);
+        } catch (_) {}
       }
+      return [];
+    }
+
+    bool parseBool(dynamic v) {
+      if (v is bool) return v;
+      if (v is int) return v == 1;
+      return false;
     }
 
     return MarketplacePost(
@@ -71,17 +114,13 @@ class MarketplacePost {
       title: map['title'] as String,
       description: map['description'] as String,
       minimumBudget: (map['minimum_budget'] as num).toDouble(),
-      deadline: DateTime.fromMillisecondsSinceEpoch(map['deadline'] as int),
+      deadline: parseDate(map['deadline']),
       skills: parseList(map['skills']),
       type: PostType.values.byName(map['type'] as String? ?? 'jobRequest'),
       imageUrl: map['image_url'] as String?,
-      isAccepted: (map['is_accepted'] as int? ?? 0) == 1,
-      createdAt: map['created_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int)
-          : null,
-      updatedAt: map['updated_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int)
-          : null,
+      isAccepted: parseBool(map['is_accepted']),
+      createdAt: parseDateNullable(map['created_at']),
+      updatedAt: parseDateNullable(map['updated_at']),
     );
   }
 

@@ -1,0 +1,5 @@
+/// Copy this file to supabase_config.dart and fill in your credentials.
+class SupabaseConfig {
+  static const String url = 'https://YOUR_PROJECT.supabase.co';
+  static const String anonKey = 'YOUR_SUPABASE_ANON_KEY';
+}

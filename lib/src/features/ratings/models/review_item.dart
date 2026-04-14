@@ -19,6 +19,22 @@ class ReviewItem {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
+  // ── Supabase map (ISO 8601) ──────────────────────────────────────────────────
+  Map<String, dynamic> toSupabaseMap() {
+    final now = DateTime.now().toIso8601String();
+    return {
+      'id': id,
+      'project_id': projectId,
+      'reviewer_id': reviewerId,
+      'freelancer_id': freelancerId,
+      'stars': stars,
+      'comment': comment,
+      'created_at': createdAt?.toIso8601String() ?? now,
+      'updated_at': now,
+    };
+  }
+
+  // ── SQLite map (epoch ms) ────────────────────────────────────────────────────
   Map<String, dynamic> toMap() {
     final now = DateTime.now().millisecondsSinceEpoch;
     return {
@@ -33,20 +49,24 @@ class ReviewItem {
     };
   }
 
+  // ── Dual-format fromMap ──────────────────────────────────────────────────────
   factory ReviewItem.fromMap(Map<String, dynamic> map) {
+    DateTime? parseDate(dynamic v) {
+      if (v == null) return null;
+      if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+      if (v is String) return DateTime.tryParse(v);
+      return null;
+    }
+
     return ReviewItem(
       id: map['id'] as String,
       projectId: map['project_id'] as String,
       reviewerId: map['reviewer_id'] as String,
       freelancerId: map['freelancer_id'] as String,
-      stars: map['stars'] as int,
+      stars: (map['stars'] as num).toInt(),
       comment: map['comment'] as String,
-      createdAt: map['created_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int)
-          : null,
-      updatedAt: map['updated_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int)
-          : null,
+      createdAt: parseDate(map['created_at']),
+      updatedAt: parseDate(map['updated_at']),
     );
   }
 
