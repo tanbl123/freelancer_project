@@ -98,7 +98,7 @@ class ModuleDashboardPage extends StatelessWidget {
                   title: 'Transactions',
                   subtitle: 'Project milestones and progress tracking',
                   icon: Icons.assignment_turned_in,
-                  onTap: () => Navigator.pushNamed(context, AppRoutes.transactions),
+                  onTap: () => Navigator.pushNamed(context, AppRoutes.projects),
                 ),
                 ModuleMenuCard(
                   title: 'Reviews & Ratings',

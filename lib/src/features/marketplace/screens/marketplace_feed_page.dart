@@ -1,278 +1,441 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../backend/shared/domain_types.dart';
+import '../../../services/connectivity_service.dart';
+import '../../../services/database_service.dart';
+import '../../../services/file_storage_service.dart';
 import '../../../state/app_state.dart';
 import '../models/marketplace_post.dart';
+import 'post_form_page.dart';
 
-class MarketplaceFeedPage extends StatelessWidget {
+class MarketplaceFeedPage extends StatefulWidget {
   const MarketplaceFeedPage({super.key});
+
+  @override
+  State<MarketplaceFeedPage> createState() => _MarketplaceFeedPageState();
+}
+
+class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  bool _isOffline = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _checkConnectivity();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkConnectivity() async {
+    final online = await ConnectivityService.instance.isOnline();
+    if (!online) {
+      await AppState.instance.reloadPosts(useCache: true);
+      if (mounted) setState(() => _isOffline = true);
+    } else {
+      // Cache latest 20 jobs in background
+      DatabaseService.instance.cacheJobs(
+        AppState.instance.posts
+            .where((p) => p.type == PostType.jobRequest)
+            .take(20)
+            .toList(),
+      );
+      if (mounted) setState(() => _isOffline = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: AppState.instance,
       builder: (context, _) {
-        final posts = AppState.instance.posts;
-        final user = AppState.instance.currentUser;
+        final allPosts = AppState.instance.posts;
+        final jobs =
+            allPosts.where((p) => p.type == PostType.jobRequest).toList();
+        final services =
+            allPosts.where((p) => p.type == PostType.serviceOffering).toList();
+
         return Scaffold(
-          appBar: AppBar(title: const Text('Marketplace')),
+          appBar: AppBar(
+            title: const Text('Marketplace'),
+            bottom: TabBar(
+              controller: _tabController,
+              tabs: [
+                Tab(text: 'Jobs (${jobs.length})'),
+                Tab(text: 'Services (${services.length})'),
+              ],
+            ),
+          ),
           floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => _showCreatePostDialog(context),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => const PostFormPage()),
+            ).then((_) => setState(() {})),
             icon: const Icon(Icons.add),
             label: const Text('Post'),
           ),
-          body: posts.isEmpty
-              ? const Center(child: Text('No listings yet. Tap + to create one.'))
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-                  itemCount: posts.length,
-                  itemBuilder: (context, index) {
-                    final post = posts[index];
-                    final isOwner = user?.uid == post.ownerId;
-                    return _PostCard(post: post, isOwner: isOwner);
-                  },
+          body: Column(
+            children: [
+              if (_isOffline)
+                MaterialBanner(
+                  content:
+                      const Text('You are offline. Showing cached jobs.'),
+                  leading: const Icon(Icons.wifi_off, color: Colors.orange),
+                  backgroundColor: Colors.orange.shade50,
+                  actions: [
+                    TextButton(
+                      onPressed: _checkConnectivity,
+                      child: const Text('Retry'),
+                    ),
+                  ],
                 ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _PostList(posts: jobs, label: 'No job listings yet.'),
+                    _PostList(
+                        posts: services,
+                        label: 'No service offerings yet.'),
+                  ],
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
   }
+}
 
-  void _showCreatePostDialog(BuildContext context) {
-    final user = AppState.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in first.')),
+class _PostList extends StatelessWidget {
+  const _PostList({required this.posts, required this.label});
+  final List<MarketplacePost> posts;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    if (posts.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.search_off, size: 64, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(label, style: const TextStyle(color: Colors.grey)),
+          ],
+        ),
       );
-      return;
     }
-    showDialog(
-      context: context,
-      builder: (_) => _CreatePostDialog(user: user),
+    return RefreshIndicator(
+      onRefresh: () => AppState.instance.reloadPosts(),
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+        itemCount: posts.length,
+        itemBuilder: (context, index) => _PostCard(post: posts[index]),
+      ),
     );
   }
 }
 
 class _PostCard extends StatelessWidget {
-  const _PostCard({required this.post, required this.isOwner});
-
+  const _PostCard({required this.post});
   final MarketplacePost post;
-  final bool isOwner;
 
   @override
   Widget build(BuildContext context) {
+    final user = AppState.instance.currentUser;
+    final isOwner = user?.uid == post.ownerId;
+    final colors = Theme.of(context).colorScheme;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _showDetail(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    post.title,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                Chip(
-                  label: Text(post.type == PostType.jobRequest ? 'Job' : 'Service'),
-                  padding: EdgeInsets.zero,
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(post.description, style: const TextStyle(color: Colors.black87)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              children: post.skills
-                  .map((s) => Chip(
-                        label: Text(s, style: const TextStyle(fontSize: 12)),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                      ))
-                  .toList(),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.person_outline, size: 14, color: Colors.grey),
-                const SizedBox(width: 4),
-                Text(post.ownerName, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                const Spacer(),
-                const Icon(Icons.attach_money, size: 14, color: Colors.grey),
-                Text(
-                  'RM ${post.minimumBudget.toStringAsFixed(0)}',
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
-                ),
-                const SizedBox(width: 12),
-                const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
-                const SizedBox(width: 4),
-                Text(
-                  post.deadline.toLocal().toString().split(' ').first,
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
-                ),
-              ],
-            ),
-            if (isOwner) ...[
-              const Divider(height: 16),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  icon: const Icon(Icons.delete_outline, size: 16),
-                  label: const Text('Delete'),
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
-                  onPressed: () {
-                    AppState.instance.deletePost(post.id);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Post deleted.')),
-                    );
-                  },
+            // Image
+            if (post.imageUrl != null &&
+                FileStorageService.instance.fileExists(post.imageUrl))
+              SizedBox(
+                height: 160,
+                width: double.infinity,
+                child: Image.file(
+                  File(post.imageUrl!),
+                  fit: BoxFit.cover,
                 ),
               ),
-            ],
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          post.title,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      Chip(
+                        label: Text(
+                          post.type == PostType.jobRequest ? 'Job' : 'Service',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    post.description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.black87),
+                  ),
+                  const SizedBox(height: 8),
+                  if (post.skills.isNotEmpty)
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: post.skills
+                          .take(4)
+                          .map((s) => Chip(
+                                label: Text(s,
+                                    style: const TextStyle(fontSize: 11)),
+                                padding: EdgeInsets.zero,
+                                visualDensity: VisualDensity.compact,
+                                backgroundColor:
+                                    colors.secondaryContainer,
+                              ))
+                          .toList(),
+                    ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(Icons.person_outline,
+                          size: 14, color: Colors.grey.shade600),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(post.ownerName,
+                            style: TextStyle(
+                                color: Colors.grey.shade600, fontSize: 13)),
+                      ),
+                      Icon(Icons.attach_money,
+                          size: 14, color: Colors.grey.shade600),
+                      Text(
+                        'RM ${post.minimumBudget.toStringAsFixed(0)}',
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 13),
+                      ),
+                      const SizedBox(width: 12),
+                      Icon(Icons.calendar_today,
+                          size: 12, color: Colors.grey.shade600),
+                      const SizedBox(width: 2),
+                      Text(
+                        post.deadline
+                            .toLocal()
+                            .toString()
+                            .split(' ')
+                            .first,
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                  if (isOwner) ...[
+                    const Divider(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton.icon(
+                          icon: const Icon(Icons.edit, size: 16),
+                          label: const Text('Edit'),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  PostFormPage(existing: post),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton.icon(
+                          icon: const Icon(Icons.delete_outline, size: 16),
+                          label: const Text('Delete'),
+                          style: TextButton.styleFrom(
+                              foregroundColor: Colors.red),
+                          onPressed: () => _confirmDelete(context),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
-}
 
-class _CreatePostDialog extends StatefulWidget {
-  const _CreatePostDialog({required this.user});
-  final dynamic user;
-
-  @override
-  State<_CreatePostDialog> createState() => _CreatePostDialogState();
-}
-
-class _CreatePostDialogState extends State<_CreatePostDialog> {
-  final _titleController = TextEditingController();
-  final _descController = TextEditingController();
-  final _budgetController = TextEditingController();
-  final _skillsController = TextEditingController();
-  PostType _type = PostType.jobRequest;
-  DateTime _deadline = DateTime.now().add(const Duration(days: 7));
-  final _formKey = GlobalKey<FormState>();
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _descController.dispose();
-    _budgetController.dispose();
-    _skillsController.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
-    final user = AppState.instance.currentUser!;
-    final post = MarketplacePost(
-      id: AppState.instance.newId,
-      ownerId: user.uid,
-      ownerName: user.displayName,
-      title: _titleController.text.trim(),
-      description: _descController.text.trim(),
-      minimumBudget: double.tryParse(_budgetController.text) ?? 0,
-      deadline: _deadline,
-      skills: _skillsController.text
-          .split(',')
-          .map((s) => s.trim())
-          .where((s) => s.isNotEmpty)
-          .toList(),
-      type: _type,
-    );
-    AppState.instance.addPost(post);
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Post created successfully!')),
-    );
-  }
-
-  Future<void> _pickDeadline() async {
-    final picked = await showDatePicker(
+  void _showDetail(BuildContext context) {
+    showModalBottomSheet(
       context: context,
-      initialDate: _deadline,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _PostDetailSheet(post: post),
     );
-    if (picked != null) setState(() => _deadline = picked);
   }
+
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Post'),
+        content:
+            const Text('Are you sure you want to delete this listing?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.pop(context);
+              AppState.instance.deletePost(post.id);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Post deleted.')),
+              );
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PostDetailSheet extends StatelessWidget {
+  const _PostDetailSheet({required this.post});
+  final MarketplacePost post;
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Create Listing'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<PostType>(
-                  initialValue: _type,
-                  decoration: const InputDecoration(labelText: 'Type', border: OutlineInputBorder()),
-                  items: const [
-                    DropdownMenuItem(value: PostType.jobRequest, child: Text('Job Request')),
-                    DropdownMenuItem(value: PostType.serviceOffering, child: Text('Service Offering')),
-                  ],
-                  onChanged: (v) => setState(() => _type = v ?? PostType.jobRequest),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _titleController,
-                  decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _descController,
-                  decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
-                  maxLines: 3,
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _budgetController,
-                  decoration: const InputDecoration(
-                    labelText: 'Budget (RM)',
-                    border: OutlineInputBorder(),
-                    prefixText: 'RM ',
-                  ),
-                  keyboardType: TextInputType.number,
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Required';
-                    if (double.tryParse(v) == null) return 'Enter a valid number';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _skillsController,
-                  decoration: const InputDecoration(
-                    labelText: 'Skills (comma-separated)',
-                    border: OutlineInputBorder(),
-                    hintText: 'Flutter, Firebase',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: _pickDeadline,
-                  icon: const Icon(Icons.calendar_today),
-                  label: Text('Deadline: ${_deadline.toLocal().toString().split(' ').first}'),
-                ),
-              ],
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      maxChildSize: 0.9,
+      builder: (_, controller) => ListView(
+        controller: controller,
+        padding: const EdgeInsets.all(20),
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
-        ),
+          const SizedBox(height: 16),
+          if (post.imageUrl != null &&
+              FileStorageService.instance.fileExists(post.imageUrl))
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(File(post.imageUrl!),
+                  height: 200, fit: BoxFit.cover),
+            ),
+          const SizedBox(height: 12),
+          Text(post.title,
+              style:
+                  const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text(post.description,
+              style: const TextStyle(fontSize: 15, height: 1.5)),
+          const SizedBox(height: 16),
+          _DetailRow(
+              icon: Icons.person_outline, label: 'Posted by', value: post.ownerName),
+          _DetailRow(
+              icon: Icons.attach_money,
+              label: 'Budget',
+              value: 'RM ${post.minimumBudget.toStringAsFixed(0)}'),
+          _DetailRow(
+              icon: Icons.calendar_today,
+              label: 'Deadline',
+              value: post.deadline.toLocal().toString().split(' ').first),
+          if (post.skills.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('Required Skills',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              children: post.skills
+                  .map((s) => Chip(
+                        label: Text(s),
+                        visualDensity: VisualDensity.compact,
+                      ))
+                  .toList(),
+            ),
+          ],
+          const SizedBox(height: 24),
+          if (AppState.instance.currentUser?.role == 'freelancer' &&
+              post.type == PostType.jobRequest)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/applications/apply',
+                    arguments: post);
+              },
+              icon: const Icon(Icons.send),
+              label: const Text('Apply Now'),
+            ),
+        ],
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: _submit, child: const Text('Create')),
-      ],
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow(
+      {required this.icon, required this.label, required this.value});
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Colors.grey),
+          const SizedBox(width: 8),
+          Text('$label: ', style: const TextStyle(color: Colors.grey)),
+          Expanded(
+              child: Text(value,
+                  style: const TextStyle(fontWeight: FontWeight.w500))),
+        ],
+      ),
     );
   }
 }

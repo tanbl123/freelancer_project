@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../../../backend/shared/domain_types.dart';
 
 class ApplicationItem {
@@ -33,39 +31,70 @@ class ApplicationItem {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  factory ApplicationItem.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? <String, dynamic>{};
+  Map<String, dynamic> toMap() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return {
+      'id': id,
+      'job_id': jobId,
+      'client_id': clientId,
+      'freelancer_id': freelancerId,
+      'freelancer_name': freelancerName,
+      'proposal_message': proposalMessage,
+      'expected_budget': expectedBudget,
+      'timeline_days': timelineDays,
+      'status': status.name,
+      'resume_url': resumeUrl,
+      'voice_pitch_url': voicePitchUrl,
+      'created_at': createdAt?.millisecondsSinceEpoch ?? now,
+      'updated_at': updatedAt?.millisecondsSinceEpoch ?? now,
+    };
+  }
+
+  factory ApplicationItem.fromMap(Map<String, dynamic> map) {
     return ApplicationItem(
-      id: doc.id,
-      jobId: data['jobId'] as String? ?? '',
-      clientId: data['clientId'] as String? ?? '',
-      freelancerId: data['freelancerId'] as String? ?? '',
-      freelancerName: data['freelancerName'] as String? ?? '',
-      proposalMessage: data['proposalMessage'] as String? ?? '',
-      expectedBudget: (data['expectedBudget'] as num?)?.toDouble() ?? 0,
-      timelineDays: data['timelineDays'] as int? ?? 0,
-      status: ApplicationStatus.values.byName(data['status'] as String? ?? ApplicationStatus.pending.name),
-      resumeUrl: data['resumeUrl'] as String?,
-      voicePitchUrl: data['voicePitchUrl'] as String?,
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+      id: map['id'] as String,
+      jobId: map['job_id'] as String,
+      clientId: map['client_id'] as String,
+      freelancerId: map['freelancer_id'] as String,
+      freelancerName: map['freelancer_name'] as String,
+      proposalMessage: map['proposal_message'] as String,
+      expectedBudget: (map['expected_budget'] as num).toDouble(),
+      timelineDays: map['timeline_days'] as int,
+      status: ApplicationStatus.values
+          .byName(map['status'] as String? ?? 'pending'),
+      resumeUrl: map['resume_url'] as String?,
+      voicePitchUrl: map['voice_pitch_url'] as String?,
+      createdAt: map['created_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int)
+          : null,
+      updatedAt: map['updated_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int)
+          : null,
     );
   }
 
-  Map<String, dynamic> toFirestore() {
-    return {
-      'jobId': jobId,
-      'clientId': clientId,
-      'freelancerId': freelancerId,
-      'freelancerName': freelancerName,
-      'proposalMessage': proposalMessage,
-      'expectedBudget': expectedBudget,
-      'timelineDays': timelineDays,
-      'status': status.name,
-      'resumeUrl': resumeUrl,
-      'voicePitchUrl': voicePitchUrl,
-      'createdAt': createdAt == null ? FieldValue.serverTimestamp() : Timestamp.fromDate(createdAt!),
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
+  ApplicationItem copyWith({
+    String? proposalMessage,
+    double? expectedBudget,
+    int? timelineDays,
+    ApplicationStatus? status,
+    String? resumeUrl,
+    String? voicePitchUrl,
+  }) {
+    return ApplicationItem(
+      id: id,
+      jobId: jobId,
+      clientId: clientId,
+      freelancerId: freelancerId,
+      freelancerName: freelancerName,
+      proposalMessage: proposalMessage ?? this.proposalMessage,
+      expectedBudget: expectedBudget ?? this.expectedBudget,
+      timelineDays: timelineDays ?? this.timelineDays,
+      status: status ?? this.status,
+      resumeUrl: resumeUrl ?? this.resumeUrl,
+      voicePitchUrl: voicePitchUrl ?? this.voicePitchUrl,
+      createdAt: createdAt,
+      updatedAt: DateTime.now(),
+    );
   }
 }

@@ -7,6 +7,9 @@ class ProfileController {
     return const ProfileUser(
       uid: 'preview-user',
       displayName: 'Preview User',
+      email: '',
+      passwordHash: '',
+      phone: '',
       role: 'freelancer',
       bio: 'Connect Firestore profile query here.',
     );
