@@ -8,6 +8,13 @@ import 'src/services/stripe_service.dart';
 import 'src/services/supabase_service.dart';
 import 'src/state/app_state.dart';
 
+/*
+flutter pub add sqflite
+flutter pub add uuid
+flutter pub add path_provider
+*/
+
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
