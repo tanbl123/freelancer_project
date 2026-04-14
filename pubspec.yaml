@@ -28,7 +28,7 @@ dependencies:
   signature: ^5.5.0          # Milestone digital signature pad
   fl_chart: ^0.69.0           # Earnings bar chart + rating pie chart
   share_plus: ^10.1.4         # Native social sharing
-  record: ^5.1.2              # Voice pitch recording
+  record: ^6.0.0              # Voice pitch recording
   audioplayers: ^6.4.0        # Voice pitch playback
   flutter_stripe: ^11.4.0     # Payment gateway simulation
 
