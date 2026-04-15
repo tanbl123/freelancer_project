@@ -42,8 +42,10 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
+      // Authenticated users go straight to dashboard.
+      // New / logged-out users see the Welcome page first.
       initialRoute:
-          AppState.instance.isLoggedIn ? AppRoutes.dashboard : AppRoutes.login,
+          AppState.instance.isLoggedIn ? AppRoutes.dashboard : AppRoutes.welcome,
       onGenerateRoute: AppRouter.onGenerateRoute,
     );
   }

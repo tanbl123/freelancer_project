@@ -75,8 +75,8 @@ class AppState extends ChangeNotifier {
     if (_currentUser == null) return;
     _applications = await _db.getAllApplications();
     _projects = await _db.getProjectsForUser(_currentUser!.uid);
-    _milestones = await _db.getMilestonesForProject(
-        _projects.isNotEmpty ? _projects.first.id : '');
+    // Only load milestones when there are projects — never pass an empty UUID.
+    _milestones = [];
     _users = await _db.getAllUsers();
     _posts = await _db.getActivePosts();
     _reviews = await _db.getAllReviews();

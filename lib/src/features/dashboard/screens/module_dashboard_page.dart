@@ -3,16 +3,14 @@ import 'package:flutter/material.dart';
 import '../../../common_widgets/module_menu_card.dart';
 import '../../../routing/app_router.dart';
 import '../../../state/app_state.dart';
-import '../../authentication/screens/login_page.dart';
-
 class ModuleDashboardPage extends StatelessWidget {
   const ModuleDashboardPage({super.key});
 
   void _logout(BuildContext context) {
     AppState.instance.logout();
-    Navigator.pushAndRemoveUntil(
+    Navigator.pushNamedAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (_) => const LoginPage()),
+      AppRoutes.welcome,
       (_) => false,
     );
   }

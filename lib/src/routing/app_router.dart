@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../features/applications/screens/apply_form_page.dart';
+import '../features/welcome/screens/welcome_page.dart';
 import '../features/applications/screens/job_applications_page.dart';
 import '../features/authentication/screens/login_page.dart';
 import '../features/authentication/screens/register_page.dart';
@@ -18,7 +19,8 @@ import '../features/transactions/screens/project_detail_page.dart';
 import '../features/transactions/screens/project_list_page.dart';
 
 class AppRoutes {
-  static const login = '/';
+  static const welcome = '/';
+  static const login = '/login';
   static const register = '/register';
   static const dashboard = '/dashboard';
   static const marketplace = '/marketplace';
@@ -37,6 +39,9 @@ class AppRoutes {
 class AppRouter {
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
+      case AppRoutes.welcome:
+        return MaterialPageRoute(builder: (_) => const WelcomePage());
+
       case AppRoutes.login:
         return MaterialPageRoute(builder: (_) => const LoginPage());
 

@@ -223,6 +223,7 @@ class SupabaseService {
 
   Future<List<MilestoneItem>> getMilestonesForProject(
       String projectId) async {
+    if (projectId.isEmpty) return [];
     final rows = await _client
         .from('milestones')
         .select()
