@@ -1,19 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../common_widgets/module_menu_card.dart';
 import '../../../routing/app_router.dart';
 import '../../../state/app_state.dart';
+
 class ModuleDashboardPage extends StatelessWidget {
   const ModuleDashboardPage({super.key});
-
-  void _logout(BuildContext context) {
-    AppState.instance.logout();
-    Navigator.pushNamedAndRemoveUntil(
-      context,
-      AppRoutes.welcome,
-      (_) => false,
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,10 +20,35 @@ class ModuleDashboardPage extends StatelessWidget {
             title: const Text('Dashboard'),
             automaticallyImplyLeading: false,
             actions: [
-              IconButton(
-                icon: const Icon(Icons.logout),
-                tooltip: 'Logout',
-                onPressed: () => _logout(context),
+              // User avatar — tap to go to Profile
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: GestureDetector(
+                  onTap: () =>
+                      Navigator.pushNamed(context, AppRoutes.profile),
+                  child: CircleAvatar(
+                    radius: 18,
+                    backgroundColor:
+                        Theme.of(context).colorScheme.primaryContainer,
+                    backgroundImage: user?.photoUrl != null &&
+                            File(user!.photoUrl!).existsSync()
+                        ? FileImage(File(user.photoUrl!))
+                        : null,
+                    child: user?.photoUrl == null ||
+                            !File(user!.photoUrl!).existsSync()
+                        ? Text(
+                            user?.displayName[0].toUpperCase() ?? '?',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onPrimaryContainer,
+                            ),
+                          )
+                        : null,
+                  ),
+                ),
               ),
             ],
           ),
