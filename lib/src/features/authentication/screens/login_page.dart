@@ -87,7 +87,11 @@ class _LoginPageState extends State<LoginPage> {
                   textInputAction: TextInputAction.next,
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) return 'Email is required';
-                    if (!v.contains('@')) return 'Enter a valid email';
+                    final emailRegex = RegExp(
+                        r'^[\w.+\-]+@[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,}$');
+                    if (!emailRegex.hasMatch(v.trim())) {
+                      return 'Enter a valid email (e.g. user@gmail.com)';
+                    }
                     return null;
                   },
                 ),
