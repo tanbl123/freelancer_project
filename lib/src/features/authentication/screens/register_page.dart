@@ -199,8 +199,15 @@ class _RegisterPageState extends State<RegisterPage> {
                   prefixIcon: Icon(Icons.person_outline),
                 ),
                 textInputAction: TextInputAction.next,
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? 'Name is required' : null,
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Name is required';
+                  if (v.trim().length < 2) return 'Name must be at least 2 characters';
+                  if (!RegExp(r"^[\p{L}\s'\-\.]+$", unicode: true)
+                      .hasMatch(v.trim())) {
+                    return 'Name can only contain letters, spaces, hyphens or apostrophes';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -272,11 +279,19 @@ class _RegisterPageState extends State<RegisterPage> {
                   labelText: 'Phone Number *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.phone_outlined),
+                  hintText: 'e.g. 0123456789',
                 ),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? 'Phone is required' : null,
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Phone is required';
+                  final digits =
+                      v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
+                  if (!RegExp(r'^\+?[0-9]{9,15}$').hasMatch(digits)) {
+                    return 'Enter a valid phone number (e.g. 0123456789)';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 12),
               TextFormField(
