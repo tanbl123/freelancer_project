@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../backend/shared/domain_types.dart';
@@ -26,6 +28,13 @@ class SupabaseService {
   // ── Initialization (local SQLite cache only) ───────────────────────────────
 
   Future<void> initialize() async {
+    // Windows / Linux / macOS need the FFI factory — sqflite only works
+    // natively on Android and iOS.
+    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
+
     final dbPath = join(await getDatabasesPath(), 'freelancer_cache.db');
     _localDb = await openDatabase(
       dbPath,

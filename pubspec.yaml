@@ -17,14 +17,15 @@ dependencies:
   supabase_flutter: ^2.8.4
 
   # Local persistence (offline cache only)
-  sqflite: ^2.3.3+1
+  sqflite: ^2.4.2
+  sqflite_common_ffi: ^2.3.4   # desktop FFI bridge (Windows/Linux/macOS)
   path: ^1.9.1
 
   # File & media
   camera: ^0.11.0+2
   image_picker: ^1.1.2
   file_picker: ^8.1.7
-  path_provider: ^2.1.4
+  path_provider: ^2.1.5
 
   # Advanced features
   signature: ^5.5.0          # Milestone digital signature pad
@@ -38,7 +39,7 @@ dependencies:
   connectivity_plus: ^6.1.1
 
   # Utilities
-  uuid: ^4.5.1
+  uuid: ^4.5.3
   intl: ^0.20.2
   permission_handler: ^11.4.0
 
