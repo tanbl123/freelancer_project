@@ -46,3 +46,6 @@ app.*.map.json
 
 # Supabase credentials (never commit real keys)
 lib/src/config/supabase_config.dart
+
+# Claude Code working directory
+.claude/

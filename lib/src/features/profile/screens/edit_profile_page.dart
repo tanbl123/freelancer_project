@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -202,6 +203,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   prefixIcon: Icon(Icons.person_outline),
                 ),
                 textInputAction: TextInputAction.next,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(
+                      RegExp(r"^[\p{L}\s'-]+$", unicode: true)),
+                ],
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Name is required';
                   if (v.trim().length < 2) return 'Name must be at least 2 characters';
@@ -223,6 +228,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 ),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9+\-\s()]')),
+                ],
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return null; // optional
                   final digits =

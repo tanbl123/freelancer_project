@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../routing/app_router.dart';
 import '../../../state/app_state.dart';
@@ -86,6 +87,9 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                  ],
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) return 'Email is required';
                     final emailRegex = RegExp(

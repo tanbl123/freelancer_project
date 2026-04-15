@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -199,10 +200,14 @@ class _RegisterPageState extends State<RegisterPage> {
                   prefixIcon: Icon(Icons.person_outline),
                 ),
                 textInputAction: TextInputAction.next,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(
+                      RegExp(r"^[\p{L}\s'-]+$", unicode: true)),
+                ],
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Name is required';
                   if (v.trim().length < 2) return 'Name must be at least 2 characters';
-                  if (!RegExp(r"^[\p{L}\s'\-\.]+$", unicode: true)
+                  if (!RegExp(r"^[\p{L}\s'-]+$", unicode: true)
                       .hasMatch(v.trim())) {
                     return 'Name can only contain letters, spaces, hyphens or apostrophes';
                   }
@@ -219,6 +224,9 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
+                inputFormatters: [
+                  FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                ],
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Email is required';
                   final emailRegex = RegExp(
@@ -283,6 +291,9 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9+\-\s()]')),
+                ],
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Phone is required';
                   final digits =
