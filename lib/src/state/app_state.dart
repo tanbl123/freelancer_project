@@ -160,11 +160,18 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    await Supabase.instance.client.auth.signOut();
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (_) {
+      // Network failure during sign-out is non-fatal — local state is
+      // cleared below so the user is effectively logged out of the app.
+    }
     _currentUser = null;
+    _posts = [];
     _applications = [];
     _projects = [];
     _milestones = [];
+    _reviews = [];
     notifyListeners();
   }
 
