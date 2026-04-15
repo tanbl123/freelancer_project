@@ -197,7 +197,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(
-                  labelText: 'Display Name *',
+                  labelText: 'Name *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.person_outline),
                 ),
@@ -205,7 +205,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Name is required';
                   if (v.trim().length < 2) return 'Name must be at least 2 characters';
-                  if (!RegExp(r"^[\p{L}\s'\-\.]+$", unicode: true)
+                  if (!RegExp(r"^[\p{L}\s'-]+$", unicode: true)
                       .hasMatch(v.trim())) {
                     return 'Name can only contain letters, spaces, hyphens or apostrophes';
                   }
@@ -230,6 +230,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   if (!RegExp(r'^\+?[0-9]{9,15}$').hasMatch(digits)) {
                     return 'Enter a valid phone number (e.g. 0123456789)';
                   }
+                  //0123456789, 012-345-6789, +60123456789
                   return null;
                 },
               ),
