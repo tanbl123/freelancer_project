@@ -9,9 +9,11 @@ import 'src/services/supabase_service.dart';
 import 'src/state/app_state.dart';
 
 /*
+add in your terminal
 flutter pub add sqflite
 flutter pub add uuid
 flutter pub add path_provider
+winget install Microsoft.NuGet
 */
 
 
