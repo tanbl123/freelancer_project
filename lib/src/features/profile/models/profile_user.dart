@@ -16,6 +16,7 @@ class ProfileUser {
     this.photoUrl,
     this.averageRating,
     this.totalReviews,
+    this.isActive = true,
     this.createdAt,
     this.updatedAt,
   });
@@ -34,6 +35,7 @@ class ProfileUser {
   final String? photoUrl;
   final double? averageRating;
   final int? totalReviews;
+  final bool isActive; // false = soft-deleted; record kept for audit trail
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -54,6 +56,7 @@ class ProfileUser {
       'photo_url': photoUrl,
       'average_rating': averageRating ?? 0.0,
       'total_reviews': totalReviews ?? 0,
+      'is_active': isActive,
       'created_at': createdAt?.toIso8601String() ?? now,
       'updated_at': now,
     };
@@ -77,6 +80,7 @@ class ProfileUser {
       'photo_url': photoUrl,
       'average_rating': averageRating ?? 0.0,
       'total_reviews': totalReviews ?? 0,
+      'is_active': isActive ? 1 : 0,
       'created_at': createdAt?.millisecondsSinceEpoch ?? now,
       'updated_at': updatedAt?.millisecondsSinceEpoch ?? now,
     };
@@ -117,6 +121,9 @@ class ProfileUser {
       photoUrl: map['photo_url'] as String?,
       averageRating: (map['average_rating'] as num?)?.toDouble(),
       totalReviews: (map['total_reviews'] as num?)?.toInt(),
+      isActive: map['is_active'] is bool
+          ? map['is_active'] as bool
+          : (map['is_active'] as int? ?? 1) == 1,
       createdAt: parseDate(map['created_at']),
       updatedAt: parseDate(map['updated_at']),
     );
@@ -136,6 +143,7 @@ class ProfileUser {
     String? photoUrl,
     double? averageRating,
     int? totalReviews,
+    bool? isActive,
   }) {
     return ProfileUser(
       uid: uid,
@@ -152,6 +160,7 @@ class ProfileUser {
       photoUrl: photoUrl ?? this.photoUrl,
       averageRating: averageRating ?? this.averageRating,
       totalReviews: totalReviews ?? this.totalReviews,
+      isActive: isActive ?? this.isActive,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

@@ -5,7 +5,7 @@ import '../features/welcome/screens/welcome_page.dart';
 import '../features/applications/screens/job_applications_page.dart';
 import '../features/authentication/screens/login_page.dart';
 import '../features/authentication/screens/register_page.dart';
-import '../features/dashboard/screens/module_dashboard_page.dart';
+import '../features/home/screens/main_shell.dart';
 import '../features/marketplace/screens/marketplace_feed_page.dart';
 import '../features/marketplace/screens/post_form_page.dart';
 import '../features/marketplace/models/marketplace_post.dart';
@@ -49,8 +49,9 @@ class AppRouter {
         return MaterialPageRoute(builder: (_) => const RegisterPage());
 
       case AppRoutes.dashboard:
+        final idx = settings.arguments as int?;
         return MaterialPageRoute(
-            builder: (_) => const ModuleDashboardPage());
+            builder: (_) => MainShell(initialIndex: idx ?? 0));
 
       case AppRoutes.marketplace:
         return MaterialPageRoute(

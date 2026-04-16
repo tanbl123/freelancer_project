@@ -21,17 +21,23 @@ class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _isOffline = false;
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    // Clients default to Services tab (find freelancers to hire).
+    // Freelancers default to Jobs tab (find work to apply for).
+    final isClient = AppState.instance.currentUser?.role == 'client';
+    _tabController = TabController(length: 2, vsync: this, initialIndex: isClient ? 1 : 0);
     _checkConnectivity();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -41,7 +47,6 @@ class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
       await AppState.instance.reloadPosts(useCache: true);
       if (mounted) setState(() => _isOffline = true);
     } else {
-      // Cache latest 20 jobs in background
       SupabaseService.instance.cacheJobs(
         AppState.instance.posts
             .where((p) => p.type == PostType.jobRequest)
@@ -52,36 +57,116 @@ class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
     }
   }
 
+  List<MarketplacePost> _filter(List<MarketplacePost> posts) {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return posts;
+    return posts.where((p) {
+      return p.title.toLowerCase().contains(q) ||
+          p.description.toLowerCase().contains(q) ||
+          p.ownerName.toLowerCase().contains(q) ||
+          p.skills.any((s) => s.toLowerCase().contains(q));
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: AppState.instance,
       builder: (context, _) {
+        final user = AppState.instance.currentUser;
+        final isClient = user?.role == 'client';
         final allPosts = AppState.instance.posts;
-        final jobs =
-            allPosts.where((p) => p.type == PostType.jobRequest).toList();
-        final services =
-            allPosts.where((p) => p.type == PostType.serviceOffering).toList();
+        final jobs = _filter(
+            allPosts.where((p) => p.type == PostType.jobRequest).toList());
+        final services = _filter(
+            allPosts.where((p) => p.type == PostType.serviceOffering).toList());
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Marketplace'),
-            bottom: TabBar(
-              controller: _tabController,
-              tabs: [
-                Tab(text: 'Jobs (${jobs.length})'),
-                Tab(text: 'Services (${services.length})'),
+            automaticallyImplyLeading: false,
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isClient ? 'Find Talent' : 'Find Work',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+                if (user != null)
+                  Text(
+                    'Hi, ${user.displayName.split(' ').first}!',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.6)),
+                  ),
               ],
+            ),
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(104),
+              child: Column(
+                children: [
+                  // Search bar
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                      decoration: InputDecoration(
+                        hintText: isClient
+                            ? 'Search services, skills, freelancers…'
+                            : 'Search jobs, skills, clients…',
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  // Tabs
+                  TabBar(
+                    controller: _tabController,
+                    tabs: [
+                      Tab(
+                        icon: const Icon(Icons.work_outline, size: 18),
+                        text: 'Job Requests (${jobs.length})',
+                      ),
+                      Tab(
+                        icon: const Icon(Icons.design_services_outlined,
+                            size: 18),
+                        text: 'Services (${services.length})',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
           floatingActionButton: FloatingActionButton.extended(
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                  builder: (_) => const PostFormPage()),
+              MaterialPageRoute(builder: (_) => const PostFormPage()),
             ).then((_) => setState(() {})),
             icon: const Icon(Icons.add),
-            label: const Text('Post'),
+            label: Text(isClient ? 'Post a Job' : 'Offer a Service'),
           ),
           body: Column(
             children: [
@@ -102,10 +187,18 @@ class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    _PostList(posts: jobs, label: 'No job listings yet.'),
                     _PostList(
-                        posts: services,
-                        label: 'No service offerings yet.'),
+                      posts: jobs,
+                      label: _searchQuery.isNotEmpty
+                          ? 'No jobs match "$_searchQuery".'
+                          : 'No job requests yet.',
+                    ),
+                    _PostList(
+                      posts: services,
+                      label: _searchQuery.isNotEmpty
+                          ? 'No services match "$_searchQuery".'
+                          : 'No service offerings yet.',
+                    ),
                   ],
                 ),
               ),
@@ -116,6 +209,8 @@ class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _PostList extends StatelessWidget {
   const _PostList({required this.posts, required this.label});
@@ -131,7 +226,9 @@ class _PostList extends StatelessWidget {
           children: [
             const Icon(Icons.search_off, size: 64, color: Colors.grey),
             const SizedBox(height: 12),
-            Text(label, style: const TextStyle(color: Colors.grey)),
+            Text(label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey)),
           ],
         ),
       );
@@ -139,13 +236,15 @@ class _PostList extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: () => AppState.instance.reloadPosts(),
       child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         itemCount: posts.length,
         itemBuilder: (context, index) => _PostCard(post: posts[index]),
       ),
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _PostCard extends StatelessWidget {
   const _PostCard({required this.post});
@@ -156,32 +255,34 @@ class _PostCard extends StatelessWidget {
     final user = AppState.instance.currentUser;
     final isOwner = user?.uid == post.ownerId;
     final colors = Theme.of(context).colorScheme;
+    final isJob = post.type == PostType.jobRequest;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.antiAlias,
+      elevation: 2,
       child: InkWell(
         onTap: () => _showDetail(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Image
+            // Cover image
             if (post.imageUrl != null &&
                 FileStorageService.instance.fileExists(post.imageUrl))
               SizedBox(
                 height: 160,
                 width: double.infinity,
-                child: Image.file(
-                  File(post.imageUrl!),
-                  fit: BoxFit.cover,
-                ),
+                child: Image.file(File(post.imageUrl!), fit: BoxFit.cover),
               ),
+
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Type badge + title
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: Text(
@@ -190,24 +291,42 @@ class _PostCard extends StatelessWidget {
                               fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      Chip(
-                        label: Text(
-                          post.type == PostType.jobRequest ? 'Job' : 'Service',
-                          style: const TextStyle(fontSize: 11),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: isJob
+                              ? colors.primaryContainer
+                              : colors.tertiaryContainer,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
+                        child: Text(
+                          isJob ? 'Job' : 'Service',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: isJob
+                                ? colors.onPrimaryContainer
+                                : colors.onTertiaryContainer,
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
+
+                  // Description
                   Text(
                     post.description,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.black87),
+                    style: TextStyle(
+                        color: Colors.grey.shade700, fontSize: 13, height: 1.4),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
+
+                  // Skills chips
                   if (post.skills.isNotEmpty)
                     Wrap(
                       spacing: 4,
@@ -219,44 +338,76 @@ class _PostCard extends StatelessWidget {
                                     style: const TextStyle(fontSize: 11)),
                                 padding: EdgeInsets.zero,
                                 visualDensity: VisualDensity.compact,
-                                backgroundColor:
-                                    colors.secondaryContainer,
+                                backgroundColor: colors.secondaryContainer,
                               ))
                           .toList(),
                     ),
-                  const SizedBox(height: 8),
+                  if (post.skills.isNotEmpty) const SizedBox(height: 10),
+
+                  // Meta row: owner · budget · deadline
                   Row(
                     children: [
-                      Icon(Icons.person_outline,
-                          size: 14, color: Colors.grey.shade600),
+                      // Owner avatar
+                      CircleAvatar(
+                        radius: 10,
+                        backgroundColor: colors.primaryContainer,
+                        child: Text(
+                          post.ownerName.isNotEmpty
+                              ? post.ownerName[0].toUpperCase()
+                              : '?',
+                          style: TextStyle(
+                              fontSize: 10, color: colors.onPrimaryContainer),
+                        ),
+                      ),
                       const SizedBox(width: 4),
                       Expanded(
-                        child: Text(post.ownerName,
+                        child: Text(
+                          post.ownerName,
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      // Budget
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: colors.primaryContainer,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'RM ${post.minimumBudget.toStringAsFixed(0)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: colors.onPrimaryContainer,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Deadline
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.calendar_today_outlined,
+                              size: 12, color: Colors.grey.shade500),
+                          const SizedBox(width: 3),
+                          Text(
+                            post.deadline
+                                .toLocal()
+                                .toString()
+                                .split(' ')
+                                .first,
                             style: TextStyle(
-                                color: Colors.grey.shade600, fontSize: 13)),
-                      ),
-                      Icon(Icons.attach_money,
-                          size: 14, color: Colors.grey.shade600),
-                      Text(
-                        'RM ${post.minimumBudget.toStringAsFixed(0)}',
-                        style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 13),
-                      ),
-                      const SizedBox(width: 12),
-                      Icon(Icons.calendar_today,
-                          size: 12, color: Colors.grey.shade600),
-                      const SizedBox(width: 2),
-                      Text(
-                        post.deadline
-                            .toLocal()
-                            .toString()
-                            .split(' ')
-                            .first,
-                        style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 12),
+                                color: Colors.grey.shade500, fontSize: 12),
+                          ),
+                        ],
                       ),
                     ],
                   ),
+
+                  // Owner actions (edit / delete)
                   if (isOwner) ...[
                     const Divider(height: 16),
                     Row(
@@ -268,9 +419,7 @@ class _PostCard extends StatelessWidget {
                           onPressed: () => Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) =>
-                                  PostFormPage(existing: post),
-                            ),
+                                builder: (_) => PostFormPage(existing: post)),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -308,9 +457,8 @@ class _PostCard extends StatelessWidget {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Delete Post'),
-        content:
-            const Text('Are you sure you want to delete this listing?'),
+        title: const Text('Delete Listing'),
+        content: const Text('Are you sure you want to delete this listing?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
@@ -321,7 +469,7 @@ class _PostCard extends StatelessWidget {
               Navigator.pop(context);
               AppState.instance.deletePost(post.id);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Post deleted.')),
+                const SnackBar(content: Text('Listing deleted.')),
               );
             },
             child: const Text('Delete'),
@@ -332,20 +480,27 @@ class _PostCard extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _PostDetailSheet extends StatelessWidget {
   const _PostDetailSheet({required this.post});
   final MarketplacePost post;
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final user = AppState.instance.currentUser;
+    final isJob = post.type == PostType.jobRequest;
+
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.6,
-      maxChildSize: 0.9,
+      maxChildSize: 0.92,
       builder: (_, controller) => ListView(
         controller: controller,
         padding: const EdgeInsets.all(20),
         children: [
+          // Handle bar
           Center(
             child: Container(
               width: 40,
@@ -357,6 +512,8 @@ class _PostDetailSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+
+          // Cover image
           if (post.imageUrl != null &&
               FileStorageService.instance.fileExists(post.imageUrl))
             ClipRRect(
@@ -364,31 +521,67 @@ class _PostDetailSheet extends StatelessWidget {
               child: Image.file(File(post.imageUrl!),
                   height: 200, fit: BoxFit.cover),
             ),
+          const SizedBox(height: 14),
+
+          // Title + badge
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(post.title,
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isJob
+                      ? colors.primaryContainer
+                      : colors.tertiaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  isJob ? 'Job Request' : 'Service',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isJob
+                        ? colors.onPrimaryContainer
+                        : colors.onTertiaryContainer,
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
-          Text(post.title,
-              style:
-                  const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
+
           Text(post.description,
-              style: const TextStyle(fontSize: 15, height: 1.5)),
+              style: const TextStyle(fontSize: 15, height: 1.6)),
           const SizedBox(height: 16),
+
           _DetailRow(
-              icon: Icons.person_outline, label: 'Posted by', value: post.ownerName),
+              icon: Icons.person_outline,
+              label: 'Posted by',
+              value: post.ownerName),
           _DetailRow(
               icon: Icons.attach_money,
-              label: 'Budget',
+              label: isJob ? 'Budget' : 'Starting at',
               value: 'RM ${post.minimumBudget.toStringAsFixed(0)}'),
           _DetailRow(
-              icon: Icons.calendar_today,
+              icon: Icons.calendar_today_outlined,
               label: 'Deadline',
               value: post.deadline.toLocal().toString().split(' ').first),
+
           if (post.skills.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             const Text('Required Skills',
                 style: TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 6,
+              runSpacing: 4,
               children: post.skills
                   .map((s) => Chip(
                         label: Text(s),
@@ -397,9 +590,11 @@ class _PostDetailSheet extends StatelessWidget {
                   .toList(),
             ),
           ],
+
           const SizedBox(height: 24),
-          if (AppState.instance.currentUser?.role == 'freelancer' &&
-              post.type == PostType.jobRequest)
+
+          // Apply button: freelancers on job requests only
+          if (user?.role == 'freelancer' && isJob)
             FilledButton.icon(
               onPressed: () {
                 Navigator.pop(context);
@@ -409,11 +604,25 @@ class _PostDetailSheet extends StatelessWidget {
               icon: const Icon(Icons.send),
               label: const Text('Apply Now'),
             ),
+
+          // Hire button: clients on service offerings only
+          if (user?.role == 'client' && !isJob)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/applications/apply',
+                    arguments: post);
+              },
+              icon: const Icon(Icons.handshake_outlined),
+              label: const Text('Request This Service'),
+            ),
         ],
       ),
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _DetailRow extends StatelessWidget {
   const _DetailRow(
@@ -425,7 +634,7 @@ class _DetailRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
           Icon(icon, size: 16, color: Colors.grey),

@@ -92,7 +92,16 @@ class AppState extends ChangeNotifier {
       if (response.user == null) return 'Login failed. Please try again.';
 
       _currentUser = await _db.getUserById(response.user!.id);
-      if (_currentUser == null) return 'Profile not found. Please contact support.';
+      if (_currentUser == null) {
+        await Supabase.instance.client.auth.signOut().catchError((_) {});
+        return 'Account not found. Please contact support.';
+      }
+      if (!_currentUser!.isActive) {
+        // Account was soft-deleted — block login and clean up auth session.
+        await Supabase.instance.client.auth.signOut().catchError((_) {});
+        _currentUser = null;
+        return 'This account has been deactivated.';
+      }
 
       await _reloadUserData();
       notifyListeners();
@@ -173,6 +182,28 @@ class AppState extends ChangeNotifier {
     _milestones = [];
     _reviews = [];
     notifyListeners();
+  }
+
+  Future<String?> deleteAccount() async {
+    try {
+      final uid = _currentUser?.uid;
+      if (uid == null) return 'No user logged in.';
+      // Soft-delete: set is_active=false, keep row for audit trail.
+      await _db.deactivateUser(uid);
+      try {
+        await Supabase.instance.client.auth.signOut();
+      } catch (_) {}
+      _currentUser = null;
+      _posts = [];
+      _applications = [];
+      _projects = [];
+      _milestones = [];
+      _reviews = [];
+      notifyListeners();
+      return null; // success
+    } catch (e) {
+      return 'Failed to deactivate account: $e';
+    }
   }
 
   Future<void> updateProfile(ProfileUser updated) async {

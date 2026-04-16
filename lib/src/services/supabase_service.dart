@@ -87,6 +87,15 @@ class SupabaseService {
         .eq('uid', user.uid);
   }
 
+  /// Soft-delete: marks the account inactive without removing the row.
+  /// Keeps related posts, projects and reviews intact for audit traceability.
+  Future<void> deactivateUser(String uid) async {
+    await _client
+        .from('profiles')
+        .update({'is_active': false, 'updated_at': DateTime.now().toIso8601String()})
+        .eq('uid', uid);
+  }
+
   // ── Posts ──────────────────────────────────────────────────────────────────
 
   Future<void> insertPost(MarketplacePost post) async {

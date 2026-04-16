@@ -42,6 +42,45 @@ class ProfilePage extends StatelessWidget {
     }
   }
 
+  Future<void> _confirmDeleteAccount(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Account'),
+        content: const Text(
+            'This will permanently delete your account and all your data. '
+            'This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete Forever'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      final error = await AppState.instance.deleteAccount();
+      if (context.mounted) {
+        if (error != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error)),
+          );
+        } else {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            AppRoutes.welcome,
+            (_) => false,
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -297,6 +336,19 @@ class ProfilePage extends StatelessWidget {
                       MaterialPageRoute(
                           builder: (_) => const EditProfilePage()),
                     ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.delete_forever, color: Colors.red),
+                    label: const Text('Delete Account',
+                        style: TextStyle(color: Colors.red)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.red),
+                    ),
+                    onPressed: () => _confirmDeleteAccount(context),
                   ),
                 ),
                 const SizedBox(height: 8),
