@@ -9,7 +9,9 @@ import '../features/home/screens/main_shell.dart';
 import '../features/marketplace/screens/marketplace_feed_page.dart';
 import '../features/marketplace/screens/post_form_page.dart';
 import '../features/marketplace/models/marketplace_post.dart';
+import '../features/profile/screens/change_password_page.dart';
 import '../features/profile/screens/edit_profile_page.dart';
+import '../features/profile/screens/freelancer_profile_page.dart';
 import '../features/profile/screens/profile_page.dart';
 import '../features/ratings/screens/freelancer_stats_page.dart';
 import '../features/ratings/screens/review_form_page.dart';
@@ -17,6 +19,7 @@ import '../features/transactions/models/milestone_item.dart';
 import '../features/transactions/screens/milestone_form_page.dart';
 import '../features/transactions/screens/project_detail_page.dart';
 import '../features/transactions/screens/project_list_page.dart';
+import '../state/app_state.dart';
 
 class AppRoutes {
   static const welcome = '/';
@@ -34,6 +37,8 @@ class AppRoutes {
   static const ratingsStats = '/ratings/stats';
   static const profile = '/profile';
   static const profileEdit = '/profile/edit';
+  static const changePassword = '/profile/change-password';
+  static const userProfile = '/profile/view'; // public profile viewer
 }
 
 class AppRouter {
@@ -43,9 +48,19 @@ class AppRouter {
         return MaterialPageRoute(builder: (_) => const WelcomePage());
 
       case AppRoutes.login:
+        // If already logged in, skip the login page and go straight to the app
+        if (AppState.instance.isLoggedIn) {
+          return MaterialPageRoute(
+              builder: (_) => const MainShell());
+        }
         return MaterialPageRoute(builder: (_) => const LoginPage());
 
       case AppRoutes.register:
+        // If already logged in, skip the register page and go straight to the app
+        if (AppState.instance.isLoggedIn) {
+          return MaterialPageRoute(
+              builder: (_) => const MainShell());
+        }
         return MaterialPageRoute(builder: (_) => const RegisterPage());
 
       case AppRoutes.dashboard:
@@ -104,6 +119,15 @@ class AppRouter {
       case AppRoutes.profileEdit:
         return MaterialPageRoute(
             builder: (_) => const EditProfilePage());
+
+      case AppRoutes.changePassword:
+        return MaterialPageRoute(
+            builder: (_) => const ChangePasswordPage());
+
+      case AppRoutes.userProfile:
+        final userId = settings.arguments as String;
+        return MaterialPageRoute(
+            builder: (_) => FreelancerProfilePage(userId: userId));
 
       default:
         return MaterialPageRoute(

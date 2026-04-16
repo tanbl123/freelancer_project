@@ -84,25 +84,31 @@ class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
         return Scaffold(
           appBar: AppBar(
             automaticallyImplyLeading: false,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isClient ? 'Find Talent' : 'Find Work',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 18),
-                ),
-                if (user != null)
+            title: Container(
+              margin: EdgeInsets.all(8.0),
+              padding: EdgeInsets.only(bottom: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    'Hi, ${user.displayName.split(' ').first}!',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.6)),
+                    isClient ? 'Find Talent' : 'Find Work',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 18),
                   ),
-              ],
+                  if (user != null)
+                    Text(
+                      'Hi, ${user.displayName.split(' ').first}!',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.6)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
             ),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(104),
@@ -561,10 +567,19 @@ class _PostDetailSheet extends StatelessWidget {
               style: const TextStyle(fontSize: 15, height: 1.6)),
           const SizedBox(height: 16),
 
-          _DetailRow(
+          InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: () => Navigator.pushNamed(
+              context,
+              '/profile/view',
+              arguments: post.ownerId,
+            ),
+            child: _DetailRow(
               icon: Icons.person_outline,
               label: 'Posted by',
-              value: post.ownerName),
+              value: '${post.ownerName}  ›',
+            ),
+          ),
           _DetailRow(
               icon: Icons.attach_money,
               label: isJob ? 'Budget' : 'Starting at',

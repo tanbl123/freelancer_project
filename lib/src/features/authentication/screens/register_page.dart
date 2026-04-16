@@ -106,7 +106,7 @@ class _RegisterPageState extends State<RegisterPage> {
     if (error != null) {
       setState(() => _errorMessage = error);
     } else {
-      Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.dashboard, (_) => false);
     }
   }
 

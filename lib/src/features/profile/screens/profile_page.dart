@@ -342,6 +342,16 @@ class ProfilePage extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
+                    icon: const Icon(Icons.lock_outline),
+                    label: const Text('Change Password'),
+                    onPressed: () => Navigator.pushNamed(
+                        context, AppRoutes.changePassword),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
                     icon: const Icon(Icons.delete_forever, color: Colors.red),
                     label: const Text('Delete Account',
                         style: TextStyle(color: Colors.red)),

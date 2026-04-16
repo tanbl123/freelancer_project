@@ -41,7 +41,7 @@ class _LoginPageState extends State<LoginPage> {
     if (error != null) {
       setState(() => _errorMessage = error);
     } else {
-      Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.dashboard, (_) => false);
     }
   }
 

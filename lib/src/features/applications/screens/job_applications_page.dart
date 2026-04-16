@@ -148,23 +148,45 @@ class _ApplicationCardState extends State<_ApplicationCard> {
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  child: Text(item.freelancerName[0].toUpperCase()),
+                GestureDetector(
+                  onTap: () => Navigator.pushNamed(
+                    context,
+                    '/profile/view',
+                    arguments: item.freelancerId,
+                  ),
+                  child: CircleAvatar(
+                    radius: 20,
+                    child: Text(item.freelancerName[0].toUpperCase()),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(item.freelancerName,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 15)),
-                      Text('Job: ${item.jobId}',
-                          style: const TextStyle(
-                              color: Colors.grey, fontSize: 12),
-                          overflow: TextOverflow.ellipsis),
-                    ],
+                  child: GestureDetector(
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      '/profile/view',
+                      arguments: item.freelancerId,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(item.freelancerName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 15)),
+                            const SizedBox(width: 4),
+                            const Text('›',
+                                style: TextStyle(
+                                    color: Colors.grey, fontSize: 15)),
+                          ],
+                        ),
+                        Text('Job: ${item.jobId}',
+                            style: const TextStyle(
+                                color: Colors.grey, fontSize: 12),
+                            overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
                   ),
                 ),
                 Container(

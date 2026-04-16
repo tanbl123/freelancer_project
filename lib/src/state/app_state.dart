@@ -214,6 +214,18 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<String?> changePassword(String newPassword) async {
+    try {
+      await Supabase.instance.client.auth
+          .updateUser(UserAttributes(password: newPassword));
+      return null; // success
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (e) {
+      return 'Failed to update password: $e';
+    }
+  }
+
   // ── Marketplace ────────────────────────────────────────────────────────────
 
   Future<void> addPost(MarketplacePost post) async {
