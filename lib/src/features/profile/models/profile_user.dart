@@ -1,5 +1,12 @@
 import 'dart:convert';
 
+import '../../../shared/enums/account_status.dart';
+import '../../../shared/enums/user_role.dart';
+import '../../user/models/certification_item.dart';
+import '../../user/models/education_item.dart';
+import '../../user/models/skill_with_level.dart';
+import '../../user/models/work_experience.dart';
+
 class ProfileUser {
   const ProfileUser({
     required this.uid,
@@ -8,6 +15,7 @@ class ProfileUser {
     this.passwordHash = '',
     required this.phone,
     required this.role,
+    this.accountStatus = AccountStatus.active,
     this.bio,
     this.skills = const [],
     this.experience,
@@ -16,17 +24,22 @@ class ProfileUser {
     this.photoUrl,
     this.averageRating,
     this.totalReviews,
-    this.isActive = true,
     this.createdAt,
     this.updatedAt,
+    this.skillsWithLevel = const [],
+    this.workExperiences = const [],
+    this.educations = const [],
+    this.certifications = const [],
+    this.portfolioDescription,
   });
 
   final String uid;
   final String displayName;
   final String email;
-  final String passwordHash; // kept as empty string; Supabase Auth owns credentials
+  final String passwordHash; // always empty string — Supabase Auth owns credentials
   final String phone;
-  final String role; // 'client' | 'freelancer'
+  final UserRole role;
+  final AccountStatus accountStatus;
   final String? bio;
   final List<String> skills;
   final String? experience;
@@ -35,11 +48,18 @@ class ProfileUser {
   final String? photoUrl;
   final double? averageRating;
   final int? totalReviews;
-  final bool isActive; // false = soft-deleted; record kept for audit trail
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final List<SkillWithLevel> skillsWithLevel;
+  final List<WorkExperience> workExperiences;
+  final List<EducationItem> educations;
+  final List<CertificationItem> certifications;
+  final String? portfolioDescription;
 
-  // ── Supabase map (ISO 8601, native arrays, no passwordHash) ─────────────────
+  // Backward-compat: treat as active when accountStatus is not deactivated
+  bool get isActive => accountStatus != AccountStatus.deactivated;
+
+  // ── Supabase map (ISO 8601, native arrays) ───────────────────────────────────
   Map<String, dynamic> toSupabaseMap() {
     final now = DateTime.now().toIso8601String();
     return {
@@ -47,9 +67,12 @@ class ProfileUser {
       'display_name': displayName,
       'email': email.toLowerCase(),
       'phone': phone,
-      'role': role,
+      'role': role.name,
+      'account_status': accountStatus.name,
       'bio': bio,
-      'skills': skills,
+      'skills': skillsWithLevel.isNotEmpty
+          ? skillsWithLevel.map((s) => s.skill).toList()
+          : skills,
       'experience': experience,
       'resume_url': resumeUrl,
       'portfolio_urls': portfolioUrls,
@@ -59,6 +82,11 @@ class ProfileUser {
       'is_active': isActive,
       'created_at': createdAt?.toIso8601String() ?? now,
       'updated_at': now,
+      'skills_with_level': skillsWithLevel.map((s) => s.toMap()).toList(),
+      'work_experiences': workExperiences.map((e) => e.toMap()).toList(),
+      'educations': educations.map((e) => e.toMap()).toList(),
+      'certifications': certifications.map((c) => c.toMap()).toList(),
+      'portfolio_description': portfolioDescription,
     };
   }
 
@@ -71,7 +99,8 @@ class ProfileUser {
       'email': email.toLowerCase(),
       'password_hash': passwordHash,
       'phone': phone,
-      'role': role,
+      'role': role.name,
+      'account_status': accountStatus.name,
       'bio': bio,
       'skills': jsonEncode(skills),
       'experience': experience,
@@ -106,13 +135,44 @@ class ProfileUser {
       return [];
     }
 
+    List<T> parseJsonList<T>(
+        dynamic v, T Function(Map<String, dynamic>) factory) {
+      if (v == null) return [];
+      if (v is List) {
+        return v.map((e) => factory(e as Map<String, dynamic>)).toList();
+      }
+      if (v is String && v.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(v) as List;
+          return decoded
+              .map((e) => factory(e as Map<String, dynamic>))
+              .toList();
+        } catch (_) {}
+      }
+      return [];
+    }
+
+    // Legacy rows may only have is_active bool; derive accountStatus from it.
+    AccountStatus parseAccountStatus(dynamic raw, dynamic isActiveFallback) {
+      if (raw != null && raw is String && raw.isNotEmpty) {
+        return AccountStatus.fromString(raw);
+      }
+      // Fallback for rows that predate the account_status column
+      final active = isActiveFallback is bool
+          ? isActiveFallback
+          : (isActiveFallback as int? ?? 1) == 1;
+      return active ? AccountStatus.active : AccountStatus.deactivated;
+    }
+
     return ProfileUser(
       uid: map['uid'] as String,
       displayName: map['display_name'] as String,
       email: map['email'] as String? ?? '',
       passwordHash: map['password_hash'] as String? ?? '',
       phone: map['phone'] as String? ?? '',
-      role: map['role'] as String? ?? 'freelancer',
+      role: UserRole.fromString(map['role'] as String? ?? 'client'),
+      accountStatus:
+          parseAccountStatus(map['account_status'], map['is_active']),
       bio: map['bio'] as String?,
       skills: parseList(map['skills']),
       experience: map['experience'] as String?,
@@ -121,11 +181,16 @@ class ProfileUser {
       photoUrl: map['photo_url'] as String?,
       averageRating: (map['average_rating'] as num?)?.toDouble(),
       totalReviews: (map['total_reviews'] as num?)?.toInt(),
-      isActive: map['is_active'] is bool
-          ? map['is_active'] as bool
-          : (map['is_active'] as int? ?? 1) == 1,
       createdAt: parseDate(map['created_at']),
       updatedAt: parseDate(map['updated_at']),
+      skillsWithLevel: parseJsonList(
+          map['skills_with_level'], SkillWithLevel.fromMap),
+      workExperiences: parseJsonList(
+          map['work_experiences'], WorkExperience.fromMap),
+      educations: parseJsonList(map['educations'], EducationItem.fromMap),
+      certifications:
+          parseJsonList(map['certifications'], CertificationItem.fromMap),
+      portfolioDescription: map['portfolio_description'] as String?,
     );
   }
 
@@ -134,7 +199,8 @@ class ProfileUser {
     String? email,
     String? passwordHash,
     String? phone,
-    String? role,
+    UserRole? role,
+    AccountStatus? accountStatus,
     String? bio,
     List<String>? skills,
     String? experience,
@@ -143,7 +209,11 @@ class ProfileUser {
     String? photoUrl,
     double? averageRating,
     int? totalReviews,
-    bool? isActive,
+    List<SkillWithLevel>? skillsWithLevel,
+    List<WorkExperience>? workExperiences,
+    List<EducationItem>? educations,
+    List<CertificationItem>? certifications,
+    String? portfolioDescription,
   }) {
     return ProfileUser(
       uid: uid,
@@ -152,6 +222,7 @@ class ProfileUser {
       passwordHash: passwordHash ?? this.passwordHash,
       phone: phone ?? this.phone,
       role: role ?? this.role,
+      accountStatus: accountStatus ?? this.accountStatus,
       bio: bio ?? this.bio,
       skills: skills ?? this.skills,
       experience: experience ?? this.experience,
@@ -160,9 +231,13 @@ class ProfileUser {
       photoUrl: photoUrl ?? this.photoUrl,
       averageRating: averageRating ?? this.averageRating,
       totalReviews: totalReviews ?? this.totalReviews,
-      isActive: isActive ?? this.isActive,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
+      skillsWithLevel: skillsWithLevel ?? this.skillsWithLevel,
+      workExperiences: workExperiences ?? this.workExperiences,
+      educations: educations ?? this.educations,
+      certifications: certifications ?? this.certifications,
+      portfolioDescription: portfolioDescription ?? this.portfolioDescription,
     );
   }
 }

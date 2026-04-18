@@ -7,12 +7,26 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../backend/shared/domain_types.dart';
+import '../shared/models/category_item.dart';
 import '../features/applications/models/application_item.dart';
+import '../features/applications/models/service_order.dart';
+import '../features/jobs/local/job_cache_dao.dart';
+import '../features/jobs/models/job_post.dart';
 import '../features/marketplace/models/marketplace_post.dart';
+import '../features/services/models/freelancer_service.dart';
 import '../features/profile/models/profile_user.dart';
 import '../features/ratings/models/review_item.dart';
 import '../features/transactions/models/milestone_item.dart';
 import '../features/transactions/models/project_item.dart';
+import '../features/user/models/appeal.dart';
+import '../features/user/models/freelancer_request.dart';
+import '../features/chat/models/chat_message.dart';
+import '../features/chat/models/chat_room.dart';
+import '../features/disputes/models/dispute_record.dart';
+import '../features/notifications/models/in_app_notification.dart';
+import '../features/overdue/models/overdue_record.dart';
+import '../features/payment/models/payment_record.dart';
+import '../features/payment/models/payout_record.dart';
 
 /// Drop-in replacement for DatabaseService.
 /// Uses Supabase (PostgreSQL) for all cloud data.
@@ -21,9 +35,13 @@ class SupabaseService {
   static final SupabaseService instance = SupabaseService._();
   SupabaseService._();
 
-  late Database _localDb;
+  late Database     _localDb;
+  late JobCacheDao  _jobCacheDao;
 
   SupabaseClient get _client => Supabase.instance.client;
+
+  /// Exposed so [AppState] can read cache metadata (last-synced timestamp).
+  JobCacheDao get jobCacheDao => _jobCacheDao;
 
   // ── Initialization (local SQLite cache only) ───────────────────────────────
 
@@ -38,23 +56,74 @@ class SupabaseService {
     final dbPath = join(await getDatabasesPath(), 'freelancer_cache.db');
     _localDb = await openDatabase(
       dbPath,
-      version: 1,
+      // v4: replaces blob-based cached_job_posts with columnar job_posts_cache
+      //     + job_cache_meta for last-synced timestamp.
+      version: 4,
       onCreate: (db, version) async {
+        // ── Legacy tables (kept for backward compatibility) ──────────────────
         await db.execute('''
           CREATE TABLE IF NOT EXISTS cached_jobs (
-            id TEXT PRIMARY KEY,
-            payload TEXT NOT NULL,
+            id        TEXT    PRIMARY KEY,
+            payload   TEXT    NOT NULL,
             cached_at INTEGER NOT NULL
           )
         ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS cached_job_posts (
+            id        TEXT    PRIMARY KEY,
+            payload   TEXT    NOT NULL,
+            cached_at INTEGER NOT NULL
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS cached_freelancer_services (
+            id        TEXT    PRIMARY KEY,
+            payload   TEXT    NOT NULL,
+            cached_at INTEGER NOT NULL
+          )
+        ''');
+        // ── v4: columnar job cache + meta ────────────────────────────────────
+        await JobCacheDao.ensureTables(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_job_posts (
+              id TEXT PRIMARY KEY,
+              payload TEXT NOT NULL,
+              cached_at INTEGER NOT NULL
+            )
+          ''');
+        }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS cached_freelancer_services (
+              id TEXT PRIMARY KEY,
+              payload TEXT NOT NULL,
+              cached_at INTEGER NOT NULL
+            )
+          ''');
+        }
+        if (oldVersion < 4) {
+          // Add columnar job cache tables introduced in v4.
+          await JobCacheDao.ensureTables(db);
+        }
       },
     );
+
+    // Create the DAO after the database is open and migrated.
+    _jobCacheDao = JobCacheDao(_localDb);
   }
 
   // ── Users (Supabase profiles table) ───────────────────────────────────────
 
   Future<void> insertUser(ProfileUser user) async {
-    await _client.from('profiles').insert(user.toSupabaseMap());
+    // Use upsert instead of insert: the handle_new_user() DB trigger fires the
+    // moment auth.signUp() succeeds and inserts a skeleton profile row.
+    // If we then INSERT again with the same uid we get a duplicate-key error.
+    // Upsert merges on the primary key (uid), so the trigger's skeleton row is
+    // overwritten with the full profile data from the app.
+    await _client.from('profiles').upsert(user.toSupabaseMap());
   }
 
   Future<ProfileUser?> getUserByEmail(String email) async {
@@ -87,13 +156,162 @@ class SupabaseService {
         .eq('uid', user.uid);
   }
 
-  /// Soft-delete: marks the account inactive without removing the row.
+  /// Hard-delete for accounts that never completed email verification.
+  /// RLS enforces that only the owner can delete, and only while the account
+  /// is still in pendingVerification status (see profiles_own_delete policy).
+  Future<void> deleteOwnProfile(String uid) async {
+    await _client.from('profiles').delete().eq('uid', uid);
+  }
+
+  /// Soft-delete: sets account_status=deactivated without removing the row.
   /// Keeps related posts, projects and reviews intact for audit traceability.
   Future<void> deactivateUser(String uid) async {
-    await _client
+    await _client.from('profiles').update({
+      'account_status': AccountStatus.deactivated.name,
+      'is_active': false,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('uid', uid);
+  }
+
+  /// Admin: set a user's account status (active, restricted, deactivated).
+  Future<void> updateAccountStatus(String uid, AccountStatus status) async {
+    await _client.from('profiles').update({
+      'account_status': status.name,
+      'is_active': status != AccountStatus.deactivated,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('uid', uid);
+  }
+
+  /// Admin: fetch users filtered by account status.
+  Future<List<ProfileUser>> getUsersByStatus(AccountStatus status) async {
+    final rows = await _client
         .from('profiles')
-        .update({'is_active': false, 'updated_at': DateTime.now().toIso8601String()})
-        .eq('uid', uid);
+        .select()
+        .eq('account_status', status.name)
+        .order('created_at', ascending: false);
+    return rows.map(ProfileUser.fromMap).toList();
+  }
+
+  // ── Freelancer Requests ────────────────────────────────────────────────────
+
+  Future<FreelancerRequest?> getPendingFreelancerRequest(
+      String userId) async {
+    final row = await _client
+        .from('freelancer_requests')
+        .select()
+        .eq('requester_id', userId)
+        .eq('status', 'pending')
+        .maybeSingle();
+    return row == null ? null : FreelancerRequest.fromMap(row);
+  }
+
+  Future<FreelancerRequest?> getLatestFreelancerRequest(
+      String userId) async {
+    final rows = await _client
+        .from('freelancer_requests')
+        .select()
+        .eq('requester_id', userId)
+        .order('created_at', ascending: false)
+        .limit(1);
+    return rows.isEmpty ? null : FreelancerRequest.fromMap(rows.first);
+  }
+
+  Future<List<FreelancerRequest>> getAllFreelancerRequests(
+      {RequestStatus? status}) async {
+    var builder = _client.from('freelancer_requests').select();
+    if (status != null) {
+      final rows = await builder
+          .eq('status', status.name)
+          .order('created_at', ascending: false);
+      return rows.map((r) => FreelancerRequest.fromMap(r)).toList();
+    }
+    final rows =
+        await builder.order('created_at', ascending: false);
+    return rows.map((r) => FreelancerRequest.fromMap(r)).toList();
+  }
+
+  Future<FreelancerRequest> insertFreelancerRequest(
+      FreelancerRequest req) async {
+    final row = await _client
+        .from('freelancer_requests')
+        .insert(req.toMap())
+        .select()
+        .single();
+    return FreelancerRequest.fromMap(row);
+  }
+
+  Future<FreelancerRequest> updateFreelancerRequestStatus(
+    String id,
+    RequestStatus status, {
+    String? adminNote,
+    String? reviewedBy,
+  }) async {
+    final row = await _client.from('freelancer_requests').update({
+      'status': status.name,
+      if (adminNote != null) 'admin_note': adminNote,
+      if (reviewedBy != null) 'reviewed_by': reviewedBy,
+      'reviewed_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id).select().single();
+    return FreelancerRequest.fromMap(row);
+  }
+
+  // ── Appeals ────────────────────────────────────────────────────────────────
+
+  Future<List<Appeal>> getAppealsForUser(String userId) async {
+    final rows = await _client
+        .from('appeals')
+        .select()
+        .eq('appellant_id', userId)
+        .order('created_at', ascending: false);
+    return rows.map(Appeal.fromMap).toList();
+  }
+
+  Future<Appeal?> getOpenAppealForUser(String userId) async {
+    final row = await _client
+        .from('appeals')
+        .select()
+        .eq('appellant_id', userId)
+        .eq('status', 'open')
+        .maybeSingle();
+    return row == null ? null : Appeal.fromMap(row);
+  }
+
+  Future<List<Appeal>> getAllAppeals({AppealStatus? status}) async {
+    var builder = _client.from('appeals').select();
+    if (status != null) {
+      final rows = await builder
+          .eq('status', status.dbValue)
+          .order('created_at', ascending: false);
+      return rows.map((r) => Appeal.fromMap(r)).toList();
+    }
+    final rows = await builder.order('created_at', ascending: false);
+    return rows.map((r) => Appeal.fromMap(r)).toList();
+  }
+
+  Future<Appeal> insertAppeal(Appeal appeal) async {
+    final row = await _client
+        .from('appeals')
+        .insert(appeal.toMap())
+        .select()
+        .single();
+    return Appeal.fromMap(row);
+  }
+
+  Future<Appeal> updateAppealStatus(
+    String id,
+    AppealStatus status, {
+    String? adminResponse,
+    String? reviewedBy,
+  }) async {
+    final row = await _client.from('appeals').update({
+      'status': status.dbValue,
+      if (adminResponse != null) 'admin_response': adminResponse,
+      if (reviewedBy != null) 'reviewed_by': reviewedBy,
+      'reviewed_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id).select().single();
+    return Appeal.fromMap(row);
   }
 
   // ── Posts ──────────────────────────────────────────────────────────────────
@@ -161,6 +379,28 @@ class SupabaseService {
     return rows.map(ApplicationItem.fromMap).toList();
   }
 
+  /// All applications sent to jobs posted by [clientId].
+  Future<List<ApplicationItem>> getApplicationsByClient(
+      String clientId) async {
+    final rows = await _client
+        .from('applications')
+        .select()
+        .eq('client_id', clientId)
+        .order('created_at', ascending: false);
+    return rows.map(ApplicationItem.fromMap).toList();
+  }
+
+  /// All applications submitted by [freelancerId].
+  Future<List<ApplicationItem>> getApplicationsByFreelancer(
+      String freelancerId) async {
+    final rows = await _client
+        .from('applications')
+        .select()
+        .eq('freelancer_id', freelancerId)
+        .order('created_at', ascending: false);
+    return rows.map(ApplicationItem.fromMap).toList();
+  }
+
   Future<bool> hasApplied(String jobId, String freelancerId) async {
     final rows = await _client
         .from('applications')
@@ -193,10 +433,66 @@ class SupabaseService {
         .eq('id', app.id);
   }
 
+  // ── Service Orders ─────────────────────────────────────────────────────────
+
+  Future<List<ServiceOrder>> getServiceOrdersByClient(
+      String clientId) async {
+    final rows = await _client
+        .from('service_orders')
+        .select()
+        .eq('client_id', clientId)
+        .order('created_at', ascending: false);
+    return rows.map(ServiceOrder.fromMap).toList();
+  }
+
+  Future<List<ServiceOrder>> getServiceOrdersByFreelancer(
+      String freelancerId) async {
+    final rows = await _client
+        .from('service_orders')
+        .select()
+        .eq('freelancer_id', freelancerId)
+        .order('created_at', ascending: false);
+    return rows.map(ServiceOrder.fromMap).toList();
+  }
+
+  Future<ServiceOrder?> getServiceOrderById(String id) async {
+    final row = await _client
+        .from('service_orders')
+        .select()
+        .eq('id', id)
+        .maybeSingle();
+    return row == null ? null : ServiceOrder.fromMap(row);
+  }
+
+  Future<void> insertServiceOrder(ServiceOrder order) async {
+    await _client
+        .from('service_orders')
+        .upsert(order.toSupabaseMap());
+  }
+
+  Future<void> updateServiceOrderStatus(
+    String id,
+    ServiceOrderStatus status, {
+    String? freelancerNote,
+  }) async {
+    await _client.from('service_orders').update({
+      'status': status.name,
+      if (freelancerNote != null) 'freelancer_note': freelancerNote,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
   // ── Projects ───────────────────────────────────────────────────────────────
 
   Future<void> insertProject(ProjectItem project) async {
     await _client.from('projects').insert(project.toSupabaseMap());
+  }
+
+  Future<void> updateProject(ProjectItem project) async {
+    await _client
+        .from('projects')
+        .update(project.toSupabaseMap())
+        .eq('id', project.id);
   }
 
   Future<List<ProjectItem>> getProjectsForUser(String uid) async {
@@ -217,6 +513,25 @@ class SupabaseService {
     return row == null ? null : ProjectItem.fromMap(row);
   }
 
+  /// Typed status update — also optionally sets [clientSignatureUrl] and
+  /// [startDate] in the same round trip.
+  Future<void> updateProjectStatusEnum(
+    String projectId,
+    ProjectStatus status, {
+    String? clientSignatureUrl,
+    DateTime? startDate,
+  }) async {
+    await _client.from('projects').update({
+      'status': status.name,
+      if (clientSignatureUrl != null)
+        'client_signature_url': clientSignatureUrl,
+      if (startDate != null)
+        'start_date': startDate.toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', projectId);
+  }
+
+  /// Legacy string-based update kept for any remaining call sites.
   Future<void> updateProjectStatus(String projectId, String status) async {
     await _client.from('projects').update({
       'status': status,
@@ -264,7 +579,7 @@ class SupabaseService {
   Future<void> approveMilestone(
       String id, String signaturePath, String paymentToken) async {
     await _client.from('milestones').update({
-      'status': MilestoneStatus.approved.name,
+      'status': MilestoneStatus.completed.name,
       'client_signature_url': signaturePath,
       'payment_token': paymentToken,
       'updated_at': DateTime.now().toIso8601String(),
@@ -277,6 +592,58 @@ class SupabaseService {
       'status': status.name,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('id', id);
+  }
+
+  Future<void> rejectMilestone(String id, String reason) async {
+    await _client.from('milestones').update({
+      'status': MilestoneStatus.rejected.name,
+      'rejection_note': reason,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  Future<void> requestMilestoneExtension(String id, int days) async {
+    await _client.from('milestones').update({
+      'extension_days': days,
+      'extension_requested_at': DateTime.now().toIso8601String(),
+      'extension_approved': false,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  Future<void> approveMilestoneExtension(String id, int days) async {
+    await _client.from('milestones').update({
+      'extension_approved': true,
+      'extension_days': days,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  /// Batch-insert an entire milestone plan (upsert to allow re-proposals).
+  Future<void> batchInsertMilestones(List<MilestoneItem> milestones) async {
+    final rows = milestones.map((m) => m.toSupabaseMap()).toList();
+    await _client.from('milestones').upsert(rows);
+  }
+
+  /// Advance the next queued milestone to [MilestoneStatus.inProgress].
+  /// Called after a milestone is approved+paid.
+  Future<void> advanceMilestoneToNext(
+      String projectId, int completedOrderIndex) async {
+    final rows = await _client
+        .from('milestones')
+        .select()
+        .eq('project_id', projectId)
+        .eq('status', MilestoneStatus.approved.name)
+        .order('order_index', ascending: true)
+        .limit(1);
+
+    if (rows.isNotEmpty) {
+      final nextId = rows.first['id'] as String;
+      await _client.from('milestones').update({
+        'status': MilestoneStatus.inProgress.name,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', nextId);
+    }
   }
 
   // ── Reviews ────────────────────────────────────────────────────────────────
@@ -293,6 +660,37 @@ class SupabaseService {
     return rows.map(ReviewItem.fromMap).toList();
   }
 
+  /// Published reviews where [userId] is the reviewee.
+  Future<List<ReviewItem>> getReviewsForUser(String userId) async {
+    final rows = await _client
+        .from('reviews')
+        .select()
+        .eq('reviewee_id', userId)
+        .eq('status', 'published')
+        .order('created_at', ascending: false);
+    return rows.map(ReviewItem.fromMap).toList();
+  }
+
+  /// All reviews (any status) authored by [userId].
+  Future<List<ReviewItem>> getReviewsByUser(String userId) async {
+    final rows = await _client
+        .from('reviews')
+        .select()
+        .eq('reviewer_id', userId)
+        .order('created_at', ascending: false);
+    return rows.map(ReviewItem.fromMap).toList();
+  }
+
+  /// Admin: all reviews with status = reported.
+  Future<List<ReviewItem>> getReportedReviews() async {
+    final rows = await _client
+        .from('reviews')
+        .select()
+        .eq('status', 'reported')
+        .order('created_at', ascending: false);
+    return rows.map(ReviewItem.fromMap).toList();
+  }
+
   Future<bool> hasReviewedProject(
       String projectId, String reviewerId) async {
     final rows = await _client
@@ -303,18 +701,52 @@ class SupabaseService {
     return rows.isNotEmpty;
   }
 
-  Future<void> updateFreelancerRatingStats(String freelancerId) async {
+  /// Append [reporterId] to `reported_by` and set status → `reported`.
+  Future<void> reportReview(String reviewId, String reporterId) async {
+    // Fetch current reported_by list first
+    final rows = await _client
+        .from('reviews')
+        .select('reported_by')
+        .eq('id', reviewId)
+        .limit(1);
+    if (rows.isEmpty) return;
+
+    final existing = List<String>.from(
+        (rows.first['reported_by'] as List?) ?? []);
+    if (!existing.contains(reporterId)) existing.add(reporterId);
+
+    await _client.from('reviews').update({
+      'reported_by': existing,
+      'status': 'reported',
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', reviewId);
+  }
+
+  /// Admin: set [status] on a review directly.
+  Future<void> setReviewStatus(
+      String reviewId, ReviewStatus status) async {
+    await _client.from('reviews').update({
+      'status': status.name,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', reviewId);
+  }
+
+  /// Recalculates [averageRating] and [totalReviews] for any user (not
+  /// just freelancers) — counts only `published` reviews where the user
+  /// is the reviewee.
+  Future<void> updateRevieweeRatingStats(String userId) async {
     final rows = await _client
         .from('reviews')
         .select('stars')
-        .eq('freelancer_id', freelancerId);
+        .eq('reviewee_id', userId)
+        .eq('status', 'published');
 
     if (rows.isEmpty) {
       await _client.from('profiles').update({
         'average_rating': 0.0,
         'total_reviews': 0,
         'updated_at': DateTime.now().toIso8601String(),
-      }).eq('uid', freelancerId);
+      }).eq('uid', userId);
       return;
     }
 
@@ -327,8 +759,12 @@ class SupabaseService {
       'average_rating': avg,
       'total_reviews': total,
       'updated_at': DateTime.now().toIso8601String(),
-    }).eq('uid', freelancerId);
+    }).eq('uid', userId);
   }
+
+  /// Legacy alias — kept so old callers still compile.
+  Future<void> updateFreelancerRatingStats(String freelancerId) =>
+      updateRevieweeRatingStats(freelancerId);
 
   Future<void> updateReview(ReviewItem review) async {
     await _client
@@ -379,12 +815,12 @@ class SupabaseService {
     return result;
   }
 
-  Future<Map<int, int>> getRatingDistribution(
-      String freelancerId) async {
+  Future<Map<int, int>> getRatingDistribution(String userId) async {
     final rows = await _client
         .from('reviews')
         .select('stars')
-        .eq('freelancer_id', freelancerId);
+        .eq('reviewee_id', userId)
+        .eq('status', 'published');
 
     final Map<int, int> result = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0};
     for (final row in rows) {
@@ -392,6 +828,89 @@ class SupabaseService {
       result[stars] = (result[stars] ?? 0) + 1;
     }
     return result;
+  }
+
+  /// Monthly average rating for [userId] over all time (published reviews only).
+  /// Returns a map keyed by "Mon YYYY" e.g. `{'Jan 2025': 4.2, 'Feb 2025': 4.8}`.
+  Future<Map<String, double>> getMonthlyRatingTrend(String userId) async {
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+
+    final rows = await _client
+        .from('reviews')
+        .select('stars,created_at')
+        .eq('reviewee_id', userId)
+        .eq('status', 'published')
+        .order('created_at', ascending: true);
+
+    final Map<String, List<int>> byMonth = {};
+    for (final row in rows) {
+      final date = _parseDate(row['created_at']);
+      final key = '${monthNames[date.month - 1]} ${date.year}';
+      byMonth.putIfAbsent(key, () => []).add((row['stars'] as num).toInt());
+    }
+
+    return byMonth.map(
+      (k, stars) => MapEntry(
+        k,
+        stars.reduce((a, b) => a + b) / stars.length,
+      ),
+    );
+  }
+
+  // ── Payment Records ────────────────────────────────────────────────────────
+
+  Future<PaymentRecord?> getPaymentRecordForProject(
+      String projectId) async {
+    final row = await _client
+        .from('payment_records')
+        .select()
+        .eq('project_id', projectId)
+        .maybeSingle();
+    return row == null ? null : PaymentRecord.fromMap(row);
+  }
+
+  Future<void> insertPaymentRecord(PaymentRecord record) async {
+    await _client
+        .from('payment_records')
+        .insert(record.toSupabaseMap());
+  }
+
+  Future<void> updatePaymentRecord(PaymentRecord record) async {
+    await _client
+        .from('payment_records')
+        .update(record.toSupabaseMap())
+        .eq('id', record.id);
+  }
+
+  // ── Payout Records ─────────────────────────────────────────────────────────
+
+  Future<void> insertPayoutRecord(PayoutRecord payout) async {
+    await _client
+        .from('payout_records')
+        .insert(payout.toSupabaseMap());
+  }
+
+  Future<List<PayoutRecord>> getPayoutsForProject(
+      String projectId) async {
+    final rows = await _client
+        .from('payout_records')
+        .select()
+        .eq('project_id', projectId)
+        .order('created_at', ascending: true);
+    return rows.map(PayoutRecord.fromMap).toList();
+  }
+
+  Future<List<PayoutRecord>> getPayoutsForPayment(
+      String paymentId) async {
+    final rows = await _client
+        .from('payout_records')
+        .select()
+        .eq('payment_id', paymentId)
+        .order('created_at', ascending: true);
+    return rows.map(PayoutRecord.fromMap).toList();
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -410,6 +929,121 @@ class SupabaseService {
             (p.clientId == userId1 && p.freelancerId == userId2) ||
             (p.clientId == userId2 && p.freelancerId == userId1))
         .firstOrNull;
+  }
+
+  // ── Categories ────────────────────────────────────────────────────────────
+
+  /// Fetch all categories ordered by sort_order.
+  Future<List<CategoryItem>> fetchCategories() async {
+    final rows = await _client
+        .from('categories')
+        .select()
+        .order('sort_order', ascending: true);
+    return (rows as List)
+        .map((r) => CategoryItem.fromMap(r as Map<String, dynamic>))
+        .toList();
+  }
+
+  // ── Job Posts ──────────────────────────────────────────────────────────────
+
+  /// Fetch open job posts with optional search, category, and budget filters.
+  /// Results are ordered by created_at DESC and support pagination.
+  Future<List<JobPost>> getOpenJobPosts({
+    String? search,
+    String? category,
+    double? minBudget,
+    double? maxBudget,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    var query = _client
+        .from('job_posts')
+        .select()
+        .eq('status', JobStatus.open.name);
+
+    if (category != null) {
+      query = query.eq('category', category);
+    }
+    if (minBudget != null) {
+      query = query.gte('budget_max', minBudget);
+    }
+    if (maxBudget != null) {
+      query = query.lte('budget_min', maxBudget);
+    }
+
+    final rows = await query
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1);
+
+    var posts = rows.map(JobPost.fromMap).toList();
+
+    // Client-side search (title, description, skills) — cheaper than
+    // full-text for the expected dataset size.
+    if (search != null && search.trim().isNotEmpty) {
+      final q = search.trim().toLowerCase();
+      posts = posts.where((p) {
+        return p.title.toLowerCase().contains(q) ||
+            p.description.toLowerCase().contains(q) ||
+            p.requiredSkills.any((s) => s.toLowerCase().contains(q)) ||
+            p.clientName.toLowerCase().contains(q);
+      }).toList();
+    }
+    return posts;
+  }
+
+  /// All posts (any status) belonging to a specific client.
+  Future<List<JobPost>> getJobPostsByClient(String clientId) async {
+    final rows = await _client
+        .from('job_posts')
+        .select()
+        .eq('client_id', clientId)
+        .order('created_at', ascending: false);
+    return rows.map(JobPost.fromMap).toList();
+  }
+
+  Future<JobPost?> getJobPostById(String id) async {
+    final row = await _client
+        .from('job_posts')
+        .select()
+        .eq('id', id)
+        .maybeSingle();
+    return row == null ? null : JobPost.fromMap(row);
+  }
+
+  Future<JobPost> insertJobPost(JobPost post) async {
+    final row = await _client
+        .from('job_posts')
+        .insert(post.toSupabaseWriteMap())
+        .select()
+        .single();
+    return JobPost.fromMap(row);
+  }
+
+  Future<JobPost> updateJobPost(JobPost post) async {
+    final row = await _client
+        .from('job_posts')
+        .update(post.toSupabaseWriteMap())
+        .eq('id', post.id)
+        .select()
+        .single();
+    return JobPost.fromMap(row);
+  }
+
+  Future<void> updateJobPostStatus(String id, JobStatus status) async {
+    await _client.from('job_posts').update({
+      'status': status.name,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  Future<void> deleteJobPost(String id) async {
+    await _client.from('job_posts').delete().eq('id', id);
+  }
+
+  /// Atomically increments view_count via RPC or a simple update.
+  Future<void> incrementJobPostViewCount(String id) async {
+    // Uses Postgres raw increment to avoid race conditions.
+    await _client.rpc('increment_job_post_view', params: {'post_id': id});
   }
 
   // ── Offline cache (SQLite only) ────────────────────────────────────────────
@@ -442,6 +1076,495 @@ class SupabaseService {
           jsonDecode(row['payload'] as String) as Map<String, dynamic>;
       return MarketplacePost.fromMap(decoded);
     }).toList();
+  }
+
+  /// Replace the columnar cache with the 20 most-recent open posts and record
+  /// the sync timestamp. Delegates to [JobCacheDao.replaceAll].
+  Future<void> cacheJobPosts(List<JobPost> posts) =>
+      _jobCacheDao.replaceAll(posts);
+
+  /// All cached job posts, ordered newest-first.
+  /// Delegates to [JobCacheDao.getAll].
+  Future<List<JobPost>> getCachedJobPosts() => _jobCacheDao.getAll();
+
+  /// When was the job cache last successfully synced from Supabase?
+  /// Returns `null` if the cache has never been populated.
+  Future<DateTime?> getJobCacheLastSyncedAt() => _jobCacheDao.lastSyncedAt();
+
+  /// `true` when the cache is older than [JobCacheDao.kStaleDuration] or empty.
+  Future<bool> isJobCacheStale() => _jobCacheDao.isStale();
+
+  // ── Freelancer Services ────────────────────────────────────────────────────
+
+  /// Fetch active service listings with optional search, category, and
+  /// max-price filters. Results are ordered newest-first and support paging.
+  Future<List<FreelancerService>> getActiveFreelancerServices({
+    String? search,
+    String? category,
+    double? maxPrice,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    var query = _client
+        .from('freelancer_services')
+        .select()
+        .eq('status', ServiceStatus.active.name);
+
+    if (category != null) {
+      query = query.eq('category', category);
+    }
+    if (maxPrice != null) {
+      // Services whose minimum price is within the budget
+      query = query.lte('price_min', maxPrice);
+    }
+
+    final rows = await query
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1);
+
+    var services = rows.map(FreelancerService.fromMap).toList();
+
+    // Client-side text search across title, description, tags and name.
+    if (search != null && search.trim().isNotEmpty) {
+      final q = search.trim().toLowerCase();
+      services = services.where((s) {
+        return s.title.toLowerCase().contains(q) ||
+            s.description.toLowerCase().contains(q) ||
+            s.tags.any((t) => t.toLowerCase().contains(q)) ||
+            s.freelancerName.toLowerCase().contains(q);
+      }).toList();
+    }
+    return services;
+  }
+
+  /// All non-deleted services owned by a specific freelancer.
+  Future<List<FreelancerService>> getFreelancerServicesByOwner(
+      String freelancerId) async {
+    final rows = await _client
+        .from('freelancer_services')
+        .select()
+        .eq('freelancer_id', freelancerId)
+        .neq('status', ServiceStatus.deleted.name)
+        .order('created_at', ascending: false);
+    return rows.map(FreelancerService.fromMap).toList();
+  }
+
+  Future<FreelancerService?> getFreelancerServiceById(String id) async {
+    final row = await _client
+        .from('freelancer_services')
+        .select()
+        .eq('id', id)
+        .maybeSingle();
+    return row == null ? null : FreelancerService.fromMap(row);
+  }
+
+  Future<FreelancerService> insertFreelancerService(
+      FreelancerService service) async {
+    final row = await _client
+        .from('freelancer_services')
+        .insert(service.toSupabaseWriteMap())
+        .select()
+        .single();
+    return FreelancerService.fromMap(row);
+  }
+
+  Future<FreelancerService> updateFreelancerService(
+      FreelancerService service) async {
+    final row = await _client
+        .from('freelancer_services')
+        .update(service.toSupabaseWriteMap())
+        .eq('id', service.id)
+        .select()
+        .single();
+    return FreelancerService.fromMap(row);
+  }
+
+  Future<void> updateFreelancerServiceStatus(
+      String id, ServiceStatus status) async {
+    await _client.from('freelancer_services').update({
+      'status': status.name,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  /// Atomically increments view_count via a Postgres RPC.
+  Future<void> incrementServiceViewCount(String id) async {
+    await _client
+        .rpc('increment_service_view', params: {'service_id': id});
+  }
+
+  // ── Service cache (SQLite) ─────────────────────────────────────────────────
+
+  /// Replace the cached_freelancer_services table with the 20 newest active
+  /// service listings.
+  Future<void> cacheFreelancerServices(
+      List<FreelancerService> services) async {
+    final batch = _localDb.batch();
+    batch.delete('cached_freelancer_services');
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final service in services.take(20)) {
+      batch.insert(
+        'cached_freelancer_services',
+        {
+          'id': service.id,
+          'payload': jsonEncode(service.toSqliteMap()),
+          'cached_at': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<List<FreelancerService>> getCachedFreelancerServices() async {
+    final rows = await _localDb.query(
+      'cached_freelancer_services',
+      orderBy: 'cached_at DESC',
+    );
+    return rows.map((row) {
+      final decoded =
+          jsonDecode(row['payload'] as String) as Map<String, dynamic>;
+      return FreelancerService.fromMap(decoded);
+    }).toList();
+  }
+
+  // ── Dispute Records ────────────────────────────────────────────────────────
+
+  Future<DisputeRecord?> getDisputeById(String id) async {
+    final row = await _client
+        .from('dispute_records')
+        .select()
+        .eq('id', id)
+        .maybeSingle();
+    return row == null ? null : DisputeRecord.fromMap(row);
+  }
+
+  Future<DisputeRecord?> getActiveDisputeForProject(String projectId) async {
+    final row = await _client
+        .from('dispute_records')
+        .select()
+        .eq('project_id', projectId)
+        .inFilter('status', ['open', 'under_review'])
+        .maybeSingle();
+    return row == null ? null : DisputeRecord.fromMap(row);
+  }
+
+  Future<List<DisputeRecord>> getDisputesByStatus(
+      DisputeStatus status) async {
+    final rows = await _client
+        .from('dispute_records')
+        .select()
+        .eq('status', status.name)
+        .order('created_at', ascending: false);
+    return rows.map(DisputeRecord.fromMap).toList();
+  }
+
+  Future<List<DisputeRecord>> getOpenDisputes() async {
+    final rows = await _client
+        .from('dispute_records')
+        .select()
+        .inFilter('status', ['open', 'under_review'])
+        .order('created_at', ascending: false);
+    return rows.map(DisputeRecord.fromMap).toList();
+  }
+
+  Future<List<DisputeRecord>> getDisputesForUser(String userId) async {
+    final rows = await _client
+        .from('dispute_records')
+        .select()
+        .or('client_id.eq.$userId,freelancer_id.eq.$userId')
+        .order('created_at', ascending: false);
+    return rows.map(DisputeRecord.fromMap).toList();
+  }
+
+  Future<void> insertDisputeRecord(DisputeRecord record) async {
+    await _client
+        .from('dispute_records')
+        .insert(record.toSupabaseMap());
+  }
+
+  Future<void> updateDisputeRecord(DisputeRecord record) async {
+    await _client
+        .from('dispute_records')
+        .update(record.toSupabaseMap())
+        .eq('id', record.id);
+  }
+
+  // ── Overdue Records ────────────────────────────────────────────────────────
+
+  Future<OverdueRecord?> getOverdueRecordForMilestone(
+      String milestoneId) async {
+    final rows = await _client
+        .from('overdue_records')
+        .select()
+        .eq('milestone_id', milestoneId)
+        .limit(1);
+    if (rows.isEmpty) return null;
+    return OverdueRecord.fromMap(rows.first);
+  }
+
+  Future<List<OverdueRecord>> getActiveOverdueRecordsForProject(
+      String projectId) async {
+    final rows = await _client
+        .from('overdue_records')
+        .select()
+        .eq('project_id', projectId)
+        .eq('auto_resolved', false)
+        .order('created_at', ascending: false);
+    return rows.map(OverdueRecord.fromMap).toList();
+  }
+
+  Future<List<OverdueRecord>> getAllActiveOverdueRecords() async {
+    final rows = await _client
+        .from('overdue_records')
+        .select()
+        .eq('auto_resolved', false)
+        .isFilter('triggered_at', null)
+        .order('milestone_deadline', ascending: true);
+    return rows.map(OverdueRecord.fromMap).toList();
+  }
+
+  Future<void> insertOverdueRecord(OverdueRecord record) async {
+    await _client.from('overdue_records').insert(record.toSupabaseMap());
+  }
+
+  Future<void> updateOverdueRecord(OverdueRecord record) async {
+    await _client
+        .from('overdue_records')
+        .update(record.toSupabaseMap())
+        .eq('id', record.id);
+  }
+
+  Future<void> markOverdueRecordResolved(String id) async {
+    await _client.from('overdue_records').update({
+      'auto_resolved': true,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  // ── Milestone: deny extension ──────────────────────────────────────────────
+
+  /// Clears the pending extension request without approving it.
+  Future<void> denyMilestoneExtension(String milestoneId) async {
+    await _client.from('milestones').update({
+      'extension_days': null,
+      'extension_requested_at': null,
+      'extension_approved': false,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', milestoneId);
+  }
+
+  // ── In-App Notifications ───────────────────────────────────────────────────
+
+  Future<void> insertNotification(InAppNotification n) async {
+    await _client.from('in_app_notifications').insert(n.toSupabaseMap());
+  }
+
+  Future<List<InAppNotification>> getNotificationsForUser(
+    String userId, {
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final rows = await _client
+        .from('in_app_notifications')
+        .select()
+        .eq('user_id', userId)
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1);
+    return rows.map(InAppNotification.fromMap).toList();
+  }
+
+  Future<int> unreadNotificationCount(String userId) async {
+    final result = await _client
+        .from('in_app_notifications')
+        .select()
+        .eq('user_id', userId)
+        .eq('is_read', false)
+        .count();
+    return result.count;
+  }
+
+  Future<void> markNotificationRead(String notificationId) async {
+    await _client.from('in_app_notifications').update({
+      'is_read': true,
+    }).eq('id', notificationId);
+  }
+
+  Future<void> markAllNotificationsRead(String userId) async {
+    await _client.from('in_app_notifications').update({
+      'is_read': true,
+    }).eq('user_id', userId).eq('is_read', false);
+  }
+
+  // ── Chat Rooms ─────────────────────────────────────────────────────────────
+
+  /// All rooms the user participates in, ordered by last message time.
+  Future<List<ChatRoom>> getChatRoomsForUser(String userId) async {
+    final rows = await _client
+        .from('chat_rooms')
+        .select()
+        .contains('participant_ids', [userId])
+        .order('last_message_at', ascending: false, nullsFirst: false);
+    return rows.map(ChatRoom.fromMap).toList();
+  }
+
+  Future<ChatRoom?> getChatRoomById(String id) async {
+    final row = await _client
+        .from('chat_rooms')
+        .select()
+        .eq('id', id)
+        .maybeSingle();
+    return row == null ? null : ChatRoom.fromMap(row);
+  }
+
+  /// Find an existing direct room between exactly these two participants.
+  Future<ChatRoom?> getDirectRoom(String userId1, String userId2) async {
+    // Filter rooms that contain both participants using @> (contains)
+    final rows = await _client
+        .from('chat_rooms')
+        .select()
+        .eq('type', 'direct')
+        .contains('participant_ids', [userId1, userId2]);
+    // Verify it has exactly these 2 participants
+    for (final row in rows) {
+      final room = ChatRoom.fromMap(row);
+      if (room.participantIds.length == 2 &&
+          room.participantIds.contains(userId1) &&
+          room.participantIds.contains(userId2)) {
+        return room;
+      }
+    }
+    return null;
+  }
+
+  /// Find the project room for the given project, if it exists.
+  Future<ChatRoom?> getProjectRoom(String projectId) async {
+    final row = await _client
+        .from('chat_rooms')
+        .select()
+        .eq('type', 'project')
+        .eq('project_id', projectId)
+        .maybeSingle();
+    return row == null ? null : ChatRoom.fromMap(row);
+  }
+
+  Future<ChatRoom?> getAppealRoom(String appealId) async {
+    final row = await _client
+        .from('chat_rooms')
+        .select()
+        .eq('type', 'appeal')
+        .eq('appeal_id', appealId)
+        .maybeSingle();
+    return row == null ? null : ChatRoom.fromMap(row);
+  }
+
+  Future<ChatRoom?> getDisputeRoom(String disputeId) async {
+    final row = await _client
+        .from('chat_rooms')
+        .select()
+        .eq('type', 'dispute')
+        .eq('dispute_id', disputeId)
+        .maybeSingle();
+    return row == null ? null : ChatRoom.fromMap(row);
+  }
+
+  Future<ChatRoom> insertChatRoom(ChatRoom room) async {
+    final row = await _client
+        .from('chat_rooms')
+        .insert(room.toSupabaseMap())
+        .select()
+        .single();
+    return ChatRoom.fromMap(row);
+  }
+
+  Future<void> updateChatRoom(ChatRoom room) async {
+    await _client
+        .from('chat_rooms')
+        .update(room.toSupabaseMap())
+        .eq('id', room.id);
+  }
+
+  /// Add a participant to an existing room (e.g. admin joins a dispute room).
+  Future<void> addParticipantToRoom(String roomId, String userId) async {
+    // Use Postgres array append via raw SQL to avoid race conditions
+    await _client.rpc('append_chat_participant',
+        params: {'room_id': roomId, 'user_id': userId});
+  }
+
+  // ── Chat Messages ──────────────────────────────────────────────────────────
+
+  Future<List<ChatMessage>> getMessagesForRoom(
+    String roomId, {
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final rows = await _client
+        .from('chat_messages')
+        .select()
+        .eq('room_id', roomId)
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1);
+    // Reverse so oldest-first for display
+    return rows.reversed.map(ChatMessage.fromMap).toList();
+  }
+
+  Future<ChatMessage> insertChatMessage(ChatMessage message) async {
+    final row = await _client
+        .from('chat_messages')
+        .insert(message.toSupabaseMap())
+        .select()
+        .single();
+    return ChatMessage.fromMap(row);
+  }
+
+  /// Supabase Realtime stream of new messages for a specific room.
+  Stream<List<Map<String, dynamic>>> chatMessagesStream(String roomId) =>
+      _client
+          .from('chat_messages')
+          .stream(primaryKey: ['id'])
+          .eq('room_id', roomId)
+          .order('created_at', ascending: true)
+          .map((rows) => rows.cast<Map<String, dynamic>>());
+
+  /// Supabase Realtime stream of chat rooms for a user.
+  /// NOTE: Supabase Realtime stream() doesn't support array contains,
+  /// so we stream all and filter on the client side.
+  Stream<List<ChatRoom>> chatRoomsStream(String userId) => _client
+      .from('chat_rooms')
+      .stream(primaryKey: ['id'])
+      .order('last_message_at', ascending: false)
+      .map((rows) => rows
+          .map(ChatRoom.fromMap)
+          .where((r) => r.participantIds.contains(userId))
+          .toList());
+
+  // ── Chat Reads ─────────────────────────────────────────────────────────────
+
+  /// Upsert the user's last-read timestamp for a room.
+  Future<void> markRoomRead(String roomId, String userId) async {
+    await _client.from('chat_reads').upsert({
+      'room_id': roomId,
+      'user_id': userId,
+      'last_read_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// Get last-read timestamps for all rooms the user is in.
+  Future<Map<String, DateTime>> getChatReadTimestamps(String userId) async {
+    final rows = await _client
+        .from('chat_reads')
+        .select()
+        .eq('user_id', userId);
+    final Map<String, DateTime> result = {};
+    for (final row in rows) {
+      final roomId = row['room_id'] as String;
+      final ts = row['last_read_at'];
+      if (ts != null) {
+        final parsed = ts is String ? DateTime.tryParse(ts) : null;
+        if (parsed != null) result[roomId] = parsed;
+      }
+    }
+    return result;
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────

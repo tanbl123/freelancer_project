@@ -1,3 +1,5 @@
+import '../../../backend/shared/domain_types.dart';
+
 class ProjectItem {
   const ProjectItem({
     required this.id,
@@ -9,37 +11,89 @@ class ProjectItem {
     this.jobTitle,
     this.clientName,
     this.freelancerName,
+    this.sourceType = 'job',
+    this.serviceOrderId,
+    this.totalBudget,
+    this.startDate,
+    this.endDate,
+    this.description,
+    this.clientSignatureUrl,
     this.createdAt,
     this.updatedAt,
   });
 
   final String id;
+
+  /// Originating job post id — empty string for service-order projects.
   final String jobId;
+
+  /// Originating application id — empty string for service-order projects.
   final String applicationId;
+
   final String clientId;
   final String freelancerId;
-  final String status; // 'inProgress' | 'completed' | 'cancelled'
+
+  /// Typed project status — replaces the old free-form String.
+  final ProjectStatus status;
+
   final String? jobTitle;
   final String? clientName;
   final String? freelancerName;
+
+  /// 'job' (from a job application) or 'service' (from a service order).
+  final String sourceType;
+
+  /// Non-null when [sourceType] == 'service'.
+  final String? serviceOrderId;
+
+  /// Total contract value. Milestone amounts are percentages of this.
+  final double? totalBudget;
+
+  /// When the project kicked off (plan approved).
+  final DateTime? startDate;
+
+  /// Agreed end date (project deadline).
+  final DateTime? endDate;
+
+  /// Optional brief description / scope note.
+  final String? description;
+
+  /// Client's final digital signature URL — set when project is completed.
+  final String? clientSignatureUrl;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  bool get isCompleted => status == 'completed';
+  // ── Computed ────────────────────────────────────────────────────────────────
+
+  bool get isCompleted => status == ProjectStatus.completed;
+  bool get isInProgress => status == ProjectStatus.inProgress;
+  bool get isPendingStart => status == ProjectStatus.pendingStart;
+  bool get isCancelled => status == ProjectStatus.cancelled;
+  bool get isDisputed => status == ProjectStatus.disputed;
+  bool get isActive =>
+      status == ProjectStatus.inProgress || status == ProjectStatus.pendingStart;
 
   // ── Supabase map (ISO 8601) ──────────────────────────────────────────────────
   Map<String, dynamic> toSupabaseMap() {
     final now = DateTime.now().toIso8601String();
     return {
       'id': id,
-      'job_id': jobId,
-      'application_id': applicationId,
+      'job_id': jobId.isEmpty ? null : jobId,
+      'application_id': applicationId.isEmpty ? null : applicationId,
       'client_id': clientId,
       'freelancer_id': freelancerId,
-      'status': status,
+      'status': status.name,
       'job_title': jobTitle,
       'client_name': clientName,
       'freelancer_name': freelancerName,
+      'source_type': sourceType,
+      'service_order_id': serviceOrderId,
+      'total_budget': totalBudget,
+      'start_date': startDate?.toIso8601String(),
+      'end_date': endDate?.toIso8601String(),
+      'description': description,
+      'client_signature_url': clientSignatureUrl,
       'created_at': createdAt?.toIso8601String() ?? now,
       'updated_at': now,
     };
@@ -54,7 +108,10 @@ class ProjectItem {
       'application_id': applicationId,
       'client_id': clientId,
       'freelancer_id': freelancerId,
-      'status': status,
+      'status': status.name,
+      'source_type': sourceType,
+      'service_order_id': serviceOrderId,
+      'total_budget': totalBudget,
       'created_at': createdAt?.millisecondsSinceEpoch ?? now,
       'updated_at': updatedAt?.millisecondsSinceEpoch ?? now,
     };
@@ -71,24 +128,38 @@ class ProjectItem {
 
     return ProjectItem(
       id: map['id'] as String,
-      jobId: map['job_id'] as String,
-      applicationId: map['application_id'] as String,
+      jobId: map['job_id'] as String? ?? '',
+      applicationId: map['application_id'] as String? ?? '',
       clientId: map['client_id'] as String,
       freelancerId: map['freelancer_id'] as String,
-      status: map['status'] as String? ?? 'inProgress',
+      status: ProjectStatus.fromString(map['status'] as String? ?? 'pendingStart'),
       jobTitle: map['job_title'] as String?,
       clientName: map['client_name'] as String?,
       freelancerName: map['freelancer_name'] as String?,
+      sourceType: map['source_type'] as String? ?? 'job',
+      serviceOrderId: map['service_order_id'] as String?,
+      totalBudget: map['total_budget'] == null
+          ? null
+          : (map['total_budget'] as num).toDouble(),
+      startDate: parseDate(map['start_date']),
+      endDate: parseDate(map['end_date']),
+      description: map['description'] as String?,
+      clientSignatureUrl: map['client_signature_url'] as String?,
       createdAt: parseDate(map['created_at']),
       updatedAt: parseDate(map['updated_at']),
     );
   }
 
   ProjectItem copyWith({
-    String? status,
+    ProjectStatus? status,
     String? jobTitle,
     String? clientName,
     String? freelancerName,
+    double? totalBudget,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? description,
+    String? clientSignatureUrl,
   }) {
     return ProjectItem(
       id: id,
@@ -100,6 +171,13 @@ class ProjectItem {
       jobTitle: jobTitle ?? this.jobTitle,
       clientName: clientName ?? this.clientName,
       freelancerName: freelancerName ?? this.freelancerName,
+      sourceType: sourceType,
+      serviceOrderId: serviceOrderId,
+      totalBudget: totalBudget ?? this.totalBudget,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
+      description: description ?? this.description,
+      clientSignatureUrl: clientSignatureUrl ?? this.clientSignatureUrl,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

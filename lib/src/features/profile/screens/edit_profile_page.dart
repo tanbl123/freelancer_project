@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../backend/shared/domain_types.dart';
 import '../../../services/file_storage_service.dart';
 import '../../../state/app_state.dart';
 
@@ -126,7 +127,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   @override
   Widget build(BuildContext context) {
     final user = AppState.instance.currentUser!;
-    final isFreelancer = user.role == 'freelancer';
+    final isFreelancer = user.role == UserRole.freelancer;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Edit Profile')),

@@ -5,14 +5,24 @@ import '../../../backend/shared/domain_types.dart';
 import '../../../state/app_state.dart';
 import '../models/milestone_item.dart';
 
+/// Form for editing an already-persisted milestone (e.g. during inProgress).
+///
+/// For proposing a brand-new plan, use [MilestonePlanPage] instead — it
+/// manages draft milestones in local state and submits them in batch.
 class MilestoneFormPage extends StatefulWidget {
   const MilestoneFormPage({
     super.key,
     required this.projectId,
+    required this.totalBudget,
     this.existing,
   });
 
   final String projectId;
+
+  /// Used to calculate the payment amount preview from the percentage.
+  final double totalBudget;
+
+  /// When non-null the form is in edit mode; otherwise it creates a new milestone.
   final MilestoneItem? existing;
 
   @override
@@ -22,13 +32,19 @@ class MilestoneFormPage extends StatefulWidget {
 class _MilestoneFormPageState extends State<MilestoneFormPage> {
   static const _uuid = Uuid();
   final _formKey = GlobalKey<FormState>();
+
   late final TextEditingController _titleController;
   late final TextEditingController _descController;
-  late final TextEditingController _amountController;
+  late final TextEditingController _pctController;
   late DateTime _deadline;
   bool _isLoading = false;
 
   bool get _isEditing => widget.existing != null;
+
+  double get _previewAmount {
+    final pct = double.tryParse(_pctController.text) ?? 0;
+    return widget.totalBudget * pct / 100;
+  }
 
   @override
   void initState() {
@@ -36,17 +52,16 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
     final e = widget.existing;
     _titleController = TextEditingController(text: e?.title ?? '');
     _descController = TextEditingController(text: e?.description ?? '');
-    _amountController = TextEditingController(
-        text: e != null ? e.paymentAmount.toStringAsFixed(0) : '');
-    _deadline =
-        e?.deadline ?? DateTime.now().add(const Duration(days: 7));
+    _pctController = TextEditingController(
+        text: e != null ? e.percentage.toStringAsFixed(0) : '');
+    _deadline = e?.deadline ?? DateTime.now().add(const Duration(days: 14));
   }
 
   @override
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
-    _amountController.dispose();
+    _pctController.dispose();
     super.dispose();
   }
 
@@ -55,7 +70,7 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
       context: context,
       initialDate: _deadline,
       firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 730)),
     );
     if (picked != null) setState(() => _deadline = picked);
   }
@@ -64,12 +79,16 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
+    final pct = double.parse(_pctController.text.trim());
+    final amount = widget.totalBudget * pct / 100;
+
     if (_isEditing) {
       final updated = widget.existing!.copyWith(
         title: _titleController.text.trim(),
         description: _descController.text.trim(),
         deadline: _deadline,
-        paymentAmount: double.parse(_amountController.text),
+        percentage: pct,
+        paymentAmount: amount,
       );
       await AppState.instance.updateMilestone(updated);
     } else {
@@ -79,8 +98,10 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
         title: _titleController.text.trim(),
         description: _descController.text.trim(),
         deadline: _deadline,
-        paymentAmount: double.parse(_amountController.text),
-        status: MilestoneStatus.draft,
+        paymentAmount: amount,
+        percentage: pct,
+        orderIndex: 1,
+        status: MilestoneStatus.inProgress,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
@@ -92,8 +113,8 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content: Text(
-              _isEditing ? 'Milestone updated!' : 'Milestone added!')),
+          content:
+              Text(_isEditing ? 'Milestone updated!' : 'Milestone added!')),
     );
   }
 
@@ -110,6 +131,7 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Title
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(
@@ -118,53 +140,67 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
                 ),
                 textInputAction: TextInputAction.next,
                 validator: (v) =>
-                    v == null || v.trim().isEmpty
-                        ? 'Title is required'
-                        : null,
+                    v == null || v.trim().isEmpty ? 'Title is required' : null,
               ),
               const SizedBox(height: 12),
+
+              // Description
               TextFormField(
                 controller: _descController,
                 decoration: const InputDecoration(
                   labelText: 'Description *',
                   border: OutlineInputBorder(),
-                  hintText: 'Describe what will be delivered...',
+                  hintText: 'Describe what will be delivered…',
                 ),
                 maxLines: 4,
-                validator: (v) =>
-                    v == null || v.trim().isEmpty
-                        ? 'Description is required'
-                        : null,
+                validator: (v) => v == null || v.trim().isEmpty
+                    ? 'Description is required'
+                    : null,
               ),
               const SizedBox(height: 12),
+
+              // Percentage
               TextFormField(
-                controller: _amountController,
-                decoration: const InputDecoration(
-                  labelText: 'Payment Amount (RM) *',
-                  border: OutlineInputBorder(),
-                  prefixText: 'RM ',
+                controller: _pctController,
+                decoration: InputDecoration(
+                  labelText: 'Percentage (%) *',
+                  border: const OutlineInputBorder(),
+                  suffixText: '%',
+                  helperText: widget.totalBudget > 0
+                      ? '≈ RM ${_previewAmount.toStringAsFixed(2)} '
+                          'of RM ${widget.totalBudget.toStringAsFixed(2)}'
+                      : null,
                 ),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => setState(() {}),
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) {
-                    return 'Amount is required';
+                    return 'Percentage is required';
                   }
                   final val = double.tryParse(v);
-                  if (val == null || val <= 0) {
-                    return 'Amount must be greater than 0';
+                  if (val == null || val <= 0 || val > 100) {
+                    return 'Enter a value between 1 and 100';
                   }
                   return null;
                 },
               ),
               const SizedBox(height: 12),
+
+              // Deadline
               OutlinedButton.icon(
                 onPressed: _pickDeadline,
                 icon: const Icon(Icons.calendar_today),
                 label: Text(
-                    'Deadline: ${_deadline.toLocal().toString().split(' ').first}'),
+                  'Deadline: '
+                  '${_deadline.day.toString().padLeft(2, '0')}/'
+                  '${_deadline.month.toString().padLeft(2, '0')}/'
+                  '${_deadline.year}',
+                ),
               ),
               const SizedBox(height: 24),
+
+              // Submit
               FilledButton(
                 onPressed: _isLoading ? null : _submit,
                 style: FilledButton.styleFrom(

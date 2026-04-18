@@ -81,7 +81,7 @@ class ModuleDashboardPage extends StatelessWidget {
                                   ),
                                 ),
                                 Text(
-                                  user.role[0].toUpperCase() + user.role.substring(1),
+                                  user.role.displayName,
                                   style: TextStyle(
                                     color: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
                                   ),

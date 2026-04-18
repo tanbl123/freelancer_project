@@ -1,3 +1,4 @@
+import '../../../shared/enums/user_role.dart';
 import '../models/profile_user.dart';
 
 class ProfileController {
@@ -10,7 +11,7 @@ class ProfileController {
       email: '',
       passwordHash: '',
       phone: '',
-      role: 'freelancer',
+      role: UserRole.freelancer,
       bio: 'Connect Firestore profile query here.',
     );
   }

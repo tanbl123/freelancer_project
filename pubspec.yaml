@@ -35,8 +35,14 @@ dependencies:
   audioplayers: ^6.4.0        # Voice pitch playback
   flutter_stripe: ^11.4.0     # Payment gateway simulation
 
+  # Deep link handling (OAuth callback on Windows/Android/iOS)
+  app_links: ^6.4.0
+
   # Connectivity & networking
   connectivity_plus: ^6.1.1
+
+  # Country picker (searchable list of all world countries)
+  country_picker: ^2.0.21
 
   # Utilities
   uuid: ^4.5.3

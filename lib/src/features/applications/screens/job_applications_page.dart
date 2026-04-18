@@ -7,14 +7,44 @@ import '../../../state/app_state.dart';
 import '../models/application_item.dart';
 import 'apply_form_page.dart';
 
-class JobApplicationsPage extends StatefulWidget {
+class JobApplicationsPage extends StatelessWidget {
   const JobApplicationsPage({super.key});
 
   @override
-  State<JobApplicationsPage> createState() => _JobApplicationsPageState();
+  Widget build(BuildContext context) {
+    final isFreelancer =
+        AppState.instance.currentUser?.role == UserRole.freelancer;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Applications'),
+        automaticallyImplyLeading: false,
+      ),
+      floatingActionButton: isFreelancer
+          ? FloatingActionButton.extended(
+              heroTag: 'apply_fab',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ApplyFormPage()),
+              ).then((_) => AppState.instance.reloadApplications()),
+              icon: const Icon(Icons.send),
+              label: const Text('Apply'),
+            )
+          : null,
+      body: const JobApplicationsBody(),
+    );
+  }
 }
 
-class _JobApplicationsPageState extends State<JobApplicationsPage> {
+/// The scrollable body of the job-applications screen, extracted so it can
+/// be embedded inside [RaDashboardScreen]'s TabBarView without a double-Scaffold.
+class JobApplicationsBody extends StatefulWidget {
+  const JobApplicationsBody({super.key});
+
+  @override
+  State<JobApplicationsBody> createState() => _JobApplicationsBodyState();
+}
+
+class _JobApplicationsBodyState extends State<JobApplicationsBody> {
   @override
   void initState() {
     super.initState();
@@ -24,60 +54,48 @@ class _JobApplicationsPageState extends State<JobApplicationsPage> {
   @override
   Widget build(BuildContext context) {
     final user = AppState.instance.currentUser;
-    final isFreelancer = user?.role == 'freelancer';
+    final isFreelancer = user?.role == UserRole.freelancer;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Applications')),
-      floatingActionButton: isFreelancer
-          ? FloatingActionButton.extended(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ApplyFormPage()),
-              ).then((_) => AppState.instance.reloadApplications()),
-              icon: const Icon(Icons.send),
-              label: const Text('Apply'),
-            )
-          : null,
-      // Real-time StreamBuilder — Module 2 advanced feature
-      body: StreamBuilder<List<ApplicationItem>>(
-        stream: AppState.instance.applicationsStream,
-        initialData: AppState.instance.userApplications,
-        builder: (context, snapshot) {
-          final allApps = snapshot.data ?? AppState.instance.userApplications;
+    // Real-time StreamBuilder
+    return StreamBuilder<List<ApplicationItem>>(
+      stream: AppState.instance.applicationsStream,
+      initialData: AppState.instance.userApplications,
+      builder: (context, snapshot) {
+        final allApps =
+            snapshot.data ?? AppState.instance.userApplications;
 
-          if (allApps.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.description_outlined,
-                      size: 64, color: Colors.grey),
-                  const SizedBox(height: 12),
-                  Text(
-                    isFreelancer
-                        ? 'You haven\'t applied to any jobs yet.\nTap + to submit a proposal.'
-                        : 'No applications have been submitted to your jobs yet.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return RefreshIndicator(
-            onRefresh: () => AppState.instance.reloadApplications(),
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-              itemCount: allApps.length,
-              itemBuilder: (context, index) => _ApplicationCard(
-                item: allApps[index],
-                currentUser: user,
-              ),
+        if (allApps.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.description_outlined,
+                    size: 64, color: Colors.grey),
+                const SizedBox(height: 12),
+                Text(
+                  isFreelancer
+                      ? 'You haven\'t applied to any jobs yet.\nTap + to submit a proposal.'
+                      : 'No applications have been submitted to your jobs yet.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.grey),
+                ),
+              ],
             ),
           );
-        },
-      ),
+        }
+
+        return RefreshIndicator(
+          onRefresh: () => AppState.instance.reloadApplications(),
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+            itemCount: allApps.length,
+            itemBuilder: (context, index) => _ApplicationCard(
+              item: allApps[index],
+              currentUser: user,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -111,6 +129,8 @@ class _ApplicationCardState extends State<_ApplicationCard> {
         return Colors.grey;
       case ApplicationStatus.pending:
         return Colors.orange;
+      case ApplicationStatus.convertedToProject:
+        return Colors.blue;
     }
   }
 
@@ -134,9 +154,9 @@ class _ApplicationCardState extends State<_ApplicationCard> {
     final item = widget.item;
     final user = widget.currentUser;
     final isClientView =
-        user?.role == 'client' && item.clientId == user?.uid;
+        user?.role == UserRole.client && item.clientId == user?.uid;
     final isFreelancerView =
-        user?.role == 'freelancer' && item.freelancerId == user?.uid;
+        user?.role == UserRole.freelancer && item.freelancerId == user?.uid;
     final statusColor = _statusColor(item.status);
 
     return Card(
@@ -341,13 +361,22 @@ class _ApplicationCardState extends State<_ApplicationCard> {
           FilledButton(
             onPressed: () async {
               Navigator.pop(context);
-              await AppState.instance.acceptApplication(widget.item);
+              final err =
+                  await AppState.instance.acceptApplication(widget.item);
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text(
-                          'Application accepted! Project created.')),
-                );
+                if (err != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(err),
+                        backgroundColor: Colors.red),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text(
+                            'Application accepted! Project created.')),
+                  );
+                }
               }
             },
             child: const Text('Accept'),

@@ -45,5 +45,14 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- Camera & photo library permissions required by `camera` and `image_picker` packages -->
+	<key>NSCameraUsageDescription</key>
+	<string>Used to capture photos for job covers and service portfolio images.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The camera requires microphone access. Audio is not recorded.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Used to pick photos for job covers and service portfolio images.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Used to save captured photos to your photo library.</string>
 </dict>
 </plist>

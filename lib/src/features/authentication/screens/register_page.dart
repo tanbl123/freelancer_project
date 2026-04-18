@@ -5,9 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../../routing/app_router.dart';
 import '../../../services/file_storage_service.dart';
 import '../../../state/app_state.dart';
+import '../../user/screens/email_verification_screen.dart';
+import '../../user/services/user_validator.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -24,16 +25,12 @@ class _RegisterPageState extends State<RegisterPage> {
   final _confirmPasswordController = TextEditingController();
   final _phoneController = TextEditingController();
   final _bioController = TextEditingController();
-  final _experienceController = TextEditingController();
-  final _skillInput = TextEditingController();
 
-  String _selectedRole = 'freelancer';
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   String? _errorMessage;
   String? _photoPath;
-  final List<String> _skills = [];
 
   @override
   void dispose() {
@@ -43,8 +40,6 @@ class _RegisterPageState extends State<RegisterPage> {
     _confirmPasswordController.dispose();
     _phoneController.dispose();
     _bioController.dispose();
-    _experienceController.dispose();
-    _skillInput.dispose();
     super.dispose();
   }
 
@@ -69,21 +64,8 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => _photoPath = saved);
   }
 
-  void _addSkill() {
-    final skill = _skillInput.text.trim();
-    if (skill.isEmpty) return;
-    setState(() {
-      if (!_skills.contains(skill)) _skills.add(skill);
-      _skillInput.clear();
-    });
-  }
-
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_passwordController.text != _confirmPasswordController.text) {
-      setState(() => _errorMessage = 'Passwords do not match.');
-      return;
-    }
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -94,10 +76,6 @@ class _RegisterPageState extends State<RegisterPage> {
       email: _emailController.text.trim(),
       password: _passwordController.text,
       phone: _phoneController.text.trim(),
-      role: _selectedRole,
-      bio: _bioController.text.trim(),
-      experience: _experienceController.text.trim(),
-      skills: List.from(_skills),
       photoUrl: _photoPath,
     );
 
@@ -106,7 +84,20 @@ class _RegisterPageState extends State<RegisterPage> {
     if (error != null) {
       setState(() => _errorMessage = error);
     } else {
-      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.dashboard, (_) => false);
+      // Push the verification screen while keeping this page in the stack.
+      // When the user taps the back arrow on the verification screen they
+      // will return here with all their form data still filled in.
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EmailVerificationScreen(
+            email: _emailController.text.trim().toLowerCase(),
+            name: _nameController.text.trim(),
+            phone: _phoneController.text.trim(),
+            photoUrl: _photoPath,
+          ),
+        ),
+      );
     }
   }
 
@@ -169,25 +160,30 @@ class _RegisterPageState extends State<RegisterPage> {
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
-              // Role selector
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'client',
-                    label: Text('Client'),
-                    icon: Icon(Icons.business),
-                  ),
-                  ButtonSegment(
-                    value: 'freelancer',
-                    label: Text('Freelancer'),
-                    icon: Icon(Icons.code),
-                  ),
-                ],
-                selected: {_selectedRole},
-                onSelectionChanged: (s) =>
-                    setState(() => _selectedRole = s.first),
+              // Info banner — all accounts start as Client
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colors.secondaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        color: colors.onSecondaryContainer, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'New accounts start as Client. '
+                        'You can apply to become a Freelancer from your profile after registering.',
+                        style: TextStyle(
+                            color: colors.onSecondaryContainer, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 20),
 
@@ -202,7 +198,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 textInputAction: TextInputAction.next,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(
-                      RegExp(r"^[\p{L}\s'-]+$", unicode: true)),
+                      RegExp(r"[\p{L}\s'\-]", unicode: true)),
                 ],
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Name is required';
@@ -254,11 +250,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 obscureText: _obscurePassword,
                 textInputAction: TextInputAction.next,
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Password is required';
-                  if (v.length < 6) return 'At least 6 characters';
-                  return null;
-                },
+                validator: UserValidator.validatePassword,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -277,8 +269,8 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 obscureText: _obscureConfirm,
                 textInputAction: TextInputAction.next,
-                validator: (v) =>
-                    v == null || v.isEmpty ? 'Confirm your password' : null,
+                validator: (v) => UserValidator.validateConfirmPassword(
+                    v, _passwordController.text),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -316,68 +308,6 @@ class _RegisterPageState extends State<RegisterPage> {
                 textInputAction: TextInputAction.next,
               ),
 
-              // Freelancer-only fields
-              if (_selectedRole == 'freelancer') ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _experienceController,
-                  decoration: const InputDecoration(
-                    labelText: 'Experience (optional)',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.work_history_outlined),
-                    hintText: 'e.g. 3 years Flutter development',
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 12),
-                // Skills chip input
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Skills',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 8),
-                        if (_skills.isNotEmpty)
-                          Wrap(
-                            spacing: 6,
-                            children: _skills
-                                .map((s) => Chip(
-                                      label: Text(s),
-                                      onDeleted: () =>
-                                          setState(() => _skills.remove(s)),
-                                      visualDensity: VisualDensity.compact,
-                                    ))
-                                .toList(),
-                          ),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _skillInput,
-                                decoration: const InputDecoration(
-                                  hintText: 'Type a skill and press +',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                                onSubmitted: (_) => _addSkill(),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filled(
-                              onPressed: _addSkill,
-                              icon: const Icon(Icons.add),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-
               if (_errorMessage != null) ...[
                 const SizedBox(height: 12),
                 Container(
@@ -409,7 +339,18 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               const SizedBox(height: 12),
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () async {
+                  // If the user came back from the verification screen and is
+                  // still signed in with a pendingVerification account, cancel
+                  // the registration before leaving so the unverified record
+                  // is cleaned up. The form data is discarded naturally when
+                  // this page is popped off the stack.
+                  final user = AppState.instance.currentUser;
+                  if (user != null) {
+                    await AppState.instance.cancelRegistration();
+                  }
+                  if (mounted) Navigator.pop(context);
+                },
                 child: const Text('Already have an account? Sign In'),
               ),
             ],

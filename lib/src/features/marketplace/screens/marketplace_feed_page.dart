@@ -29,7 +29,7 @@ class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
     super.initState();
     // Clients default to Services tab (find freelancers to hire).
     // Freelancers default to Jobs tab (find work to apply for).
-    final isClient = AppState.instance.currentUser?.role == 'client';
+    final isClient = AppState.instance.currentUser?.role == UserRole.client;
     _tabController = TabController(length: 2, vsync: this, initialIndex: isClient ? 1 : 0);
     _checkConnectivity();
   }
@@ -74,7 +74,7 @@ class _MarketplaceFeedPageState extends State<MarketplaceFeedPage>
       listenable: AppState.instance,
       builder: (context, _) {
         final user = AppState.instance.currentUser;
-        final isClient = user?.role == 'client';
+        final isClient = user?.role == UserRole.client;
         final allPosts = AppState.instance.posts;
         final jobs = _filter(
             allPosts.where((p) => p.type == PostType.jobRequest).toList());
@@ -609,7 +609,7 @@ class _PostDetailSheet extends StatelessWidget {
           const SizedBox(height: 24),
 
           // Apply button: freelancers on job requests only
-          if (user?.role == 'freelancer' && isJob)
+          if (user?.role == UserRole.freelancer && isJob)
             FilledButton.icon(
               onPressed: () {
                 Navigator.pop(context);
@@ -621,7 +621,7 @@ class _PostDetailSheet extends StatelessWidget {
             ),
 
           // Hire button: clients on service offerings only
-          if (user?.role == 'client' && !isJob)
+          if (user?.role == UserRole.client && !isJob)
             FilledButton.icon(
               onPressed: () {
                 Navigator.pop(context);

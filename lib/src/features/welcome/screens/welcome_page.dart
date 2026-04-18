@@ -1,9 +1,40 @@
 import 'package:flutter/material.dart';
 
 import '../../../routing/app_router.dart';
+import '../../../state/app_state.dart';
 
-class WelcomePage extends StatelessWidget {
+class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
+
+  @override
+  State<WelcomePage> createState() => _WelcomePageState();
+}
+
+class _WelcomePageState extends State<WelcomePage> {
+  @override
+  void initState() {
+    super.initState();
+    // Listen for Google / OAuth sign-in completing while this page is showing.
+    // (Happens when Android/iOS resumes the app after the OAuth callback.)
+    AppState.instance.addListener(_onAuthChanged);
+    // Also check immediately in case the session was restored before this
+    // page was built (e.g. app relaunched after being killed by the OS).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onAuthChanged());
+  }
+
+  @override
+  void dispose() {
+    AppState.instance.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    if (!mounted) return;
+    if (AppState.instance.isLoggedIn) {
+      Navigator.pushNamedAndRemoveUntil(
+          context, AppRoutes.dashboard, (_) => false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

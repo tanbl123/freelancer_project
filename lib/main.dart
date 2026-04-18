@@ -14,6 +14,7 @@ flutter pub add sqflite
 flutter pub add uuid
 flutter pub add path_provider
 winget install Microsoft.NuGet
+flutter pub get
 */
 
 

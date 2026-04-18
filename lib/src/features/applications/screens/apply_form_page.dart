@@ -9,13 +9,23 @@ import 'package:uuid/uuid.dart';
 import '../../../backend/shared/domain_types.dart';
 import '../../../services/file_storage_service.dart';
 import '../../../state/app_state.dart';
+import '../../jobs/models/job_post.dart';
 import '../../marketplace/models/marketplace_post.dart';
 import '../models/application_item.dart';
 
 class ApplyFormPage extends StatefulWidget {
-  const ApplyFormPage({super.key, this.existing, this.preselectedPost});
+  const ApplyFormPage({
+    super.key,
+    this.existing,
+    this.preselectedPost,
+    this.preselectedJobPost,
+  });
   final ApplicationItem? existing;
   final MarketplacePost? preselectedPost;
+
+  /// When navigating from [JobDetailScreen], pass the [JobPost] directly.
+  /// Takes priority over [preselectedPost].
+  final JobPost? preselectedJobPost;
 
   @override
   State<ApplyFormPage> createState() => _ApplyFormPageState();
@@ -39,6 +49,9 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
   late final AudioPlayer _player;
   List<MarketplacePost> _availableJobs = [];
 
+  // When a JobPost is preselected we store its details for use in _submit().
+  JobPost? _preselectedJobPost;
+
   bool get _isEditing => widget.existing != null;
 
   @override
@@ -46,6 +59,10 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
     super.initState();
     _recorder = AudioRecorder();
     _player = AudioPlayer();
+
+    // JobPost takes priority over MarketplacePost
+    _preselectedJobPost = widget.preselectedJobPost;
+
     _loadJobs();
     if (_isEditing) {
       final a = widget.existing!;
@@ -55,6 +72,8 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
       _daysController.text = a.timelineDays.toString();
       _resumePath = a.resumeUrl;
       _voicePitchPath = a.voicePitchUrl;
+    } else if (_preselectedJobPost != null) {
+      _selectedJobId = _preselectedJobPost!.id;
     } else if (widget.preselectedPost != null) {
       _selectedJobId = widget.preselectedPost!.id;
     }
@@ -159,10 +178,18 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
     setState(() => _isLoading = true);
 
     final user = AppState.instance.currentUser!;
-    final job = AppState.instance.posts
-        .firstWhere((p) => p.id == _selectedJobId, orElse: () {
-      return AppState.instance.posts.first;
-    });
+
+    // Resolve clientId: prefer JobPost (new module), fall back to
+    // MarketplacePost (legacy marketplace), then fall back to empty string.
+    String resolvedClientId;
+    if (_preselectedJobPost != null) {
+      resolvedClientId = _preselectedJobPost!.clientId;
+    } else {
+      final legacyPost = AppState.instance.posts
+          .where((p) => p.id == _selectedJobId)
+          .firstOrNull;
+      resolvedClientId = legacyPost?.ownerId ?? '';
+    }
 
     String? error;
     if (_isEditing) {
@@ -178,7 +205,7 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
       final app = ApplicationItem(
         id: _uuid.v4(),
         jobId: _selectedJobId!,
-        clientId: job.ownerId,
+        clientId: resolvedClientId,
         freelancerId: user.uid,
         freelancerName: user.displayName,
         proposalMessage: _proposalController.text.trim(),
@@ -221,8 +248,40 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Job selector
-              if (!_isEditing)
+              // Job selector (hidden when a JobPost is preselected)
+              if (!_isEditing && _preselectedJobPost != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 14),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.outline),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.work_outline, color: Colors.grey),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Applying for',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.grey)),
+                            Text(
+                              _preselectedJobPost!.title,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else if (!_isEditing)
                 DropdownButtonFormField<String>(
                   initialValue: _selectedJobId,
                   decoration: const InputDecoration(

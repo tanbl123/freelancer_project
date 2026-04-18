@@ -45,6 +45,21 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    final error = await AppState.instance.signInWithGoogle();
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    if (error != null) {
+      setState(() => _errorMessage = error);
+    } else {
+      Navigator.pushNamedAndRemoveUntil(context, AppRoutes.dashboard, (_) => false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -123,6 +138,14 @@ class _LoginPageState extends State<LoginPage> {
                     return null;
                   },
                 ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pushNamed(
+                        context, AppRoutes.forgotPassword),
+                    child: const Text('Forgot Password?'),
+                  ),
+                ),
                 if (_errorMessage != null) ...[
                   const SizedBox(height: 12),
                   Container(
@@ -159,6 +182,27 @@ class _LoginPageState extends State<LoginPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Text('Sign In', style: TextStyle(fontSize: 16)),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: const [
+                    Expanded(child: Divider()),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('or', style: TextStyle(color: Colors.grey)),
+                    ),
+                    Expanded(child: Divider()),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _signInWithGoogle,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  icon: const Icon(Icons.g_mobiledata_rounded, size: 24),
+                  label: const Text('Continue with Google',
+                      style: TextStyle(fontSize: 15)),
                 ),
                 const SizedBox(height: 16),
                 Row(
