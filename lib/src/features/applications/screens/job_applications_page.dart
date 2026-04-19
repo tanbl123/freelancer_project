@@ -30,6 +30,12 @@ class JobApplicationsBody extends StatefulWidget {
 }
 
 class _JobApplicationsBodyState extends State<JobApplicationsBody> {
+  // true = Active (pending only), false = Closed (everything else)
+  bool _showActive = true;
+
+  // Status filter for the Closed tab; null = show all closed
+  ApplicationStatus? _closedFilter;
+
   @override
   void initState() {
     super.initState();
@@ -47,40 +53,270 @@ class _JobApplicationsBodyState extends State<JobApplicationsBody> {
     if (mounted) setState(() {});
   }
 
+  /// Only PENDING applications need user action (Edit / Withdraw available).
+  static bool _isPending(ApplicationStatus s) =>
+      s == ApplicationStatus.pending;
+
   @override
   Widget build(BuildContext context) {
     final user = AppState.instance.currentUser;
     final isFreelancer = user?.role == UserRole.freelancer;
     final allApps = AppState.instance.userApplications;
 
-    if (allApps.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.description_outlined,
-                size: 64, color: Colors.grey),
-            const SizedBox(height: 12),
-            Text(
-              isFreelancer
-                  ? 'You haven\'t applied to any jobs yet.\nTap + to submit a proposal.'
-                  : 'No applications have been submitted to your jobs yet.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
-            ),
-          ],
-        ),
-      );
-    }
+    // Active = pending only (user can still act on these)
+    final activeApps =
+        allApps.where((a) => _isPending(a.status)).toList();
+
+    // Closed = accepted, converted, rejected, withdrawn
+    final closedApps =
+        allApps.where((a) => !_isPending(a.status)).toList();
+
+    // Apply status sub-filter inside Closed tab
+    final shownClosed = _closedFilter == null
+        ? closedApps
+        : closedApps.where((a) => a.status == _closedFilter).toList();
+
+    final shown = _showActive ? activeApps : shownClosed;
 
     return RefreshIndicator(
       onRefresh: () => AppState.instance.reloadApplications(),
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-        itemCount: allApps.length,
-        itemBuilder: (context, index) => _ApplicationCard(
-          item: allApps[index],
-          currentUser: user,
+      child: Column(
+        children: [
+          // ── Active / Closed toggle ────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _TabButton(
+                    label: 'Active',
+                    count: activeApps.length,
+                    selected: _showActive,
+                    onTap: () => setState(() => _showActive = true),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _TabButton(
+                    label: 'Closed',
+                    count: closedApps.length,
+                    selected: !_showActive,
+                    onTap: () => setState(() {
+                      _showActive = false;
+                      _closedFilter = null; // reset sub-filter on tab switch
+                    }),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ── Status sub-filter (Closed tab only) ───────────────────────────
+          if (!_showActive && closedApps.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 34,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: [
+                  _StatusFilterChip(
+                    label: 'All',
+                    selected: _closedFilter == null,
+                    onTap: () => setState(() => _closedFilter = null),
+                  ),
+                  _StatusFilterChip(
+                    label: 'Accepted',
+                    selected: _closedFilter == ApplicationStatus.accepted,
+                    color: Colors.green,
+                    onTap: () => setState(
+                        () => _closedFilter = ApplicationStatus.accepted),
+                  ),
+                  _StatusFilterChip(
+                    label: 'Converted',
+                    selected:
+                        _closedFilter == ApplicationStatus.convertedToProject,
+                    color: Colors.blue,
+                    onTap: () => setState(() =>
+                        _closedFilter = ApplicationStatus.convertedToProject),
+                  ),
+                  _StatusFilterChip(
+                    label: 'Rejected',
+                    selected: _closedFilter == ApplicationStatus.rejected,
+                    color: Colors.red,
+                    onTap: () => setState(
+                        () => _closedFilter = ApplicationStatus.rejected),
+                  ),
+                  _StatusFilterChip(
+                    label: 'Withdrawn',
+                    selected: _closedFilter == ApplicationStatus.withdrawn,
+                    color: Colors.grey,
+                    onTap: () => setState(
+                        () => _closedFilter = ApplicationStatus.withdrawn),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 8),
+
+          // ── List ─────────────────────────────────────────────────────────
+          Expanded(
+            child: shown.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _showActive
+                              ? Icons.description_outlined
+                              : Icons.inventory_2_outlined,
+                          size: 64,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _showActive
+                              ? (isFreelancer
+                                  ? 'No pending applications.\nBrowse Jobs to find opportunities.'
+                                  : 'No pending applications on your jobs yet.')
+                              : (_closedFilter != null
+                                  ? 'No ${_closedFilter!.name} applications.'
+                                  : 'No closed applications yet.'),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                    itemCount: shown.length,
+                    itemBuilder: (context, index) => _ApplicationCard(
+                      item: shown[index],
+                      currentUser: user,
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Active / Closed tab button ────────────────────────────────────────────────
+
+class _TabButton extends StatelessWidget {
+  const _TabButton({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? cs.primary : cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? cs.onPrimary : cs.onSurface,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+            if (count > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: selected
+                      ? cs.onPrimary.withValues(alpha: 0.25)
+                      : cs.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: selected ? cs.onPrimary : cs.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Horizontal status filter chip (Closed tab) ───────────────────────────────
+
+class _StatusFilterChip extends StatelessWidget {
+  const _StatusFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.color,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final activeColor = color ?? cs.primary;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected
+                ? activeColor.withValues(alpha: 0.15)
+                : cs.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selected
+                  ? activeColor
+                  : cs.outline.withValues(alpha: 0.3),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? activeColor : cs.onSurface,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+              fontSize: 12,
+            ),
+          ),
         ),
       ),
     );

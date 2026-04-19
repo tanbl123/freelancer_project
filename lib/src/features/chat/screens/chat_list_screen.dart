@@ -232,13 +232,11 @@ class _RoomTile extends StatelessWidget {
   String _roomLabel(ChatRoom room, String myId) {
     switch (room.type) {
       case ChatRoomType.direct:
-        // Show the other person's ID (ideally resolved to a name by the
-        // caller — in production you'd join to profiles; here we use the
-        // last sender name as a hint)
-        if (room.lastSenderId != null && room.lastSenderId != myId) {
-          return room.lastSenderName ?? 'Direct Message';
-        }
-        return 'Direct Message';
+        // Always show the other participant's real name.
+        final otherId = room.otherParticipantId(myId);
+        return AppState.instance.chatUserNames[otherId] ??
+            room.lastSenderName ??
+            'Direct Message';
       case ChatRoomType.project:
         return 'Project Chat';
       case ChatRoomType.appeal:

@@ -239,6 +239,15 @@ class _AppBarTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = room.type.color;
+    final myId = AppState.instance.currentUser?.uid ?? '';
+
+    // For direct rooms show the other person's name instead of "Direct Message"
+    final title = room.type == ChatRoomType.direct
+        ? AppState.instance.chatUserNames[room.otherParticipantId(myId)] ??
+            room.lastSenderName ??
+            room.type.displayName
+        : room.type.displayName;
+
     return Row(
       children: [
         CircleAvatar(
@@ -252,7 +261,7 @@ class _AppBarTitle extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(room.type.displayName,
+              Text(title,
                   style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w600)),
               if (room.projectId != null)

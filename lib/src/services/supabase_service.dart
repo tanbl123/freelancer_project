@@ -145,6 +145,19 @@ class SupabaseService {
     return row == null ? null : ProfileUser.fromMap(row);
   }
 
+  /// Fetches a uid → displayName map for the given list of UIDs in one query.
+  Future<Map<String, String>> getDisplayNamesByIds(List<String> uids) async {
+    if (uids.isEmpty) return {};
+    final rows = await _client
+        .from('profiles')
+        .select('uid, display_name')
+        .inFilter('uid', uids);
+    return {
+      for (final r in rows)
+        (r['uid'] as String): (r['display_name'] as String? ?? 'Unknown'),
+    };
+  }
+
   Future<List<ProfileUser>> getAllUsers() async {
     final rows = await _client.from('profiles').select();
     return rows.map(ProfileUser.fromMap).toList();

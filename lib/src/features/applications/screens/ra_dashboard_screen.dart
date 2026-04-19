@@ -4,7 +4,6 @@ import '../../../backend/shared/domain_types.dart';
 import '../../../state/app_state.dart';
 import '../models/application_item.dart';
 import '../models/service_order.dart';
-import 'apply_form_page.dart';
 import 'job_applications_page.dart';
 import 'service_orders_page.dart';
 
@@ -105,24 +104,6 @@ class _RaDashboardScreenState extends State<RaDashboardScreen>
           ),
         ],
       ),
-      // FAB for freelancers on the job applications tab only.
-      floatingActionButton: isFreelancer
-          ? ListenableBuilder(
-              listenable: _tabs,
-              builder: (_, __) => _tabs.index == 0
-                  ? FloatingActionButton.extended(
-                      heroTag: 'ra_apply_fab',
-                      icon: const Icon(Icons.send),
-                      label: const Text('Apply'),
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const ApplyFormPage()),
-                      ).then((_) => AppState.instance.reloadApplications()),
-                    )
-                  : const SizedBox.shrink(),
-            )
-          : null,
     );
   }
 }

@@ -149,6 +149,7 @@ class AppState extends ChangeNotifier {
   // Chat Module state
   List<ChatRoom> _chatRooms = [];
   Map<String, bool> _chatUnreadMap = {}; // roomId → has unread
+  Map<String, String> _chatUserNames = {}; // uid → displayName (for room titles)
 
   List<InAppNotification> get notifications =>
       List.unmodifiable(_notifications);
@@ -165,6 +166,8 @@ class AppState extends ChangeNotifier {
   int get unreadChatCount =>
       _chatUnreadMap.values.where((v) => v).length;
   bool hasUnreadInRoom(String roomId) => _chatUnreadMap[roomId] ?? false;
+  /// uid → display name cache for chat room participants.
+  Map<String, String> get chatUserNames => Map.unmodifiable(_chatUserNames);
 
   /// Combined badge count: unread notifications + unread chat rooms.
   int get totalUnreadCount => unreadNotificationCount + unreadChatCount;
@@ -2563,6 +2566,20 @@ class AppState extends ChangeNotifier {
       _chatRooms = await _chatRepo.getRoomsForUser(_currentUser!.uid);
       _chatUnreadMap =
           await _chatSvc.unreadRooms(_currentUser!.uid, _chatRooms);
+
+      // Collect all unique participant UIDs (excluding ourselves) so we can
+      // resolve them to display names for room titles.
+      final myId = _currentUser!.uid;
+      final otherIds = _chatRooms
+          .expand((r) => r.participantIds)
+          .where((id) => id != myId)
+          .toSet()
+          .toList();
+      if (otherIds.isNotEmpty) {
+        final names = await _db.getDisplayNamesByIds(otherIds);
+        _chatUserNames = {..._chatUserNames, ...names};
+      }
+
       notifyListeners();
     } catch (_) {}
   }
