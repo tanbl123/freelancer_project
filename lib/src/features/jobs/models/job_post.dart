@@ -18,6 +18,7 @@ class JobPost {
     this.budgetMin,
     this.budgetMax,
     this.deadline,
+    this.projectDuration,
     this.coverImageUrl,
     this.allowPreEngagementChat = true,
     this.viewCount = 0,
@@ -43,6 +44,10 @@ class JobPost {
 
   /// Optional application deadline.
   final DateTime? deadline;
+
+  /// Optional project duration string (e.g. "2 Weeks"), used when the
+  /// client sets a duration instead of a specific completion date.
+  final String? projectDuration;
 
   /// Optional cover image (local path or remote URL).
   final String? coverImageUrl;
@@ -73,7 +78,7 @@ class JobPost {
       return '${fmt(budgetMin!)} – ${fmt(budgetMax!)}';
     }
     if (budgetMin != null) return 'From ${fmt(budgetMin!)}';
-    return 'Up to ${fmt(budgetMax!)}';
+    return fmt(budgetMax!);
   }
 
   /// Remaining days until deadline, or null if no deadline set.
@@ -98,6 +103,7 @@ class JobPost {
       if (budgetMin != null) 'budget_min': budgetMin,
       if (budgetMax != null) 'budget_max': budgetMax,
       if (deadline != null) 'deadline': deadline!.toIso8601String(),
+      if (projectDuration != null) 'project_duration': projectDuration,
       'cover_image_url': coverImageUrl,
       'allow_pre_engagement_chat': allowPreEngagementChat,
       'view_count': viewCount,
@@ -122,6 +128,7 @@ class JobPost {
       if (budgetMin != null) 'budget_min': budgetMin,
       if (budgetMax != null) 'budget_max': budgetMax,
       if (deadline != null) 'deadline': deadline!.toIso8601String(),
+      if (projectDuration != null) 'project_duration': projectDuration,
       'cover_image_url': coverImageUrl,
       'allow_pre_engagement_chat': allowPreEngagementChat,
       'created_at': createdAt?.toIso8601String() ?? now,
@@ -145,6 +152,7 @@ class JobPost {
       'budget_min': budgetMin,
       'budget_max': budgetMax,
       'deadline': deadline?.millisecondsSinceEpoch,
+      'project_duration': projectDuration,
       'cover_image_url': coverImageUrl,
       'allow_pre_engagement_chat': allowPreEngagementChat ? 1 : 0,
       'view_count': viewCount,
@@ -198,6 +206,7 @@ class JobPost {
       budgetMin: parseDouble(map['budget_min']),
       budgetMax: parseDouble(map['budget_max']),
       deadline: parseNullable(map['deadline']),
+      projectDuration: map['project_duration'] as String?,
       coverImageUrl: map['cover_image_url'] as String?,
       allowPreEngagementChat: parseBool(map['allow_pre_engagement_chat']),
       viewCount: (map['view_count'] as num?)?.toInt() ?? 0,
@@ -218,6 +227,7 @@ class JobPost {
     double? budgetMin,
     double? budgetMax,
     DateTime? deadline,
+    String? projectDuration,
     String? coverImageUrl,
     bool? allowPreEngagementChat,
     int? viewCount,
@@ -235,6 +245,7 @@ class JobPost {
       budgetMin: budgetMin ?? this.budgetMin,
       budgetMax: budgetMax ?? this.budgetMax,
       deadline: deadline ?? this.deadline,
+      projectDuration: projectDuration ?? this.projectDuration,
       coverImageUrl: coverImageUrl ?? this.coverImageUrl,
       allowPreEngagementChat:
           allowPreEngagementChat ?? this.allowPreEngagementChat,

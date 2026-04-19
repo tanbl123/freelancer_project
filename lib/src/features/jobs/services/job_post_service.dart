@@ -1,6 +1,5 @@
 import '../../../shared/enums/account_status.dart';
 import '../../../shared/enums/job_status.dart';
-import '../../../shared/enums/user_role.dart';
 import '../../../shared/guards/access_guard.dart';
 import '../../profile/models/profile_user.dart';
 import '../models/job_post.dart';
@@ -21,9 +20,6 @@ class JobPostService {
       return actor.accountStatus != AccountStatus.active
           ? 'Your account must be active to post a job.'
           : 'Only clients and freelancers can post jobs.';
-    }
-    if (actor.role != UserRole.client) {
-      return 'Only clients can create job posts.';
     }
     final err = validatePost(post);
     if (err != null) return err;
@@ -99,13 +95,15 @@ class JobPostService {
 
   // ── Delete ────────────────────────────────────────────────────────────────
 
+  /// Soft-deletes a post by setting its status to [JobStatus.deleted].
+  /// The row is preserved in Supabase for audit / referential integrity.
   Future<String?> deletePost(ProfileUser actor, String postId,
       String ownerId) async {
     if (actor.uid != ownerId && !AccessGuard.isAdmin(actor)) {
       return 'You can only delete your own job posts.';
     }
     try {
-      await _repo.delete(postId);
+      await _repo.updateStatus(postId, JobStatus.deleted);
       return null;
     } catch (e) {
       return 'Failed to delete post: $e';
@@ -133,9 +131,6 @@ class JobPostService {
     final descErr = validateDescription(post.description);
     if (descErr != null) return descErr;
 
-    final skillsErr = validateSkills(post.requiredSkills);
-    if (skillsErr != null) return skillsErr;
-
     final budgetErr = validateBudget(post.budgetMin, post.budgetMax);
     if (budgetErr != null) return budgetErr;
 
@@ -162,7 +157,7 @@ class JobPostService {
   }
 
   static String? validateSkills(List<String> skills) {
-    if (skills.isEmpty) return 'At least one required skill must be listed.';
+    if (skills.isEmpty) return null; // skills are optional
     if (skills.length > 20) return 'Too many skills listed (max 20).';
     for (final s in skills) {
       if (s.trim().length > 50) {
@@ -173,9 +168,10 @@ class JobPostService {
   }
 
   static String? validateBudget(double? min, double? max) {
+    if (max == null) return 'Please enter a budget.';
     if (min != null && min < 0) return 'Minimum budget cannot be negative.';
-    if (max != null && max <= 0) return 'Maximum budget must be greater than zero.';
-    if (min != null && max != null && min > max) {
+    if (max <= 0) return 'Budget must be greater than zero.';
+    if (min != null && min > max) {
       return 'Minimum budget cannot exceed maximum budget.';
     }
     return null;
@@ -192,8 +188,12 @@ class JobPostService {
 
   static String? validateDeadline(DateTime? deadline) {
     if (deadline == null) return null; // optional
-    final minDeadline = DateTime.now().add(const Duration(days: 1));
-    if (deadline.isBefore(minDeadline)) {
+    // Compare date-only — so "tomorrow" means the next calendar day,
+    // regardless of what time of day the validation runs.
+    final now = DateTime.now();
+    final todayDate = DateTime(now.year, now.month, now.day);
+    final deadlineDate = DateTime(deadline.year, deadline.month, deadline.day);
+    if (!deadlineDate.isAfter(todayDate)) {
       return 'Deadline must be at least tomorrow.';
     }
     return null;

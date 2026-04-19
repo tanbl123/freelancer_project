@@ -28,18 +28,21 @@ class ServiceFormScreen extends StatefulWidget {
 
 class _ServiceFormScreenState extends State<ServiceFormScreen> {
   static const _uuid = Uuid();
-  static const _maxPortfolioImages = 5;
+  static const _maxPortfolioImages = 5; // "portfolio" kept as internal name; UI shows "Service Images"
 
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
-  final _priceMinController = TextEditingController();
-  final _priceMaxController = TextEditingController();
-  final _deliveryController = TextEditingController();
+  final _priceController = TextEditingController();
   final _tagInput = TextEditingController();
 
   String _category = 'other';
+  int _deliveryValue = 1;
+  String _deliveryUnit = 'Days';
   bool _isLoading = false;
+
+  static const _deliveryUnits = ['Days', 'Weeks', 'Months'];
+  static int _maxForUnit(String unit) => 7; // cap at 7 for all units
 
   /// Mix of local file paths (new picks) and remote HTTPS URLs (existing).
   final List<String> _portfolioImages = [];
@@ -57,14 +60,24 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       _category = s.category;
       _tags.addAll(s.tags);
       _portfolioImages.addAll(s.portfolioImageUrls);
-      if (s.priceMin != null) {
-        _priceMinController.text = s.priceMin!.toStringAsFixed(0);
+      // Load single price — prefer priceMax, fall back to priceMin
+      final price = s.priceMax ?? s.priceMin;
+      if (price != null) {
+        _priceController.text = price.toStringAsFixed(0);
       }
-      if (s.priceMax != null) {
-        _priceMaxController.text = s.priceMax!.toStringAsFixed(0);
-      }
+      // Restore delivery: convert days back to amount+unit
       if (s.deliveryDays != null) {
-        _deliveryController.text = s.deliveryDays!.toString();
+        final days = s.deliveryDays!;
+        if (days % 30 == 0 && days ~/ 30 <= 7) {
+          _deliveryValue = days ~/ 30;
+          _deliveryUnit = 'Months';
+        } else if (days % 7 == 0 && days ~/ 7 <= 7) {
+          _deliveryValue = days ~/ 7;
+          _deliveryUnit = 'Weeks';
+        } else {
+          _deliveryValue = days.clamp(1, 7);
+          _deliveryUnit = 'Days';
+        }
       }
     }
   }
@@ -73,9 +86,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
-    _priceMinController.dispose();
-    _priceMaxController.dispose();
-    _deliveryController.dispose();
+    _priceController.dispose();
     _tagInput.dispose();
     super.dispose();
   }
@@ -154,14 +165,20 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       return;
     }
 
-    final min = double.tryParse(_priceMinController.text.trim());
-    final max = double.tryParse(_priceMaxController.text.trim());
-    final budgetErr = FreelancerServiceService.validatePrice(min, max);
+    final price = double.tryParse(_priceController.text.trim());
+    final budgetErr = FreelancerServiceService.validatePrice(null, price);
     if (budgetErr != null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(budgetErr)));
       return;
     }
+
+    // Convert amount+unit to total days
+    final deliveryDays = switch (_deliveryUnit) {
+      'Weeks'  => _deliveryValue * 7,
+      'Months' => _deliveryValue * 30,
+      _        => _deliveryValue,
+    };
 
     final user = AppState.instance.currentUser!;
     final now = DateTime.now();
@@ -176,10 +193,9 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
           ? widget.existing!.status
           : ServiceStatus.active,
       tags: List.from(_tags),
-      priceMin: min,
-      priceMax: max,
-      deliveryDays:
-          int.tryParse(_deliveryController.text.trim()),
+      priceMin: null,
+      priceMax: price,
+      deliveryDays: deliveryDays,
       portfolioImageUrls: List.from(_portfolioImages),
       // First portfolio image is the thumbnail.
       thumbnailUrl:
@@ -296,73 +312,77 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ── Price range ──────────────────────────────────────────
-              const Text('Price Range (RM) — Optional',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _priceMinController,
-                      decoration: const InputDecoration(
-                        labelText: 'Min',
-                        border: OutlineInputBorder(),
-                        prefixText: 'RM ',
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d+\.?\d{0,2}')),
-                      ],
-                      validator: (v) =>
-                          FreelancerServiceService.validatePriceField(v,
-                              isMin: true),
-                    ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('–',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _priceMaxController,
-                      decoration: const InputDecoration(
-                        labelText: 'Max',
-                        border: OutlineInputBorder(),
-                        prefixText: 'RM ',
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d+\.?\d{0,2}')),
-                      ],
-                      validator: (v) =>
-                          FreelancerServiceService.validatePriceField(v,
-                              isMin: false),
-                    ),
-                  ),
+              // ── Price (single field) ─────────────────────────────────
+              TextFormField(
+                controller: _priceController,
+                decoration: const InputDecoration(
+                  labelText: 'Price (RM) *',
+                  border: OutlineInputBorder(),
+                  prefixText: 'RM ',
+                  prefixIcon: Icon(Icons.attach_money),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d+\.?\d{0,2}')),
                 ],
+                validator: (v) =>
+                    FreelancerServiceService.validatePriceField(v,
+                        isMin: false),
               ),
               const SizedBox(height: 16),
 
-              // ── Delivery days ────────────────────────────────────────
-              TextFormField(
-                controller: _deliveryController,
-                decoration: const InputDecoration(
-                  labelText: 'Delivery Time (days) — Optional',
-                  hintText: 'e.g. 7',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.schedule_outlined),
-                  suffixText: 'days',
-                ),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                validator: FreelancerServiceService.validateDeliveryDaysField,
+              // ── Delivery time (amount + unit dropdowns) ──────────────
+              const Text('Delivery Time — Optional',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600, fontSize: 13)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  // Amount dropdown (1–7)
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      value: _deliveryValue,
+                      decoration: const InputDecoration(
+                        labelText: 'Amount',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: List.generate(
+                        _maxForUnit(_deliveryUnit),
+                        (i) => DropdownMenuItem(
+                            value: i + 1,
+                            child: Text('${i + 1}')),
+                      ),
+                      onChanged: (v) {
+                        if (v != null) setState(() => _deliveryValue = v);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Unit dropdown (Days / Weeks / Months)
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _deliveryUnit,
+                      decoration: const InputDecoration(
+                        labelText: 'Unit',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _deliveryUnits
+                          .map((u) => DropdownMenuItem(
+                              value: u, child: Text(u)))
+                          .toList(),
+                      onChanged: (u) {
+                        if (u != null) {
+                          setState(() {
+                            _deliveryUnit = u;
+                            _deliveryValue = 1; // reset when unit changes
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
 
@@ -415,7 +435,7 @@ class _PortfolioSection extends StatelessWidget {
         Row(
           children: [
             const Text(
-              'Portfolio Images *',
+              'Service Images *',
               style: TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(width: 8),
@@ -428,8 +448,8 @@ class _PortfolioSection extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Add up to $maxImages photos showcasing your work. '
-          'The first photo becomes the service thumbnail.',
+          'Add up to $maxImages images showing what you deliver '
+          '(samples, mockups, examples). First image becomes the thumbnail.',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
         ),
         const SizedBox(height: 12),

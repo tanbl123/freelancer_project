@@ -7,7 +7,9 @@ import '../../../shared/enums/user_role.dart';
 import '../../../shared/guards/access_guard.dart';
 import '../../../state/app_state.dart';
 import '../../../features/ratings/screens/freelancer_stats_page.dart';
+import '../models/portfolio_item.dart';
 import 'edit_profile_page.dart';
+import 'portfolio_form_screen.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
@@ -249,6 +251,12 @@ class ProfilePage extends StatelessWidget {
                                 .toList(),
                           ),
                   ),
+                ],
+
+                // My Portfolio (freelancer only)
+                if (isFreelancer) ...[
+                  const SizedBox(height: 12),
+                  _MyPortfolioSection(userId: user.uid),
                 ],
 
                 // Activity stats
@@ -601,6 +609,245 @@ class _AccountStatusBadge extends StatelessWidget {
         label,
         style: TextStyle(
             color: color, fontSize: 10, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+}
+
+// ── My Portfolio section (freelancer's own profile) ──────────────────────────
+
+class _MyPortfolioSection extends StatefulWidget {
+  const _MyPortfolioSection({required this.userId});
+  final String userId;
+
+  @override
+  State<_MyPortfolioSection> createState() => _MyPortfolioSectionState();
+}
+
+class _MyPortfolioSectionState extends State<_MyPortfolioSection> {
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      await AppState.instance.loadPortfolioItems(widget.userId);
+    } catch (_) {
+      // treat any error as empty list
+    }
+    if (mounted) setState(() => _loaded = true);
+  }
+
+  Future<void> _confirmDelete(BuildContext context, PortfolioItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Portfolio Item'),
+        content: Text('Remove "${item.title}" from your portfolio?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      final err = await AppState.instance.deletePortfolioItem(item.id);
+      if (err != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(err), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return ListenableBuilder(
+      listenable: AppState.instance,
+      builder: (context, _) {
+        final items = AppState.instance.portfolioItems;
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Header row ──────────────────────────────────────────────
+                Row(
+                  children: [
+                    Icon(Icons.collections_bookmark_outlined,
+                        size: 16, color: cs.primary),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Text('My Portfolio',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 15)),
+                    ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('Add'),
+                      style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact),
+                      onPressed: () => Navigator.pushNamed(
+                          context, AppRoutes.portfolioForm),
+                    ),
+                  ],
+                ),
+
+                // ── Body ────────────────────────────────────────────────────
+                if (!_loaded)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (items.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      'No portfolio items yet. Tap Add to showcase your past work.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  )
+                else
+                  ...items.map(
+                    (item) => _PortfolioItemTile(
+                      item: item,
+                      onEdit: () => Navigator.pushNamed(
+                          context, AppRoutes.portfolioForm,
+                          arguments: item),
+                      onDelete: () => _confirmDelete(context, item),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ── Reusable portfolio item card (own profile — with edit/delete) ─────────────
+
+class _PortfolioItemTile extends StatelessWidget {
+  const _PortfolioItemTile({
+    required this.item,
+    required this.onEdit,
+    required this.onDelete,
+  });
+  final PortfolioItem item;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade200),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Image
+            if (item.imageUrl != null)
+              ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(10)),
+                child: item.imageUrl!.startsWith('http')
+                    ? Image.network(
+                        item.imageUrl!,
+                        height: 160,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      )
+                    : Image.file(
+                        File(item.imageUrl!),
+                        height: 160,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title + action buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(item.title,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 14)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Edit',
+                        onPressed: onEdit,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            size: 18, color: Colors.red),
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Delete',
+                        onPressed: onDelete,
+                      ),
+                    ],
+                  ),
+                  // Date
+                  if (item.projectDate != null) ...[
+                    const SizedBox(height: 2),
+                    Text(item.projectDate!,
+                        style: const TextStyle(
+                            color: Colors.grey, fontSize: 12)),
+                  ],
+                  // Description
+                  if (item.description != null &&
+                      item.description!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(item.description!,
+                        style:
+                            const TextStyle(fontSize: 13, height: 1.4)),
+                  ],
+                  // Skills chips
+                  if (item.skills.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: item.skills
+                          .map((s) => Chip(
+                                label: Text(s,
+                                    style: const TextStyle(fontSize: 11)),
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                              ))
+                          .toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

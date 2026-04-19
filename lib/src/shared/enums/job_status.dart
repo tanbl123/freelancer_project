@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 enum JobStatus {
   open,
   closed,
-  cancelled;
+  cancelled,
+
+  /// Soft-deleted — invisible in all UI lists; row kept in DB for auditing.
+  deleted;
 
   static JobStatus fromString(String v) => JobStatus.values.firstWhere(
         (e) => e.name == v,
-        orElse: () => JobStatus.open,
+        orElse: () => JobStatus.cancelled,
       );
 
   String get displayName {
@@ -18,6 +21,8 @@ enum JobStatus {
         return 'Closed';
       case JobStatus.cancelled:
         return 'Cancelled';
+      case JobStatus.deleted:
+        return 'Deleted';
     }
   }
 
@@ -29,6 +34,8 @@ enum JobStatus {
         return Colors.blueGrey;
       case JobStatus.cancelled:
         return Colors.red;
+      case JobStatus.deleted:
+        return Colors.grey;
     }
   }
 

@@ -92,6 +92,13 @@ class _JobBrowseTabState extends State<_JobBrowseTab> {
   bool _isRefreshing = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Load jobs the first time this tab is shown.
+    AppState.instance.reloadJobPosts();
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -578,12 +585,6 @@ class _JobCard extends StatelessWidget {
                     ),
                   ],
                   const Spacer(),
-                  if (post.allowPreEngagementChat)
-                    Tooltip(
-                      message: 'Pre-engagement chat allowed',
-                      child: Icon(Icons.chat_bubble_outline,
-                          size: 14, color: colors.primary),
-                    ),
                 ],
               ),
             ],

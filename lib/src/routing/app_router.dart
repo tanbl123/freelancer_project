@@ -34,6 +34,8 @@ import '../features/jobs/screens/job_feed_screen.dart';
 import '../features/jobs/screens/job_form_screen.dart';
 import '../features/jobs/screens/my_job_posts_screen.dart';
 import '../features/services/models/freelancer_service.dart';
+import '../features/profile/models/portfolio_item.dart';
+import '../features/profile/screens/portfolio_form_screen.dart';
 import '../features/services/screens/my_services_screen.dart';
 import '../features/services/screens/service_detail_screen.dart';
 import '../features/services/screens/service_feed_screen.dart';
@@ -130,6 +132,9 @@ class AppRoutes {
   static const serviceDetail = '/services/detail';
   static const serviceForm = '/services/form';
   static const myServices = '/services/my-services';
+
+  // ── Portfolio Module ───────────────────────────────────────────────────────
+  static const portfolioForm = '/profile/portfolio/form';
 }
 
 class AppRouter {
@@ -426,6 +431,12 @@ class AppRouter {
 
       case AppRoutes.myServices:
         return MaterialPageRoute(builder: (_) => const MyServicesScreen());
+
+      // ── Portfolio Module ───────────────────────────────────────────────────
+      case AppRoutes.portfolioForm:
+        final existing = settings.arguments as PortfolioItem?;
+        return MaterialPageRoute(
+            builder: (_) => PortfolioFormScreen(existing: existing));
 
       default:
         // Unknown route — could be an OAuth deep-link path that didn't match

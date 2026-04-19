@@ -264,6 +264,22 @@ class _MyPostCardState extends State<_MyPostCard> {
                     Row(
                       children: [
                         JobStatusBadge(p.status),
+                        if (p.isExpired) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text('Expired',
+                                style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.red,
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                        ],
                         const Spacer(),
                         Text(
                           p.createdAt != null
@@ -355,7 +371,8 @@ class _MyPostCardState extends State<_MyPostCard> {
                             onPressed: _cancel,
                           ),
                         ],
-                        if (isClosed)
+                        // Closed + not expired → Reopen
+                        if (isClosed && !p.isExpired)
                           TextButton.icon(
                             icon: const Icon(Icons.lock_open_outlined,
                                 size: 14, color: Colors.green),
@@ -363,6 +380,16 @@ class _MyPostCardState extends State<_MyPostCard> {
                                 style: TextStyle(
                                     fontSize: 12, color: Colors.green)),
                             onPressed: _reopen,
+                          ),
+                        // Closed + expired → can only Cancel
+                        if (isClosed && p.isExpired)
+                          TextButton.icon(
+                            icon: const Icon(Icons.cancel_outlined,
+                                size: 14, color: Colors.red),
+                            label: const Text('Cancel',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.red)),
+                            onPressed: _cancel,
                           ),
                         IconButton(
                           icon: const Icon(Icons.delete_outline,

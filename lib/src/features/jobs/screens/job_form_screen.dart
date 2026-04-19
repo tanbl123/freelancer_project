@@ -16,17 +16,18 @@ import '../services/job_post_service.dart';
 /// Create-or-edit form for a [JobPost].
 ///
 /// Pass [existing] to enter edit mode; leave null to create a new post.
-/// Clients only — enforced at the UI layer (router-level guard is in
-/// [AccessGuard]; further enforcement happens inside [JobPostService]).
 class JobFormScreen extends StatefulWidget {
   const JobFormScreen({super.key, this.existing});
-
-  /// Non-null when editing an existing post.
   final JobPost? existing;
 
   @override
   State<JobFormScreen> createState() => _JobFormScreenState();
 }
+
+// ── Timeline type ──────────────────────────────────────────────────────────
+enum _TimelineType { specificDate, duration }
+
+const _durationUnits = ['Days', 'Weeks', 'Months'];
 
 class _JobFormScreenState extends State<JobFormScreen> {
   static const _uuid = Uuid();
@@ -34,16 +35,20 @@ class _JobFormScreenState extends State<JobFormScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
-  final _budgetMinController = TextEditingController();
-  final _budgetMaxController = TextEditingController();
+  final _budgetController = TextEditingController();
   final _skillInput = TextEditingController();
 
   String _category = 'other';
-  DateTime? _deadline;
-  bool _allowChat = true;
   bool _isLoading = false;
   String? _coverImagePath;
   final List<String> _skills = [];
+
+  // ── Timeline state ──────────────────────────────────────────────────────
+  _TimelineType _timelineType = _TimelineType.specificDate;
+  DateTime? _specificDate;       // used when timelineType == specificDate
+  int _durationValue = 2;        // used when timelineType == duration
+  String _durationUnit = 'Weeks';
+  DateTime? _postingDeadline;    // posting close date, used when timelineType == duration
 
   bool get _isEdit => widget.existing != null;
 
@@ -55,15 +60,26 @@ class _JobFormScreenState extends State<JobFormScreen> {
       _titleController.text = p.title;
       _descController.text = p.description;
       _category = p.category;
-      _deadline = p.deadline;
-      _allowChat = p.allowPreEngagementChat;
       _coverImagePath = p.coverImageUrl;
       _skills.addAll(p.requiredSkills);
-      if (p.budgetMin != null) {
-        _budgetMinController.text = p.budgetMin!.toStringAsFixed(0);
+      // Restore budget — prefer budgetMax; fall back to budgetMin for old range posts
+      final budgetValue = p.budgetMax ?? p.budgetMin;
+      if (budgetValue != null) {
+        _budgetController.text = budgetValue.toStringAsFixed(0);
       }
-      if (p.budgetMax != null) {
-        _budgetMaxController.text = p.budgetMax!.toStringAsFixed(0);
+      // Restore timeline
+      if (p.projectDuration != null) {
+        _timelineType = _TimelineType.duration;
+        final parts = p.projectDuration!.split(' ');
+        if (parts.length == 2) {
+          _durationUnit = _durationUnits.contains(parts[1]) ? parts[1] : 'Weeks';
+          final parsed = int.tryParse(parts[0]) ?? 1;
+          _durationValue = parsed.clamp(1, _maxForUnit(_durationUnit));
+        }
+        _postingDeadline = p.deadline;
+      } else if (p.deadline != null) {
+        _timelineType = _TimelineType.specificDate;
+        _specificDate = p.deadline;
       }
     }
   }
@@ -72,32 +88,25 @@ class _JobFormScreenState extends State<JobFormScreen> {
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
-    _budgetMinController.dispose();
-    _budgetMaxController.dispose();
+    _budgetController.dispose();
     _skillInput.dispose();
     super.dispose();
   }
 
-  // ── Image picker ──────────────────────────────────────────────────────────
+  // ── Image picker ───────────────────────────────────────────────────────
 
   Future<void> _pickImage(ImageSource source) async {
     String? localPath;
-
     if (source == ImageSource.camera) {
-      // Use the full in-app camera with live preview + retake flow.
       localPath = await CameraPickerScreen.open(context);
     } else {
-      // Gallery pick — save locally first.
       final xfile = await ImagePicker()
           .pickImage(source: source, maxWidth: 1200, imageQuality: 80);
       if (xfile == null) return;
       localPath =
           await FileStorageService.instance.saveImage(xfile, 'job_covers');
     }
-
     if (localPath == null || !mounted) return;
-
-    // Upload to Supabase Storage, fall back to local path on failure.
     final userId = AppState.instance.currentUser?.uid;
     final remoteUrl = userId != null
         ? await SupabaseStorageService.instance.uploadImage(
@@ -106,65 +115,94 @@ class _JobFormScreenState extends State<JobFormScreen> {
             userId: userId,
           )
         : null;
-
     setState(() => _coverImagePath = remoteUrl ?? localPath);
   }
 
-  // ── Skills ────────────────────────────────────────────────────────────────
+  // ── Skills ─────────────────────────────────────────────────────────────
 
   void _addSkill() {
     final s = _skillInput.text.trim();
     if (s.isEmpty) return;
-    if (_skills.contains(s)) {
-      _skillInput.clear();
-      return;
-    }
+    if (_skills.contains(s)) { _skillInput.clear(); return; }
     if (_skills.length >= 20) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Maximum 20 skills allowed.')));
       return;
     }
-    setState(() {
-      _skills.add(s);
-      _skillInput.clear();
-    });
+    setState(() { _skills.add(s); _skillInput.clear(); });
   }
 
-  // ── Deadline picker ───────────────────────────────────────────────────────
+  // ── Date pickers ───────────────────────────────────────────────────────
 
-  Future<void> _pickDeadline() async {
+  Future<void> _pickSpecificDate() async {
     final now = DateTime.now();
+    // Use date-only so "tomorrow" is always the next calendar day.
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
     final picked = await showDatePicker(
       context: context,
-      initialDate: _deadline ?? now.add(const Duration(days: 14)),
-      firstDate: now.add(const Duration(days: 1)),
-      lastDate: now.add(const Duration(days: 365)),
-      helpText: 'Set application deadline',
+      initialDate: _specificDate ?? tomorrow.add(const Duration(days: 13)),
+      firstDate: tomorrow,
+      lastDate: tomorrow.add(const Duration(days: 729)),
+      helpText: 'Project completion date',
     );
-    if (picked != null) setState(() => _deadline = picked);
+    if (picked != null) setState(() => _specificDate = picked);
   }
 
-  // ── Submit ────────────────────────────────────────────────────────────────
+  Future<void> _pickPostingDeadline() async {
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _postingDeadline ?? tomorrow.add(const Duration(days: 6)),
+      firstDate: tomorrow,
+      lastDate: tomorrow.add(const Duration(days: 364)),
+      helpText: 'Posting close date',
+    );
+    if (picked != null) setState(() => _postingDeadline = picked);
+  }
+
+  String _fmtDate(DateTime dt) =>
+      '${dt.day.toString().padLeft(2, '0')}/'
+      '${dt.month.toString().padLeft(2, '0')}/'
+      '${dt.year}';
+
+  // ── Submit ─────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Extra skills validation
-    final skillsErr = JobPostService.validateSkills(_skills);
-    if (skillsErr != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(skillsErr)));
-      return;
-    }
-
-    // Budget cross-validation
-    final min = double.tryParse(_budgetMinController.text.trim());
-    final max = double.tryParse(_budgetMaxController.text.trim());
-    final budgetErr = JobPostService.validateBudget(min, max);
+    // Budget validation
+    final max = double.tryParse(_budgetController.text.trim());
+    final budgetErr = JobPostService.validateBudget(null, max);
     if (budgetErr != null) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(budgetErr)));
       return;
+    }
+
+    // Timeline validation
+    DateTime? deadline;
+    String? projectDuration;
+
+    if (_timelineType == _TimelineType.specificDate) {
+      if (_specificDate == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a completion date.')),
+        );
+        return;
+      }
+      deadline = _specificDate;
+      projectDuration = null;
+    } else {
+      projectDuration = '$_durationValue $_durationUnit';
+      if (_postingDeadline == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Please set when this posting should close.')),
+        );
+        return;
+      }
+      deadline = _postingDeadline;
     }
 
     final user = AppState.instance.currentUser!;
@@ -178,14 +216,14 @@ class _JobFormScreenState extends State<JobFormScreen> {
       category: _category,
       status: _isEdit ? widget.existing!.status : JobStatus.open,
       requiredSkills: List.from(_skills),
-      budgetMin: min,
+      budgetMin: null,
       budgetMax: max,
-      deadline: _deadline,
+      deadline: deadline,
+      projectDuration: projectDuration,
       coverImageUrl: _coverImagePath,
-      allowPreEngagementChat: _allowChat,
+      allowPreEngagementChat: true,
       viewCount: _isEdit ? widget.existing!.viewCount : 0,
-      applicationCount:
-          _isEdit ? widget.existing!.applicationCount : 0,
+      applicationCount: _isEdit ? widget.existing!.applicationCount : 0,
       createdAt: _isEdit ? widget.existing!.createdAt : now,
       updatedAt: now,
     );
@@ -223,7 +261,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ── Cover image ───────────────────────────────────────────
+              // ── Cover image ─────────────────────────────────────────
               _CoverImagePicker(
                 imagePath: _coverImagePath,
                 onPick: _pickImage,
@@ -231,7 +269,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
               ),
               const SizedBox(height: 20),
 
-              // ── Title ─────────────────────────────────────────────────
+              // ── Title ───────────────────────────────────────────────
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(
@@ -246,14 +284,14 @@ class _JobFormScreenState extends State<JobFormScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ── Description ───────────────────────────────────────────
+              // ── Description ─────────────────────────────────────────
               TextFormField(
                 controller: _descController,
                 decoration: const InputDecoration(
                   labelText: 'Description *',
                   hintText:
-                      'Describe the work, scope, deliverables, and any '
-                      'requirements. At least 30 characters.',
+                      'Describe the work, scope, deliverables, required skills '
+                      'and any specific requirements. At least 30 characters.',
                   border: OutlineInputBorder(),
                   alignLabelWithHint: true,
                 ),
@@ -264,7 +302,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ── Category ──────────────────────────────────────────────
+              // ── Category ────────────────────────────────────────────
               DropdownButtonFormField<String>(
                 value: _category,
                 decoration: const InputDecoration(
@@ -284,7 +322,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ── Required skills ───────────────────────────────────────
+              // ── Skills (optional) ───────────────────────────────────
               _SkillsInput(
                 skills: _skills,
                 controller: _skillInput,
@@ -293,99 +331,54 @@ class _JobFormScreenState extends State<JobFormScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ── Budget range ──────────────────────────────────────────
-              const Text('Budget (RM) — Optional',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _budgetMinController,
-                      decoration: const InputDecoration(
-                        labelText: 'Min',
-                        border: OutlineInputBorder(),
-                        prefixText: 'RM ',
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d+\.?\d{0,2}')),
-                      ],
-                      validator: (v) =>
-                          JobPostService.validateBudgetField(v, isMin: true),
-                    ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('–',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _budgetMaxController,
-                      decoration: const InputDecoration(
-                        labelText: 'Max',
-                        border: OutlineInputBorder(),
-                        prefixText: 'RM ',
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d+\.?\d{0,2}')),
-                      ],
-                      validator: (v) =>
-                          JobPostService.validateBudgetField(v, isMin: false),
-                    ),
-                  ),
+              // ── Budget (required) ───────────────────────────────────
+              TextFormField(
+                controller: _budgetController,
+                decoration: const InputDecoration(
+                  labelText: 'Budget (RM) *',
+                  hintText: 'e.g. 500',
+                  border: OutlineInputBorder(),
+                  prefixText: 'RM ',
+                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d+\.?\d{0,2}')),
                 ],
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return 'Please enter a budget.';
+                  }
+                  final amount = double.tryParse(v.trim());
+                  if (amount == null) return 'Enter a valid number.';
+                  if (amount <= 0) return 'Budget must be greater than zero.';
+                  return null;
+                },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
 
-              // ── Deadline ──────────────────────────────────────────────
-              OutlinedButton.icon(
-                icon: const Icon(Icons.calendar_today_outlined),
-                label: Text(
-                  _deadline == null
-                      ? 'Set Deadline (Optional)'
-                      : 'Deadline: ${_deadline!.day}/${_deadline!.month}/${_deadline!.year}',
-                  style: TextStyle(
-                      color: _deadline != null ? colors.primary : null),
-                ),
-                onPressed: _pickDeadline,
-                style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14)),
+              // ── Project Timeline (required) ──────────────────────────
+              _TimelineSection(
+                type: _timelineType,
+                specificDate: _specificDate,
+                durationValue: _durationValue,
+                durationUnit: _durationUnit,
+                postingDeadline: _postingDeadline,
+                onTypeChanged: (t) => setState(() => _timelineType = t),
+                onPickSpecificDate: _pickSpecificDate,
+                onDurationValueChanged: (v) =>
+                    setState(() => _durationValue = v),
+                onDurationUnitChanged: (u) =>
+                    setState(() { _durationUnit = u; _durationValue = 1; }),
+                onPickPostingDeadline: _pickPostingDeadline,
+                onClearPostingDeadline: () =>
+                    setState(() => _postingDeadline = null),
+                fmtDate: _fmtDate,
               ),
-              if (_deadline != null) ...[
-                const SizedBox(height: 4),
-                TextButton.icon(
-                  icon: const Icon(Icons.close, size: 14),
-                  label: const Text('Remove deadline',
-                      style: TextStyle(fontSize: 12)),
-                  onPressed: () => setState(() => _deadline = null),
-                ),
-              ],
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
 
-              // ── Pre-engagement chat toggle ─────────────────────────────
-              Card(
-                child: SwitchListTile(
-                  value: _allowChat,
-                  onChanged: (v) => setState(() => _allowChat = v),
-                  title: const Text('Allow Pre-Application Chat'),
-                  subtitle: const Text(
-                    'Freelancers can message you before formally applying.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  secondary: const Icon(Icons.chat_bubble_outline),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // ── Submit ────────────────────────────────────────────────
+              // ── Submit ───────────────────────────────────────────────
               FilledButton.icon(
                 icon: _isLoading
                     ? const SizedBox(
@@ -405,6 +398,240 @@ class _JobFormScreenState extends State<JobFormScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Timeline helpers ───────────────────────────────────────────────────────
+
+/// Maximum selectable value for a given duration unit.
+int _maxForUnit(String unit) => 7;
+
+// ── Timeline section widget ────────────────────────────────────────────────
+
+class _TimelineSection extends StatelessWidget {
+  const _TimelineSection({
+    required this.type,
+    required this.specificDate,
+    required this.durationValue,
+    required this.durationUnit,
+    required this.postingDeadline,
+    required this.onTypeChanged,
+    required this.onPickSpecificDate,
+    required this.onDurationValueChanged,
+    required this.onDurationUnitChanged,
+    required this.onPickPostingDeadline,
+    required this.onClearPostingDeadline,
+    required this.fmtDate,
+  });
+
+  final _TimelineType type;
+  final DateTime? specificDate;
+  final int durationValue;
+  final String durationUnit;
+  final DateTime? postingDeadline;
+  final ValueChanged<_TimelineType> onTypeChanged;
+  final VoidCallback onPickSpecificDate;
+  final ValueChanged<int> onDurationValueChanged;
+  final ValueChanged<String> onDurationUnitChanged;
+  final VoidCallback onPickPostingDeadline;
+  final VoidCallback onClearPostingDeadline;
+  final String Function(DateTime) fmtDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    // Guard: clamp durationValue into [1, max] in case an old saved post
+    // had a value larger than the current limit (e.g. "52 Weeks").
+    final maxItems = _maxForUnit(durationUnit);
+    final safeValue = durationValue.clamp(1, maxItems);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.schedule_outlined,
+                    size: 18, color: colors.primary),
+                const SizedBox(width: 8),
+                const Text('Project Timeline *',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 15)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'How long will this project take to complete?',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+
+            // ── Option A: Specific date ──────────────────────────────
+            RadioListTile<_TimelineType>(
+              value: _TimelineType.specificDate,
+              groupValue: type,
+              onChanged: (v) => onTypeChanged(v!),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Complete by a specific date',
+                  style: TextStyle(fontSize: 14)),
+              dense: true,
+            ),
+
+            if (type == _TimelineType.specificDate) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.calendar_today_outlined,
+                          size: 16),
+                      label: Text(
+                        specificDate == null
+                            ? 'Select date'
+                            : fmtDate(specificDate!),
+                        style: TextStyle(
+                            color: specificDate != null
+                                ? colors.primary
+                                : null),
+                      ),
+                      onPressed: onPickSpecificDate,
+                    ),
+                    if (specificDate != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 13,
+                                color: colors.primary),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Posting auto-closes on this date.',
+                              style: TextStyle(
+                                  fontSize: 11, color: colors.primary),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+
+            // ── Option B: Duration ───────────────────────────────────
+            RadioListTile<_TimelineType>(
+              value: _TimelineType.duration,
+              groupValue: type,
+              onChanged: (v) => onTypeChanged(v!),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Set a duration',
+                  style: TextStyle(fontSize: 14)),
+              dense: true,
+            ),
+
+            if (type == _TimelineType.duration) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Duration number + unit picker
+                    Row(
+                      children: [
+                        // Number dropdown — range depends on selected unit
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            value: safeValue,
+                            decoration: const InputDecoration(
+                              labelText: 'Amount',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            items: List.generate(
+                              maxItems,
+                              (i) => DropdownMenuItem(
+                                value: i + 1,
+                                child: Text('${i + 1}'),
+                              ),
+                            ),
+                            onChanged: (v) {
+                              if (v != null) onDurationValueChanged(v);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Unit dropdown
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: durationUnit,
+                            decoration: const InputDecoration(
+                              labelText: 'Unit',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            items: _durationUnits
+                                .map((u) => DropdownMenuItem(
+                                      value: u,
+                                      child: Text(u),
+                                    ))
+                                .toList(),
+                            onChanged: (u) {
+                              if (u != null) onDurationUnitChanged(u);
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Posting close date (required when using duration)
+                    const Text(
+                      'When should this posting close? *',
+                      style: TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 2),
+                    const Text(
+                      'Set the date to stop accepting applications.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.event_outlined, size: 16),
+                          label: Text(
+                            postingDeadline == null
+                                ? 'Select close date'
+                                : fmtDate(postingDeadline!),
+                            style: TextStyle(
+                                color: postingDeadline != null
+                                    ? colors.primary
+                                    : null),
+                          ),
+                          onPressed: onPickPostingDeadline,
+                        ),
+                        if (postingDeadline != null) ...[
+                          const SizedBox(width: 8),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 16),
+                            onPressed: onClearPostingDeadline,
+                            tooltip: 'Clear',
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -479,7 +706,8 @@ class _CoverImagePicker extends StatelessWidget {
           const SizedBox(height: 4),
           TextButton.icon(
             icon: const Icon(Icons.swap_horiz, size: 14),
-            label: const Text('Change image', style: TextStyle(fontSize: 12)),
+            label:
+                const Text('Change image', style: TextStyle(fontSize: 12)),
             onPressed: () => _showSourceSheet(context),
           ),
         ],
@@ -553,7 +781,7 @@ class _SkillsInput extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Text('Required Skills *',
+                const Text('Skills (Optional)',
                     style: TextStyle(fontWeight: FontWeight.w600)),
                 const Spacer(),
                 Text(
@@ -561,6 +789,11 @@ class _SkillsInput extends StatelessWidget {
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Add relevant skills if known — leave empty if unsure.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 8),
             if (skills.isNotEmpty) ...[
@@ -587,8 +820,8 @@ class _SkillsInput extends StatelessWidget {
                       hintText: 'e.g. Flutter, UI/UX, Figma…',
                       border: OutlineInputBorder(),
                       isDense: true,
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      contentPadding: EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 10),
                     ),
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => onAdd(),

@@ -66,21 +66,31 @@ class FreelancerService {
   /// True when the service is publicly visible and can be ordered.
   bool get isLive => status == ServiceStatus.active;
 
-  /// Human-readable price range, or null when no pricing is set.
+  /// Human-readable price, or null when no pricing is set.
   String? get priceDisplay {
     if (priceMin == null && priceMax == null) return null;
     String fmt(double v) => 'RM ${v.toStringAsFixed(0)}';
-    if (priceMin != null && priceMax != null) {
+    // Both set → show range (legacy posts)
+    if (priceMin != null && priceMax != null && priceMin != priceMax) {
       return '${fmt(priceMin!)} – ${fmt(priceMax!)}';
     }
-    if (priceMin != null) return 'From ${fmt(priceMin!)}';
-    return 'Up to ${fmt(priceMax!)}';
+    // Single value — just show the amount
+    return fmt(priceMax ?? priceMin!);
   }
 
   /// Human-readable delivery time, or null when not specified.
   String? get deliveryDisplay {
     if (deliveryDays == null) return null;
-    return deliveryDays == 1 ? '1 day' : '$deliveryDays days';
+    final d = deliveryDays!;
+    if (d % 30 == 0 && d ~/ 30 <= 7) {
+      final m = d ~/ 30;
+      return m == 1 ? '1 month' : '$m months';
+    }
+    if (d % 7 == 0 && d ~/ 7 <= 7) {
+      final w = d ~/ 7;
+      return w == 1 ? '1 week' : '$w weeks';
+    }
+    return d == 1 ? '1 day' : '$d days';
   }
 
   /// The URL to show as the service thumbnail.

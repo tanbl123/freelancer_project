@@ -41,7 +41,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _room = widget.room;
-    _loadHistory();
+    _loadHistory(initial: true);
     _subscribeToRealtime();
     // Mark read as soon as the screen opens
     AppState.instance.markChatRoomRead(_room.id);
@@ -57,7 +57,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
-  Future<void> _loadHistory() async {
+  Future<void> _loadHistory({bool initial = false}) async {
+    if (initial) setState(() => _loading = true);
     final msgs = await AppState.instance.loadChatMessages(_room.id);
     if (mounted) {
       setState(() {
@@ -100,16 +101,39 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _sending) return;
 
+    final me = AppState.instance.currentUser;
+    if (me == null) return;
+
     setState(() => _sending = true);
     _inputCtrl.clear();
 
+    // ── Optimistic insert — message appears instantly before server round-trip
+    final optimistic = ChatMessage(
+      id: 'optimistic_${DateTime.now().millisecondsSinceEpoch}',
+      roomId: _room.id,
+      senderId: me.uid,
+      senderName: me.displayName,
+      content: text,
+      createdAt: DateTime.now(),
+    );
+    setState(() => _messages = [..._messages, optimistic]);
+    _scrollToBottom();
+
     final err = await AppState.instance.sendChatMessage(_room, text);
-    if (mounted) {
-      setState(() => _sending = false);
-      if (err != null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(err)));
-      }
+    if (!mounted) return;
+    setState(() => _sending = false);
+
+    if (err != null) {
+      // Roll back the optimistic message on failure
+      setState(() =>
+          _messages = _messages.where((m) => m.id != optimistic.id).toList());
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(err)));
+    } else {
+      // Reload from server to replace the optimistic entry with the real one.
+      // This also acts as a fallback when Supabase Realtime is not enabled
+      // on the chat_messages table.
+      _loadHistory();
     }
   }
 
@@ -368,53 +392,82 @@ class _MessageBubble extends StatelessWidget {
 
     return Padding(
       padding: EdgeInsets.only(
-        top: showSender ? 8 : 2,
-        bottom: 0,
-        left: isMine ? 48 : 0,
-        right: isMine ? 0 : 48,
+        top: showSender ? 10 : 3,
+        bottom: 3,
       ),
-      child: Column(
-        crossAxisAlignment:
-            isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      child: Row(
+        // Push my messages to the right, others to the left
+        mainAxisAlignment:
+            isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (showSender && !isMine)
-            Padding(
-              padding: const EdgeInsets.only(left: 8, bottom: 2),
-              child: Text(
-                message.senderName,
-                style: tt.labelSmall?.copyWith(
-                    color: cs.outline, fontWeight: FontWeight.w600),
-              ),
-            ),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: bubbleColor,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(18),
-                topRight: const Radius.circular(18),
-                bottomLeft: Radius.circular(isMine ? 18 : 4),
-                bottomRight: Radius.circular(isMine ? 4 : 18),
-              ),
+          if (!isMine) const SizedBox(width: 8),
+          // Cap bubble width at 72% of screen so long text doesn't stretch wall-to-wall
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.72,
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+              crossAxisAlignment: isMine
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
-                Text(
-                  message.content,
-                  style: TextStyle(color: textColor, fontSize: 14),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  _fmt(message.createdAt),
-                  style: TextStyle(
-                      fontSize: 10,
-                      color: textColor.withValues(alpha: 0.6)),
+                // Sender name (only for others, only when switching sender)
+                if (showSender && !isMine)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 3),
+                    child: Text(
+                      message.senderName,
+                      style: tt.labelSmall?.copyWith(
+                          color: cs.outline, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+
+                // Bubble — IntrinsicWidth makes it shrink-wrap its content
+                // instead of stretching to the ConstrainedBox max width.
+                IntrinsicWidth(
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    decoration: BoxDecoration(
+                      color: bubbleColor,
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(18),
+                        topRight: const Radius.circular(18),
+                        bottomLeft: Radius.circular(isMine ? 18 : 4),
+                        bottomRight: Radius.circular(isMine ? 4 : 18),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          message.content,
+                          style: TextStyle(color: textColor, fontSize: 14),
+                        ),
+                        const SizedBox(height: 2),
+                        // Timestamp pushed to the right within the bubble
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Spacer(),
+                            const SizedBox(width: 8),
+                            Text(
+                              _fmt(message.createdAt),
+                              style: TextStyle(
+                                  fontSize: 10,
+                                  color: textColor.withValues(alpha: 0.55)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
+          if (isMine) const SizedBox(width: 8),
         ],
       ),
     );

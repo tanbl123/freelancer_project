@@ -113,6 +113,18 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     );
   }
 
+  Future<void> _handleContact() async {
+    final me = AppState.instance.currentUser;
+    if (me == null || me.uid == _service.freelancerId) return;
+    setState(() => _actionLoading = true);
+    final room = await AppState.instance.openDirectChat(_service.freelancerId);
+    if (!mounted) return;
+    setState(() => _actionLoading = false);
+    if (room != null) {
+      Navigator.pushNamed(context, AppRoutes.chatRoom, arguments: room);
+    }
+  }
+
   Future<bool> _confirm(String title, String message) async {
     return await showDialog<bool>(
           context: context,
@@ -352,18 +364,32 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             ),
 
       // ── Bottom CTA ────────────────────────────────────────────────────────
-      bottomNavigationBar: !_actionLoading && isClient && _service.isLive
+      bottomNavigationBar: !_actionLoading && !_isOwner
           ? SafeArea(
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 12),
-                child: FilledButton.icon(
-                  icon: const Icon(Icons.shopping_cart_outlined),
-                  label: const Text('Order Service'),
-                  onPressed: _handleOrder,
-                  style: FilledButton.styleFrom(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 14)),
+                child: Row(
+                  children: [
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.chat_bubble_outline),
+                      label: const Text('Contact'),
+                      onPressed: _handleContact,
+                    ),
+                    if (isClient && _service.isLive) ...[
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.icon(
+                          icon: const Icon(Icons.shopping_cart_outlined),
+                          label: const Text('Order Service'),
+                          onPressed: _handleOrder,
+                          style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 14)),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             )

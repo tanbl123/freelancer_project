@@ -15,6 +15,7 @@ import '../features/jobs/models/job_post.dart';
 import '../features/marketplace/models/marketplace_post.dart';
 import '../features/services/models/freelancer_service.dart';
 import '../features/profile/models/profile_user.dart';
+import '../features/profile/models/portfolio_item.dart';
 import '../features/ratings/models/review_item.dart';
 import '../features/transactions/models/milestone_item.dart';
 import '../features/transactions/models/project_item.dart';
@@ -402,11 +403,13 @@ class SupabaseService {
   }
 
   Future<bool> hasApplied(String jobId, String freelancerId) async {
+    // Withdrawn applications do not count — the freelancer is allowed to re-apply.
     final rows = await _client
         .from('applications')
         .select('id')
         .eq('job_id', jobId)
-        .eq('freelancer_id', freelancerId);
+        .eq('freelancer_id', freelancerId)
+        .neq('status', 'withdrawn');
     return rows.isNotEmpty;
   }
 
@@ -944,6 +947,32 @@ class SupabaseService {
         .toList();
   }
 
+  // ── Portfolio Items ────────────────────────────────────────────────────────
+
+  Future<List<PortfolioItem>> getPortfolioItems(String freelancerId) async {
+    final rows = await _client
+        .from('portfolio_items')
+        .select()
+        .eq('freelancer_id', freelancerId)
+        .order('created_at', ascending: false);
+    return rows.map((r) => PortfolioItem.fromMap(r)).toList();
+  }
+
+  Future<void> insertPortfolioItem(PortfolioItem item) async {
+    await _client.from('portfolio_items').insert(item.toMap());
+  }
+
+  Future<void> updatePortfolioItem(PortfolioItem item) async {
+    await _client
+        .from('portfolio_items')
+        .update(item.toMap())
+        .eq('id', item.id);
+  }
+
+  Future<void> deletePortfolioItem(String id) async {
+    await _client.from('portfolio_items').delete().eq('id', id);
+  }
+
   // ── Job Posts ──────────────────────────────────────────────────────────────
 
   /// Fetch open job posts with optional search, category, and budget filters.
@@ -991,12 +1020,13 @@ class SupabaseService {
     return posts;
   }
 
-  /// All posts (any status) belonging to a specific client.
+  /// All non-deleted posts belonging to a specific client.
   Future<List<JobPost>> getJobPostsByClient(String clientId) async {
     final rows = await _client
         .from('job_posts')
         .select()
         .eq('client_id', clientId)
+        .neq('status', JobStatus.deleted.name)
         .order('created_at', ascending: false);
     return rows.map(JobPost.fromMap).toList();
   }
@@ -1036,8 +1066,13 @@ class SupabaseService {
     }).eq('id', id);
   }
 
+  /// Soft-deletes a job post by setting its status to [JobStatus.deleted].
+  /// The row is retained in Supabase for audit / data-integrity purposes.
   Future<void> deleteJobPost(String id) async {
-    await _client.from('job_posts').delete().eq('id', id);
+    await _client.from('job_posts').update({
+      'status': JobStatus.deleted.name,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
   }
 
   /// Atomically increments view_count via RPC or a simple update.

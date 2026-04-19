@@ -149,11 +149,16 @@ class _NotifTile extends StatelessWidget {
   final VoidCallback onTap;
 
   String _relativeTime(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final timeStr = '$hh:$mm';
+
+    if (diff.inMinutes < 60) return timeStr;           // e.g. "14:32"
+    if (diff.inDays < 1) return '$timeStr (today)';   // e.g. "09:05 (today)"
+    if (diff.inDays < 2) return 'Yesterday $timeStr'; // e.g. "Yesterday 18:44"
+    if (diff.inDays < 7) return '${diff.inDays}d ago $timeStr';
     return '${dt.day}/${dt.month}/${dt.year}';
   }
 

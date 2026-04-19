@@ -23,6 +23,7 @@ import '../features/services/repositories/freelancer_service_repository.dart';
 import '../features/services/services/freelancer_service_service.dart';
 import '../features/marketplace/models/marketplace_post.dart';
 import '../features/profile/models/profile_user.dart';
+import '../features/profile/models/portfolio_item.dart';
 import '../features/ratings/models/review_item.dart';
 import '../features/ratings/repositories/review_repository.dart';
 import '../features/ratings/services/review_service.dart';
@@ -103,6 +104,9 @@ class AppState extends ChangeNotifier {
   List<MilestoneItem> _milestones = [];
   List<ReviewItem> _reviews = [];
   List<ReviewItem> _reportedReviews = [];
+
+  // Portfolio items (freelancer profile)
+  List<PortfolioItem> _portfolioItems = [];
 
   // Job Posting Module state
   List<JobPost> _jobPosts        = [];    // open posts visible in the feed
@@ -211,6 +215,7 @@ class AppState extends ChangeNotifier {
   List<MilestoneItem> get milestones => List.unmodifiable(_milestones);
   List<ReviewItem> get reviews => List.unmodifiable(_reviews);
   List<ReviewItem> get reportedReviews => List.unmodifiable(_reportedReviews);
+  List<PortfolioItem> get portfolioItems => List.unmodifiable(_portfolioItems);
 
   // ── Reviews computed helpers ───────────────────────────────────────────────
 
@@ -1012,7 +1017,7 @@ class AppState extends ChangeNotifier {
     return error;
   }
 
-  /// Client: permanently delete a job post.
+  /// Soft-delete a job post (sets status = deleted; row kept in DB for auditing).
   Future<String?> removeJobPost(String postId, String ownerId) async {
     if (_currentUser == null) return 'Not logged in.';
     final error =
@@ -1338,12 +1343,20 @@ class AppState extends ChangeNotifier {
     final duplicate = await _db.hasApplied(app.jobId, app.freelancerId);
     if (duplicate) return 'You already applied to this job.';
 
-    final job = await _db.getPostById(app.jobId);
-    if (job == null) return 'Job not found.';
-    if (job.isExpired) {
-      return 'This job has expired and is no longer accepting applications.';
+    // Try the new JobPost system first, then fall back to legacy MarketplacePost.
+    final jobPost = await _db.getJobPostById(app.jobId);
+    if (jobPost != null) {
+      if (!jobPost.isLive) {
+        return 'This job is no longer accepting applications.';
+      }
+    } else {
+      final legacyPost = await _db.getPostById(app.jobId);
+      if (legacyPost == null) return 'Job not found.';
+      if (legacyPost.isExpired) {
+        return 'This job has expired and is no longer accepting applications.';
+      }
+      if (legacyPost.isAccepted) return 'This job has already been filled.';
     }
-    if (job.isAccepted) return 'This job has already been filled.';
 
     await _db.insertApplication(app);
     _applications.insert(0, app);
@@ -1379,10 +1392,22 @@ class AppState extends ChangeNotifier {
     try {
       await _db.updateApplicationStatus(app.id, ApplicationStatus.accepted);
       await _db.rejectAllOtherApplications(app.jobId, app.id);
-      await _db.markPostAccepted(app.jobId);
+
+      // Close the job so no further applications are accepted.
+      // Try new JobPost system first; fall back to legacy MarketplacePost.
+      final acceptedJobPost = await _db.getJobPostById(app.jobId);
+      if (acceptedJobPost != null) {
+        await _db.updateJobPostStatus(app.jobId, JobStatus.closed);
+      } else {
+        await _db.markPostAccepted(app.jobId);
+      }
 
       final projectId = _uuid.v4();
-      final post = await _db.getPostById(app.jobId);
+      // Resolve job title from whichever system owns this job.
+      final legacyPost = acceptedJobPost == null
+          ? await _db.getPostById(app.jobId)
+          : null;
+      final jobTitle = acceptedJobPost?.title ?? legacyPost?.title;
       final freelancer = await _db.getUserById(app.freelancerId);
       final client = await _db.getUserById(app.clientId);
       final project = ProjectItem(
@@ -1392,7 +1417,7 @@ class AppState extends ChangeNotifier {
         clientId: app.clientId,
         freelancerId: app.freelancerId,
         status: ProjectStatus.pendingStart,
-        jobTitle: post?.title,
+        jobTitle: jobTitle,
         clientName: client?.displayName,
         freelancerName: freelancer?.displayName,
         totalBudget: app.expectedBudget,
@@ -2285,6 +2310,52 @@ class AppState extends ChangeNotifier {
         ? await _appRepo.getByFreelancer(_currentUser!.uid)
         : await _appRepo.getByClient(_currentUser!.uid);
     notifyListeners();
+  }
+
+  // ── Portfolio ──────────────────────────────────────────────────────────────
+
+  /// Loads portfolio items for [freelancerId] into [_portfolioItems].
+  Future<void> loadPortfolioItems(String freelancerId) async {
+    try {
+      _portfolioItems = await _db.getPortfolioItems(freelancerId);
+    } catch (_) {
+      _portfolioItems = [];
+    }
+    notifyListeners();
+  }
+
+  Future<String?> addPortfolioItem(PortfolioItem item) async {
+    try {
+      await _db.insertPortfolioItem(item);
+      _portfolioItems.insert(0, item);
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to add portfolio item: $e';
+    }
+  }
+
+  Future<String?> updatePortfolioItem(PortfolioItem item) async {
+    try {
+      await _db.updatePortfolioItem(item);
+      final idx = _portfolioItems.indexWhere((p) => p.id == item.id);
+      if (idx >= 0) _portfolioItems[idx] = item;
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to update portfolio item: $e';
+    }
+  }
+
+  Future<String?> deletePortfolioItem(String id) async {
+    try {
+      await _db.deletePortfolioItem(id);
+      _portfolioItems.removeWhere((p) => p.id == id);
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to delete portfolio item: $e';
+    }
   }
 
   // ── Overdue Checker ─────────────────────────────────────────────────────────

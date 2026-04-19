@@ -249,11 +249,15 @@ class _RoomTile extends StatelessWidget {
   }
 
   String _relativeTime(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 1) return 'now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    if (diff.inDays < 7) return '${diff.inDays}d';
-    return '${dt.day}/${dt.month}';
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final timeStr = '$hh:$mm';
+
+    if (diff.inDays < 1) return timeStr;          // e.g. "14:32" (same day)
+    if (diff.inDays < 2) return 'Yesterday';      // e.g. "Yesterday"
+    if (diff.inDays < 7) return '${diff.inDays}d'; // e.g. "3d"
+    return '${dt.day}/${dt.month}';               // e.g. "19/4"
   }
 }

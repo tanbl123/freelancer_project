@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../../../backend/shared/domain_types.dart';
 import '../../../routing/app_router.dart';
+import '../../../services/supabase_service.dart';
 import '../../../state/app_state.dart';
+import '../models/portfolio_item.dart';
 import '../models/profile_user.dart';
 
 /// Public profile viewer — shown when a client taps a freelancer name on a
@@ -359,16 +361,9 @@ class FreelancerProfilePage extends StatelessWidget {
                     ),
                   ],
 
-                  // Portfolio Description
-                  if (user.portfolioDescription?.isNotEmpty == true) ...[
-                    const SizedBox(height: 12),
-                    _Section(
-                      title: 'Portfolio',
-                      icon: Icons.collections_bookmark_outlined,
-                      child: Text(user.portfolioDescription!,
-                          style: const TextStyle(height: 1.5)),
-                    ),
-                  ],
+                  // Portfolio — actual past-project items
+                  const SizedBox(height: 12),
+                  _PublicPortfolioSection(freelancerId: userId),
 
                   // Resume
                   if (user.resumeUrl != null &&
@@ -496,6 +491,136 @@ class FreelancerProfilePage extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ── Public portfolio section (read-only, loads items directly) ────────────────
+
+class _PublicPortfolioSection extends StatefulWidget {
+  const _PublicPortfolioSection({required this.freelancerId});
+  final String freelancerId;
+
+  @override
+  State<_PublicPortfolioSection> createState() =>
+      _PublicPortfolioSectionState();
+}
+
+class _PublicPortfolioSectionState extends State<_PublicPortfolioSection> {
+  List<PortfolioItem>? _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final items =
+        await SupabaseService.instance.getPortfolioItems(widget.freelancerId);
+    if (mounted) setState(() => _items = items);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Still loading
+    if (_items == null) {
+      return const SizedBox(
+          height: 48, child: Center(child: CircularProgressIndicator()));
+    }
+    // No items — don't show the section at all
+    if (_items!.isEmpty) return const SizedBox.shrink();
+
+    return _Section(
+      title: 'Portfolio',
+      icon: Icons.collections_bookmark_outlined,
+      child: Column(
+        children: _items!
+            .map((item) => _PublicPortfolioItemCard(item: item))
+            .toList(),
+      ),
+    );
+  }
+}
+
+class _PublicPortfolioItemCard extends StatelessWidget {
+  const _PublicPortfolioItemCard({required this.item});
+  final PortfolioItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade200),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Project image
+            if (item.imageUrl != null)
+              ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(10)),
+                child: item.imageUrl!.startsWith('http')
+                    ? Image.network(
+                        item.imageUrl!,
+                        height: 160,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      )
+                    : Image.file(
+                        File(item.imageUrl!),
+                        height: 160,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(item.title,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 14)),
+                  if (item.projectDate != null) ...[
+                    const SizedBox(height: 2),
+                    Text(item.projectDate!,
+                        style: const TextStyle(
+                            color: Colors.grey, fontSize: 12)),
+                  ],
+                  if (item.description != null &&
+                      item.description!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(item.description!,
+                        style:
+                            const TextStyle(fontSize: 13, height: 1.4)),
+                  ],
+                  if (item.skills.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: item.skills
+                          .map((s) => Chip(
+                                label: Text(s,
+                                    style: const TextStyle(fontSize: 11)),
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                              ))
+                          .toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

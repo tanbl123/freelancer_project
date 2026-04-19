@@ -40,6 +40,7 @@ class JobPostRepository {
   Future<void> updateStatus(String id, JobStatus status) =>
       _db.updateJobPostStatus(id, status);
 
+  /// Soft-deletes by setting status = deleted (delegates to [SupabaseService.deleteJobPost]).
   Future<void> delete(String id) => _db.deleteJobPost(id);
 
   Future<void> incrementViewCount(String id) =>

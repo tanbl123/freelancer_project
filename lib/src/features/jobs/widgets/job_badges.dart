@@ -36,6 +36,7 @@ class JobStatusBadge extends StatelessWidget {
       JobStatus.open => Colors.green,
       JobStatus.closed => Colors.orange,
       JobStatus.cancelled => Colors.red,
+      JobStatus.deleted => Colors.grey,
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

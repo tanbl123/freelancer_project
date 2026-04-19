@@ -22,53 +22,56 @@ class _ServiceOrdersPageState extends State<ServiceOrdersPage> {
   @override
   void initState() {
     super.initState();
+    AppState.instance.addListener(_onStateChanged);
     AppState.instance.reloadServiceOrders();
+  }
+
+  @override
+  void dispose() {
+    AppState.instance.removeListener(_onStateChanged);
+    super.dispose();
+  }
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     final user = AppState.instance.currentUser;
     final isFreelancer = user?.role == UserRole.freelancer;
+    final orders = AppState.instance.serviceOrders;
 
-    return StreamBuilder<List<ServiceOrder>>(
-      stream: AppState.instance.serviceOrdersStream,
-      initialData: AppState.instance.serviceOrders,
-      builder: (context, snapshot) {
-        final orders =
-            snapshot.data ?? AppState.instance.serviceOrders;
-
-        if (orders.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.inbox_outlined,
-                    size: 64, color: Colors.grey),
-                const SizedBox(height: 12),
-                Text(
-                  isFreelancer
-                      ? 'No service orders received yet.'
-                      : 'You haven\'t placed any service orders yet.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
-                ),
-              ],
+    if (orders.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.inbox_outlined,
+                size: 64, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(
+              isFreelancer
+                  ? 'No service orders received yet.'
+                  : 'You haven\'t placed any service orders yet.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
             ),
-          );
-        }
+          ],
+        ),
+      );
+    }
 
-        return RefreshIndicator(
-          onRefresh: AppState.instance.reloadServiceOrders,
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-            itemCount: orders.length,
-            itemBuilder: (ctx, i) => _ServiceOrderCard(
-              order: orders[i],
-              isFreelancerView: isFreelancer,
-            ),
-          ),
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: AppState.instance.reloadServiceOrders,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+        itemCount: orders.length,
+        itemBuilder: (ctx, i) => _ServiceOrderCard(
+          order: orders[i],
+          isFreelancerView: isFreelancer,
+        ),
+      ),
     );
   }
 }
@@ -254,12 +257,30 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
                                     fontWeight: FontWeight.bold,
                                     fontSize: 15),
                                 overflow: TextOverflow.ellipsis),
-                            Text(
-                              widget.isFreelancerView
-                                  ? 'From: ${order.clientName}'
-                                  : 'To: ${order.freelancerName}',
-                              style: const TextStyle(
-                                  color: Colors.grey, fontSize: 12),
+                            GestureDetector(
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                '/profile/view',
+                                arguments: widget.isFreelancerView
+                                    ? order.clientId
+                                    : order.freelancerId,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    widget.isFreelancerView
+                                        ? 'From: ${order.clientName}'
+                                        : 'To: ${order.freelancerName}',
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 12),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  const Text('›',
+                                      style: TextStyle(
+                                          color: Colors.grey, fontSize: 12)),
+                                ],
+                              ),
                             ),
                           ],
                         ),

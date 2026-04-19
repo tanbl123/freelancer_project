@@ -25,22 +25,35 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
   late JobPost _post;
   bool _actionLoading = false;
 
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     _post = widget.post;
+    AppState.instance.addListener(_onStateChanged);
     // Fire-and-forget view count increment (non-critical).
     // Only track views from non-owners; the RPC handles atomic increment.
     final user = AppState.instance.currentUser;
     if (user?.uid != _post.clientId) {
       AppState.instance.recordJobPostView(_post.id);
     }
+    // Ensure applications are loaded so the Applied/Apply Now button is correct.
+    AppState.instance.reloadApplications();
   }
 
   bool get _isOwner =>
       AppState.instance.currentUser?.uid == _post.clientId;
 
   bool get _isAdmin => AppState.instance.isAdmin;
+
+  @override
+  void dispose() {
+    AppState.instance.removeListener(_onStateChanged);
+    super.dispose();
+  }
 
   Future<void> _handleClose() async {
     final confirmed = await _confirm(
@@ -114,14 +127,16 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
         arguments: _post);
   }
 
-  void _handlePreEngagementChat() {
-    // TODO: Navigate to Chat Module once implemented.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Chat feature coming soon! '
-            'Use the Apply button to submit your proposal.'),
-      ),
-    );
+  Future<void> _handleContact() async {
+    final me = AppState.instance.currentUser;
+    if (me == null || me.uid == _post.clientId) return;
+    setState(() => _actionLoading = true);
+    final room = await AppState.instance.openDirectChat(_post.clientId);
+    if (!mounted) return;
+    setState(() => _actionLoading = false);
+    if (room != null) {
+      Navigator.pushNamed(context, AppRoutes.chatRoom, arguments: room);
+    }
   }
 
   Future<bool> _confirm(String title, String message) async {
@@ -153,6 +168,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final isOpen = _post.status == JobStatus.open;
+    final isClosed = _post.status == JobStatus.closed;
     final user = AppState.instance.currentUser;
     final isFreelancer = user?.role == UserRole.freelancer;
 
@@ -211,14 +227,26 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                         contentPadding: EdgeInsets.zero),
                   ),
                 ],
-                if (!isOpen)
+                // Closed + not expired → can Reopen
+                if (isClosed && !_post.isExpired)
                   const PopupMenuItem(
                     value: 'reopen',
                     child: ListTile(
-                        leading:
-                            Icon(Icons.lock_open_outlined, color: Colors.green),
+                        leading: Icon(Icons.lock_open_outlined,
+                            color: Colors.green),
                         title: Text('Reopen',
                             style: TextStyle(color: Colors.green)),
+                        contentPadding: EdgeInsets.zero),
+                  ),
+                // Closed + expired → can only Cancel (deadline passed, can't reopen)
+                if (isClosed && _post.isExpired)
+                  const PopupMenuItem(
+                    value: 'cancel',
+                    child: ListTile(
+                        leading: Icon(Icons.cancel_outlined,
+                            color: Colors.red),
+                        title: Text('Cancel Post',
+                            style: TextStyle(color: Colors.red)),
                         contentPadding: EdgeInsets.zero),
                   ),
                 const PopupMenuItem(
@@ -336,13 +364,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                         label: 'Applications',
                         value: '${_post.applicationCount}',
                       ),
-                      if (_post.allowPreEngagementChat)
-                        _InfoTile(
-                          icon: Icons.chat_bubble_outline,
-                          label: 'Chat',
-                          value: 'Allowed',
-                          valueColor: colors.primary,
-                        ),
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -380,34 +401,24 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
               ),
             ),
 
-      // ── Bottom action bar ─────────────────────────────────────────────────
-      bottomNavigationBar: !_actionLoading &&
-              isFreelancer &&
-              _post.isLive
+      // ── Bottom action bar (freelancers only — clients just browse) ──────────
+      bottomNavigationBar: !_actionLoading && !_isOwner && isFreelancer
           ? SafeArea(
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
-                    if (_post.allowPreEngagementChat) ...[
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.chat_bubble_outline),
-                        label: const Text('Message'),
-                        onPressed: _handlePreEngagementChat,
-                      ),
-                      const SizedBox(width: 12),
-                    ],
-                    Expanded(
-                      child: FilledButton.icon(
-                        icon: const Icon(Icons.send),
-                        label: const Text('Apply Now'),
-                        onPressed: _handleApply,
-                        style: FilledButton.styleFrom(
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 14)),
-                      ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.chat_bubble_outline),
+                      label: const Text('Contact'),
+                      onPressed: _handleContact,
                     ),
+                    const SizedBox(width: 12),
+                    if (_post.isLive)
+                      Expanded(
+                        child: _AlreadyAppliedButton(jobId: _post.id),
+                      ),
                   ],
                 ),
               ),
@@ -475,6 +486,50 @@ class _InfoTile extends StatelessWidget {
                 color: valueColor),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Apply / Applied button ─────────────────────────────────────────────────
+// Checks the in-memory application list — no extra network call needed.
+// Shows "Apply Now" if the freelancer has no active application for this job,
+// or a disabled "Applied ✓" button if they already have one (pending/accepted/rejected).
+// Withdrawn applications are excluded so the freelancer can re-apply.
+
+class _AlreadyAppliedButton extends StatelessWidget {
+  const _AlreadyAppliedButton({required this.jobId});
+  final String jobId;
+
+  bool _hasActiveApplication() {
+    final me = AppState.instance.currentUser;
+    if (me == null) return false;
+    return AppState.instance.userApplications.any((a) =>
+        a.jobId == jobId &&
+        a.freelancerId == me.uid &&
+        a.status.name != 'withdrawn');
+  }
+
+  void _handleApply(BuildContext context) {
+    final post = AppState.instance.jobPosts
+        .where((p) => p.id == jobId)
+        .firstOrNull;
+    if (post == null) return;
+    Navigator.pushNamed(context, AppRoutes.applicationApply, arguments: post);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final applied = _hasActiveApplication();
+    return FilledButton.icon(
+      icon: Icon(applied ? Icons.check_circle_outline : Icons.send, size: 18),
+      label: Text(applied ? 'Applied' : 'Apply Now'),
+      onPressed: applied ? null : () => _handleApply(context),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        // Grey out when already applied
+        disabledBackgroundColor: Colors.grey.shade300,
+        disabledForegroundColor: Colors.grey.shade600,
       ),
     );
   }
