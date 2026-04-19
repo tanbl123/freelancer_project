@@ -233,7 +233,10 @@ class ChatService {
         // Never opened → unread if there is at least one message
         result[room.id] = room.lastMessage != null;
       } else {
-        result[room.id] = room.lastMessageAt!.isAfter(lastRead);
+        // Normalise both to UTC before comparing to avoid local-clock drift
+        final msgTime = room.lastMessageAt!.toUtc();
+        final readTime = lastRead.toUtc();
+        result[room.id] = msgTime.isAfter(readTime);
       }
     }
     return result;

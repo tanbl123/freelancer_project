@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../state/app_state.dart';
+import '../../user/services/user_validator.dart';
 
 class ChangePasswordPage extends StatefulWidget {
   const ChangePasswordPage({super.key});
@@ -74,7 +75,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Your new password must be at least 8 characters.',
+                        'Password must be at least 8 characters, include one uppercase letter, one number, and one special character.',
                         style: TextStyle(
                           fontSize: 13,
                           color: Theme.of(context)
@@ -105,11 +106,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                   ),
                 ),
                 textInputAction: TextInputAction.next,
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'New password is required';
-                  if (v.length < 8) return 'At least 8 characters required';
-                  return null;
-                },
+                validator: UserValidator.validatePassword,
               ),
               const SizedBox(height: 16),
 
@@ -131,13 +128,8 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                 ),
                 textInputAction: TextInputAction.done,
                 onFieldSubmitted: (_) => _submit(),
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Please confirm your password';
-                  if (v != _newPasswordController.text) {
-                    return 'Passwords do not match';
-                  }
-                  return null;
-                },
+                validator: (v) => UserValidator.validateConfirmPassword(
+                    v, _newPasswordController.text),
               ),
               const SizedBox(height: 28),
 

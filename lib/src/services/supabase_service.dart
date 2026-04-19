@@ -1590,11 +1590,17 @@ class SupabaseService {
 
   /// Upsert the user's last-read timestamp for a room.
   Future<void> markRoomRead(String roomId, String userId) async {
-    await _client.from('chat_reads').upsert({
-      'room_id': roomId,
-      'user_id': userId,
-      'last_read_at': DateTime.now().toIso8601String(),
-    });
+    // Use UTC so comparisons against Supabase server timestamps are correct.
+    // onConflict ensures we UPDATE the existing row rather than inserting a
+    // duplicate (requires a unique constraint on (room_id, user_id)).
+    await _client.from('chat_reads').upsert(
+      {
+        'room_id': roomId,
+        'user_id': userId,
+        'last_read_at': DateTime.now().toUtc().toIso8601String(),
+      },
+      onConflict: 'room_id,user_id',
+    );
   }
 
   /// Get last-read timestamps for all rooms the user is in.
@@ -1608,8 +1614,16 @@ class SupabaseService {
       final roomId = row['room_id'] as String;
       final ts = row['last_read_at'];
       if (ts != null) {
-        final parsed = ts is String ? DateTime.tryParse(ts) : null;
-        if (parsed != null) result[roomId] = parsed;
+        final parsed =
+            ts is String ? DateTime.tryParse(ts)?.toUtc() : null;
+        if (parsed != null) {
+          // Keep only the most recent timestamp per room (guards against
+          // duplicate rows if the upsert ever falls back to insert).
+          if (!result.containsKey(roomId) ||
+              parsed.isAfter(result[roomId]!)) {
+            result[roomId] = parsed;
+          }
+        }
       }
     }
     return result;
