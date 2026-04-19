@@ -125,14 +125,18 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
   }
 
   Future<String?> _promptText(String title, String hint) async {
+    // NOTE: do NOT dispose the controller after showDialog — the closing
+    // animation keeps the TextField alive for one more frame, causing the
+    // "_dependents.isEmpty" assertion crash if dispose() is called first.
     final controller = TextEditingController();
-    final result = await showDialog<String>(
+    return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title),
         content: TextField(
           controller: controller,
           maxLines: 3,
+          autofocus: true,
           decoration: InputDecoration(
               hintText: hint, border: const OutlineInputBorder()),
         ),
@@ -151,8 +155,6 @@ class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> {
         ],
       ),
     );
-    controller.dispose();
-    return result;
   }
 
   void _showResult(String? error, String success) {

@@ -753,9 +753,18 @@ class AppState extends ChangeNotifier {
   /// Admin: approve a freelancer request.
   Future<String?> approveFreelancerRequest(String requestId) async {
     if (!isAdmin) return 'Access denied.';
+    // Capture the requesterId before the operation so we can notify them.
+    final request = _allFreelancerRequests
+        .cast<FreelancerRequest?>()
+        .firstWhere((r) => r?.id == requestId, orElse: () => null);
     final error = await _userService.approveFreelancerRequest(
         requestId, _currentUser!.uid);
     if (error == null) {
+      if (request != null) {
+        await _notifSvc.send(NotificationService.makeFreelancerRequestApproved(
+          userId: request.requesterId,
+        ));
+      }
       await _reloadAdminData();
       notifyListeners();
     }
@@ -766,9 +775,19 @@ class AppState extends ChangeNotifier {
   Future<String?> rejectFreelancerRequest(
       String requestId, String note) async {
     if (!isAdmin) return 'Access denied.';
+    // Capture the requesterId before the operation so we can notify them.
+    final request = _allFreelancerRequests
+        .cast<FreelancerRequest?>()
+        .firstWhere((r) => r?.id == requestId, orElse: () => null);
     final error = await _userService.rejectFreelancerRequest(
         requestId, _currentUser!.uid, note);
     if (error == null) {
+      if (request != null) {
+        await _notifSvc.send(NotificationService.makeFreelancerRequestRejected(
+          userId: request.requesterId,
+          note: note,
+        ));
+      }
       await _reloadAdminData();
       notifyListeners();
     }

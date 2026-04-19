@@ -187,14 +187,20 @@ class _RequestCardState extends State<_RequestCard> {
   }
 
   Future<String?> _promptNote() async {
+    // NOTE: do NOT call ctrl.dispose() after showDialog — the dialog close
+    // animation keeps the TextField in the tree for one more frame, so
+    // disposing the controller before that frame completes triggers the
+    // "_dependents.isEmpty" assertion.  The controller is a local variable
+    // and will be garbage-collected when this function returns.
     final ctrl = TextEditingController();
-    final result = await showDialog<String>(
+    return showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Rejection Reason'),
         content: TextField(
           controller: ctrl,
           maxLines: 3,
+          autofocus: true,
           decoration: const InputDecoration(
               hintText: 'Provide a reason for the applicant',
               border: OutlineInputBorder()),
@@ -214,8 +220,6 @@ class _RequestCardState extends State<_RequestCard> {
         ],
       ),
     );
-    ctrl.dispose();
-    return result;
   }
 
   void _snack(String? error, String success) {

@@ -353,20 +353,28 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         ),
         const SizedBox(height: 28),
 
-        // OTP boxes
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(8, (i) {
-            return Padding(
-              padding: EdgeInsets.only(right: i < 7 ? 8 : 0),
-              child: _OtpBox(
-                controller: _otpControllers[i],
-                focusNode: _otpFocusNodes[i],
-                primary: cs.primary,
-                onChanged: (v) => _onDigitChanged(i, v),
-              ),
+        // OTP boxes — responsive width based on screen size
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const gaps = 8.0 * 7; // 7 gaps between 8 boxes
+            final boxWidth =
+                ((constraints.maxWidth - gaps) / 8).floorToDouble();
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(8, (i) {
+                return Padding(
+                  padding: EdgeInsets.only(right: i < 7 ? 8 : 0),
+                  child: _OtpBox(
+                    controller: _otpControllers[i],
+                    focusNode: _otpFocusNodes[i],
+                    primary: cs.primary,
+                    width: boxWidth,
+                    onChanged: (v) => _onDigitChanged(i, v),
+                  ),
+                );
+              }),
             );
-          }),
+          },
         ),
 
         if (_errorMessage != null) ...[
@@ -549,17 +557,19 @@ class _OtpBox extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.primary,
+    required this.width,
     required this.onChanged,
   });
   final TextEditingController controller;
   final FocusNode focusNode;
   final Color primary;
+  final double width;
   final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 42,
+      width: width,
       child: TextField(
         controller: controller,
         focusNode: focusNode,

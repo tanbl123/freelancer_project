@@ -695,12 +695,37 @@ class _CoverImagePicker extends StatelessWidget {
             ],
           )
         else
-          OutlinedButton.icon(
-            icon: const Icon(Icons.add_photo_alternate_outlined),
-            label: const Text('Add Cover Image'),
-            onPressed: () => _showSourceSheet(context),
-            style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14)),
+          GestureDetector(
+            onTap: () => _showSourceSheet(context),
+            child: Container(
+              width: double.infinity,
+              height: 140,
+              decoration: BoxDecoration(
+                border: Border.all(
+                    color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4)),
+                borderRadius: BorderRadius.circular(10),
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: 0.4),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_photo_alternate_outlined,
+                      size: 36,
+                      color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Add Cover Image',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         if (imagePath != null) ...[
           const SizedBox(height: 4),

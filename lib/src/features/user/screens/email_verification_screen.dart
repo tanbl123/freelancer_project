@@ -261,20 +261,30 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                // ── 8 OTP boxes ───────────────────────────────────────────────
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(8, (i) {
-                    return Padding(
-                      padding: EdgeInsets.only(right: i < 7 ? 8 : 0),
-                      child: _OtpBox(
-                        controller: _controllers[i],
-                        focusNode: _focusNodes[i],
-                        primary: cs.primary,
-                        onChanged: (v) => _onDigitChanged(i, v),
-                      ),
+                // ── 8 OTP boxes (responsive width) ───────────────────────────
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // constraints.maxWidth = available width inside the
+                    // SingleChildScrollView (screen width − 28*2 padding).
+                    const gaps = 8.0 * 7; // 7 gaps between 8 boxes
+                    final boxWidth =
+                        ((constraints.maxWidth - gaps) / 8).floorToDouble();
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(8, (i) {
+                        return Padding(
+                          padding: EdgeInsets.only(right: i < 7 ? 8 : 0),
+                          child: _OtpBox(
+                            controller: _controllers[i],
+                            focusNode: _focusNodes[i],
+                            primary: cs.primary,
+                            width: boxWidth,
+                            onChanged: (v) => _onDigitChanged(i, v),
+                          ),
+                        );
+                      }),
                     );
-                  }),
+                  },
                 ),
 
                 // ── Error message ─────────────────────────────────────────────
@@ -373,18 +383,20 @@ class _OtpBox extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.primary,
+    required this.width,
     required this.onChanged,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final Color primary;
+  final double width;
   final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 42,
+      width: width,
       child: TextField(
         controller: controller,
         focusNode: focusNode,

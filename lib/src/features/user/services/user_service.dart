@@ -43,13 +43,22 @@ class UserService {
       final existing =
           await _db.getUserByEmail(email.trim().toLowerCase());
       if (existing != null) {
-        if (existing.accountStatus == AccountStatus.deactivated) {
-          return 'This account has been deactivated and cannot be used to '
-              'register.';
-        }
-        if (existing.accountStatus == AccountStatus.restricted) {
-          return 'This account has been restricted. Please log in and submit '
-              'an appeal from your profile page.';
+        switch (existing.accountStatus) {
+          case AccountStatus.active:
+            return 'An account with this email already exists. '
+                'Please sign in instead.';
+          case AccountStatus.pendingVerification:
+            // Account exists but email not yet verified — resend the OTP and
+            // return null so the caller navigates to EmailVerificationScreen.
+            await Supabase.instance.client.auth
+                .resend(type: OtpType.signup, email: email.trim().toLowerCase());
+            return null;
+          case AccountStatus.deactivated:
+            return 'This account has been deactivated and cannot be used to '
+                'register.';
+          case AccountStatus.restricted:
+            return 'This account has been restricted. Please log in and submit '
+                'an appeal from your profile page.';
         }
       }
       // ────────────────────────────────────────────────────────────────────

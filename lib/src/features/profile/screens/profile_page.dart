@@ -269,10 +269,19 @@ class ProfilePage extends StatelessWidget {
                     children: [
                       _StatRow(
                         label: 'Listings Posted',
-                        value: AppState.instance.posts
-                            .where((p) => p.ownerId == user.uid)
-                            .length
-                            .toString(),
+                        value: (() {
+                          // Old marketplace posts
+                          final oldPosts = AppState.instance.posts
+                              .where((p) => p.ownerId == user.uid)
+                              .length;
+                          // New job posts (clients)
+                          final jobPosts =
+                              AppState.instance.myJobPosts.length;
+                          // Services posted (freelancers)
+                          final services =
+                              AppState.instance.myServices.length;
+                          return (oldPosts + jobPosts + services).toString();
+                        })(),
                       ),
                       _StatRow(
                         label: 'Applications',

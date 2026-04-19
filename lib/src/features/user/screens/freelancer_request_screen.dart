@@ -39,6 +39,10 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // When a previous request was rejected, this flag forces the form to show
+  // even though AppState.myFreelancerRequest is non-null.
+  bool _forceShowForm = false;
+
   // Inline form toggles
   bool _showSkillForm = false;
   bool _showWorkForm = false;
@@ -225,6 +229,7 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
     if (error != null) {
       setState(() => _errorMessage = error);
     } else {
+      setState(() => _forceShowForm = false);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Request submitted! An admin will review it soon.')));
       Navigator.pop(context);
@@ -242,7 +247,7 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
           appBar: AppBar(title: const Text('Become a Freelancer')),
           body: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
-            child: existing != null
+            child: existing != null && !_forceShowForm
                 ? _buildStatusView(existing.status, existing.adminNote)
                 : _buildForm(),
           ),
@@ -292,7 +297,7 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
             OutlinedButton.icon(
               icon: const Icon(Icons.refresh),
               label: const Text('Submit a New Request'),
-              onPressed: () => setState(() {}),
+              onPressed: () => setState(() => _forceShowForm = true),
             ),
           ],
         ],
