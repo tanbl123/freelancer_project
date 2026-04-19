@@ -2,18 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../routing/app_router.dart';
+import '../../../shared/enums/user_role.dart';
 import '../../../state/app_state.dart';
 import '../models/job_post.dart';
 import '../widgets/job_badges.dart';
 import 'my_job_posts_screen.dart';
 
-/// Jobs tab — two inner tabs:
+/// Jobs tab — inner tabs depend on role:
 ///
-/// - **Browse**: searchable, filterable marketplace of all open job posts.
-/// - **My Posts**: the signed-in user's own postings with Open / Closed /
-///   Cancelled sub-tabs and a "Post a Job" FAB.
-///
-/// All roles (client and freelancer) can browse and post jobs.
+/// - **Client**: Browse + My Posts tabs, with "Post a Job" FAB on My Posts.
+/// - **Freelancer**: Browse only — freelancers apply to jobs, not post them.
 class JobFeedScreen extends StatefulWidget {
   const JobFeedScreen({super.key});
 
@@ -23,12 +21,16 @@ class JobFeedScreen extends StatefulWidget {
 
 class _JobFeedScreenState extends State<JobFeedScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs;
+  late TabController _tabs;
+  bool _isFreelancer = false;
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    _isFreelancer =
+        AppState.instance.currentUser?.role == UserRole.freelancer;
+    _tabs = TabController(
+        length: _isFreelancer ? 1 : 2, vsync: this);
     _tabs.addListener(() => setState(() {}));
   }
 
@@ -40,25 +42,30 @@ class _JobFeedScreenState extends State<JobFeedScreen>
 
   @override
   Widget build(BuildContext context) {
-    final onMyPosts = _tabs.index == 1;
+    final onMyPosts = !_isFreelancer && _tabs.index == 1;
+
     return Scaffold(
       body: Column(
         children: [
-          TabBar(
-            controller: _tabs,
-            tabs: const [
-              Tab(text: 'Browse'),
-              Tab(text: 'My Posts'),
-            ],
-          ),
-          Expanded(
-            child: TabBarView(
+          // Only show the tab bar when there are multiple tabs (client)
+          if (!_isFreelancer)
+            TabBar(
               controller: _tabs,
-              children: const [
-                _JobBrowseTab(),
-                MyJobPostsBody(),
+              tabs: const [
+                Tab(text: 'Browse'),
+                Tab(text: 'My Posts'),
               ],
             ),
+          Expanded(
+            child: _isFreelancer
+                ? const _JobBrowseTab()
+                : TabBarView(
+                    controller: _tabs,
+                    children: const [
+                      _JobBrowseTab(),
+                      MyJobPostsBody(),
+                    ],
+                  ),
           ),
         ],
       ),

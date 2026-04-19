@@ -28,31 +28,46 @@ class _ProjectListPageState extends State<ProjectListPage> {
         final user = AppState.instance.currentUser;
         final projects = AppState.instance.userProjects;
 
+        final isClient = user?.role == UserRole.client;
+
         return Scaffold(
           body: projects.isEmpty
               ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.folder_open,
-                          size: 72, color: Colors.grey),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'No projects yet.\n'
-                        'Projects are created when a client accepts an application or service order.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                      if (user?.role == UserRole.client) ...[
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          onPressed: () => Navigator.pushNamed(
-                              context, '/ra'),
-                          icon: const Icon(Icons.description),
-                          label: const Text('View Applications & Orders'),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.folder_open,
+                            size: 72, color: Colors.grey),
+                        const SizedBox(height: 12),
+                        Text(
+                          isClient
+                              ? 'No projects yet.\n'
+                                'Post a job and accept a freelancer\'s application, '
+                                'or order a service to get started.'
+                              : 'No projects yet.\n'
+                                'Projects are created once a client accepts your application or service order.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.grey, height: 1.5),
                         ),
+                        const SizedBox(height: 20),
+                        if (isClient)
+                          FilledButton.icon(
+                            onPressed: () =>
+                                Navigator.pushNamed(context, '/jobs'),
+                            icon: const Icon(Icons.work_outline),
+                            label: const Text('Browse or Post a Job'),
+                          )
+                        else
+                          FilledButton.icon(
+                            onPressed: () =>
+                                Navigator.pushNamed(context, '/jobs'),
+                            icon: const Icon(Icons.search),
+                            label: const Text('Browse Jobs'),
+                          ),
                       ],
-                    ],
+                    ),
                   ),
                 )
               : RefreshIndicator(

@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../../../services/file_storage_service.dart';
 import '../../../services/supabase_storage_service.dart';
 import '../../../shared/enums/job_status.dart';
+import '../../../shared/enums/user_role.dart';
 import '../../../shared/widgets/camera_picker_screen.dart';
 import '../../../state/app_state.dart';
 import '../models/job_post.dart';
@@ -249,6 +250,13 @@ class _JobFormScreenState extends State<JobFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Freelancers cannot post jobs — redirect them out immediately.
+    if (AppState.instance.currentUser?.role == UserRole.freelancer) {
+      WidgetsBinding.instance.addPostFrameCallback(
+          (_) => Navigator.of(context).pop());
+      return const Scaffold(body: SizedBox.shrink());
+    }
+
     final colors = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
