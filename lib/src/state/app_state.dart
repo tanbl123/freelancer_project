@@ -761,9 +761,11 @@ class AppState extends ChangeNotifier {
         requestId, _currentUser!.uid);
     if (error == null) {
       if (request != null) {
-        await _notifSvc.send(NotificationService.makeFreelancerRequestApproved(
-          userId: request.requesterId,
-        ));
+        try {
+          await _notifSvc.send(NotificationService.makeFreelancerRequestApproved(
+            userId: request.requesterId,
+          ));
+        } catch (_) {}
       }
       await _reloadAdminData();
       notifyListeners();
@@ -783,10 +785,12 @@ class AppState extends ChangeNotifier {
         requestId, _currentUser!.uid, note);
     if (error == null) {
       if (request != null) {
-        await _notifSvc.send(NotificationService.makeFreelancerRequestRejected(
-          userId: request.requesterId,
-          note: note,
-        ));
+        try {
+          await _notifSvc.send(NotificationService.makeFreelancerRequestRejected(
+            userId: request.requesterId,
+            note: note,
+          ));
+        } catch (_) {}
       }
       await _reloadAdminData();
       notifyListeners();

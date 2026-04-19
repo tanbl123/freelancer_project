@@ -260,46 +260,54 @@ class ProfilePage extends StatelessWidget {
                   _MyPortfolioSection(userId: user.uid),
                 ],
 
-                // Activity stats
+                // Activity stats — different rows per role
                 const SizedBox(height: 12),
                 _SectionCard(
                   title: 'Activity',
                   icon: Icons.bar_chart,
                   child: Column(
-                    children: [
-                      _StatRow(
-                        label: 'Listings Posted',
-                        value: (() {
-                          // Old marketplace posts
-                          final oldPosts = AppState.instance.posts
-                              .where((p) => p.ownerId == user.uid)
-                              .length;
-                          // New job posts (clients)
-                          final jobPosts =
-                              AppState.instance.myJobPosts.length;
-                          // Services posted (freelancers)
-                          final services =
-                              AppState.instance.myServices.length;
-                          return (oldPosts + jobPosts + services).toString();
-                        })(),
-                      ),
-                      _StatRow(
-                        label: 'Applications',
-                        value: AppState.instance.applications
-                            .where((a) => a.freelancerId == user.uid)
-                            .length
-                            .toString(),
-                      ),
-                      _StatRow(
-                        label: 'Projects',
-                        value: AppState.instance.userProjects.length
-                            .toString(),
-                      ),
-                      _StatRow(
-                        label: 'Reviews Received',
-                        value: reviews.length.toString(),
-                      ),
-                    ],
+                    children: isFreelancer
+                        ? [
+                            // ── Freelancer stats ───────────────────────────
+                            _StatRow(
+                              label: 'Services Posted',
+                              value: AppState.instance.myServices.length
+                                  .toString(),
+                            ),
+                            _StatRow(
+                              label: 'Applications',
+                              value: AppState.instance.applications
+                                  .where((a) => a.freelancerId == user.uid)
+                                  .length
+                                  .toString(),
+                            ),
+                            _StatRow(
+                              label: 'Projects',
+                              value: AppState.instance.userProjects.length
+                                  .toString(),
+                            ),
+                            _StatRow(
+                              label: 'Reviews Received',
+                              value: reviews.length.toString(),
+                            ),
+                          ]
+                        : [
+                            // ── Client stats ───────────────────────────────
+                            _StatRow(
+                              label: 'Job Listings Posted',
+                              value: AppState.instance.myJobPosts.length
+                                  .toString(),
+                            ),
+                            _StatRow(
+                              label: 'Projects',
+                              value: AppState.instance.userProjects.length
+                                  .toString(),
+                            ),
+                            _StatRow(
+                              label: 'Reviews Received',
+                              value: reviews.length.toString(),
+                            ),
+                          ],
                   ),
                 ),
 
