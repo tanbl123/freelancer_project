@@ -10,6 +10,7 @@ import '../../../features/ratings/screens/freelancer_stats_page.dart';
 import '../models/portfolio_item.dart';
 import 'edit_profile_page.dart';
 import 'portfolio_form_screen.dart';
+import 'portfolio_list_page.dart';
 
 class ProfilePage extends StatelessWidget {
   const ProfilePage({super.key});
@@ -616,6 +617,9 @@ class _AccountStatusBadge extends StatelessWidget {
 
 // ── My Portfolio section (freelancer's own profile) ──────────────────────────
 
+/// Compact portfolio preview card shown on the freelancer's own profile.
+/// Shows a 3-column thumbnail grid (max 6 previews) + "View All" button.
+/// Tapping navigates to the full [PortfolioListPage].
 class _MyPortfolioSection extends StatefulWidget {
   const _MyPortfolioSection({required this.userId});
   final String userId;
@@ -636,38 +640,20 @@ class _MyPortfolioSectionState extends State<_MyPortfolioSection> {
   Future<void> _load() async {
     try {
       await AppState.instance.loadPortfolioItems(widget.userId);
-    } catch (_) {
-      // treat any error as empty list
-    }
+    } catch (_) {}
     if (mounted) setState(() => _loaded = true);
   }
 
-  Future<void> _confirmDelete(BuildContext context, PortfolioItem item) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Portfolio Item'),
-        content: Text('Remove "${item.title}" from your portfolio?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
-          ),
-        ],
+  void _openPortfolioPage(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PortfolioListPage(
+          freelancerId: widget.userId,
+          isOwner: true,
+        ),
       ),
     );
-    if (confirmed == true && mounted) {
-      final err = await AppState.instance.deletePortfolioItem(item.id);
-      if (err != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(err), backgroundColor: Colors.red));
-      }
-    }
   }
 
   @override
@@ -678,6 +664,7 @@ class _MyPortfolioSectionState extends State<_MyPortfolioSection> {
       listenable: AppState.instance,
       builder: (context, _) {
         final items = AppState.instance.portfolioItems;
+        final count = items.length;
 
         return Card(
           child: Padding(
@@ -685,17 +672,22 @@ class _MyPortfolioSectionState extends State<_MyPortfolioSection> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Header row ──────────────────────────────────────────────
+                // ── Header ──────────────────────────────────────────────────
                 Row(
                   children: [
                     Icon(Icons.collections_bookmark_outlined,
                         size: 16, color: cs.primary),
                     const SizedBox(width: 6),
-                    const Expanded(
-                      child: Text('My Portfolio',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 15)),
+                    Expanded(
+                      child: Text(
+                        count > 0
+                            ? 'My Portfolio ($count)'
+                            : 'My Portfolio',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
                     ),
+                    // Add button
                     TextButton.icon(
                       icon: const Icon(Icons.add, size: 16),
                       label: const Text('Add'),
@@ -714,23 +706,43 @@ class _MyPortfolioSectionState extends State<_MyPortfolioSection> {
                     child: Center(child: CircularProgressIndicator()),
                   )
                 else if (items.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       'No portfolio items yet. Tap Add to showcase your past work.',
-                      style: TextStyle(color: Colors.grey),
+                      style: TextStyle(color: Colors.grey.shade500),
                     ),
                   )
-                else
-                  ...items.map(
-                    (item) => _PortfolioItemTile(
-                      item: item,
-                      onEdit: () => Navigator.pushNamed(
-                          context, AppRoutes.portfolioForm,
-                          arguments: item),
-                      onDelete: () => _confirmDelete(context, item),
+                else ...[
+                  const SizedBox(height: 10),
+                  // 3-column thumbnail grid (max 6 preview tiles)
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 6,
+                      mainAxisSpacing: 6,
+                      childAspectRatio: 1,
+                    ),
+                    itemCount: items.take(6).length,
+                    itemBuilder: (ctx, i) =>
+                        _PortfolioThumb(item: items[i]),
+                  ),
+                  const SizedBox(height: 10),
+                  // "View All" button
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.grid_view, size: 16),
+                      label: Text(count > 6
+                          ? 'View All $count Projects'
+                          : 'View All Projects'),
+                      onPressed: () => _openPortfolioPage(context),
                     ),
                   ),
+                ],
               ],
             ),
           ),
@@ -740,117 +752,63 @@ class _MyPortfolioSectionState extends State<_MyPortfolioSection> {
   }
 }
 
-// ── Reusable portfolio item card (own profile — with edit/delete) ─────────────
+// ── Square thumbnail used in the compact grid ─────────────────────────────────
 
-class _PortfolioItemTile extends StatelessWidget {
-  const _PortfolioItemTile({
-    required this.item,
-    required this.onEdit,
-    required this.onDelete,
-  });
+class _PortfolioThumb extends StatelessWidget {
+  const _PortfolioThumb({required this.item});
   final PortfolioItem item;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade200),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Image
-            if (item.imageUrl != null)
-              ClipRRect(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(10)),
-                child: item.imageUrl!.startsWith('http')
-                    ? Image.network(
-                        item.imageUrl!,
-                        height: 160,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                      )
-                    : Image.file(
-                        File(item.imageUrl!),
-                        height: 160,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                      ),
-              ),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Title + action buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(item.title,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 14)),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        visualDensity: VisualDensity.compact,
-                        tooltip: 'Edit',
-                        onPressed: onEdit,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline,
-                            size: 18, color: Colors.red),
-                        visualDensity: VisualDensity.compact,
-                        tooltip: 'Delete',
-                        onPressed: onDelete,
-                      ),
-                    ],
-                  ),
-                  // Date
-                  if (item.projectDate != null) ...[
-                    const SizedBox(height: 2),
-                    Text(item.projectDate!,
-                        style: const TextStyle(
-                            color: Colors.grey, fontSize: 12)),
-                  ],
-                  // Description
-                  if (item.description != null &&
-                      item.description!.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(item.description!,
-                        style:
-                            const TextStyle(fontSize: 13, height: 1.4)),
-                  ],
-                  // Skills chips
-                  if (item.skills.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: item.skills
-                          .map((s) => Chip(
-                                label: Text(s,
-                                    style: const TextStyle(fontSize: 11)),
-                                visualDensity: VisualDensity.compact,
-                                padding: EdgeInsets.zero,
-                              ))
-                          .toList(),
-                    ),
-                  ],
-                ],
+    final cs = Theme.of(context).colorScheme;
+    final url = item.imageUrl;
+
+    Widget content;
+    if (url != null && url.startsWith('http')) {
+      content = Image.network(url, fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _fallback(cs));
+    } else if (url != null && File(url).existsSync()) {
+      content = Image.file(File(url), fit: BoxFit.cover);
+    } else {
+      content = _fallback(cs);
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          content,
+          // Title overlay at the bottom
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              color: Colors.black54,
+              child: Text(
+                item.title,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
+
+  Widget _fallback(ColorScheme cs) => Container(
+        color: cs.surfaceContainerHighest,
+        child: Icon(Icons.image_outlined,
+            color: cs.onSurface.withValues(alpha: 0.3)),
+      );
 }
 
 // ── Freelancer request status banner ─────────────────────────────────────────
