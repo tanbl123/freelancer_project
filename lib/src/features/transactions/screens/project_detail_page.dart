@@ -989,33 +989,60 @@ class _DisputeBanner extends StatelessWidget {
       );
     }
 
-    final statusColor = switch (dispute!.status) {
+    final d = dispute!;
+    final isSettled = d.status.isTerminal; // resolved or closed
+
+    final statusColor = switch (d.status) {
       DisputeStatus.open        => Colors.orange,
       DisputeStatus.underReview => Colors.blue,
       DisputeStatus.resolved    => Colors.green,
       DisputeStatus.closed      => Colors.grey,
     };
 
+    final cardBg     = isSettled ? Colors.green.shade50  : Colors.orange.shade50;
+    final cardBorder = isSettled ? Colors.green.shade200  : Colors.orange.shade200;
+
+    // Human-readable outcome footer text
+    final String footerText;
+    if (!isSettled) {
+      footerText = '⏸ Payment releases are paused until the admin resolves this dispute.';
+    } else {
+      footerText = switch (d.resolution) {
+        DisputeResolution.fullRefundToClient =>
+            '✅ Admin decision: Full refund issued to the client.',
+        DisputeResolution.fullReleaseToFreelancer =>
+            '✅ Admin decision: Full payment released to the freelancer.',
+        DisputeResolution.partialSplit =>
+            '✅ Admin decision: Payment split between both parties.',
+        DisputeResolution.noAction =>
+            '✅ Admin decision: No payment changes. Dispute closed.',
+        null =>
+            '✅ Dispute has been resolved by the admin.',
+      };
+    }
+    final footerColor = isSettled ? Colors.green.shade700 : Colors.deepOrange;
+
     return Card(
-      color: Colors.orange.shade50,
+      color: cardBg,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.orange.shade200),
+        side: BorderSide(color: cardBorder),
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Header row ────────────────────────────────────────────────
             Row(
               children: [
-                const Icon(Icons.gavel, color: Colors.orange, size: 20),
+                Icon(d.status.icon, color: statusColor, size: 20),
                 const SizedBox(width: 8),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Dispute Filed',
+                    isSettled ? 'Dispute Resolved' : 'Dispute Filed',
                     style: TextStyle(
-                        color: Colors.orange,
+                        color: statusColor,
                         fontWeight: FontWeight.bold,
                         fontSize: 15),
                   ),
@@ -1030,7 +1057,7 @@ class _DisputeBanner extends StatelessWidget {
                         Border.all(color: statusColor.withValues(alpha: 0.4)),
                   ),
                   child: Text(
-                    dispute!.status.displayName,
+                    d.status.displayName,
                     style: TextStyle(
                         color: statusColor,
                         fontSize: 11,
@@ -1040,38 +1067,105 @@ class _DisputeBanner extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              'Reason: ${dispute!.reason.displayName}',
-              style: tt.labelMedium,
-            ),
+
+            // ── Original dispute reason ───────────────────────────────────
+            Text('Reason: ${d.reason.displayName}',
+                style: tt.labelMedium),
             const SizedBox(height: 4),
             Text(
-              dispute!.description,
+              d.description,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
-              style: tt.bodySmall?.copyWith(color: Colors.orange.shade800),
+              style: tt.bodySmall?.copyWith(
+                  color: isSettled
+                      ? Colors.green.shade800
+                      : Colors.orange.shade800),
             ),
-            if (dispute!.hasEvidence) ...[
+
+            // ── Evidence count ────────────────────────────────────────────
+            if (d.hasEvidence) ...[
               const SizedBox(height: 6),
               Row(
                 children: [
                   Icon(Icons.attach_file,
-                      size: 13, color: Colors.orange.shade600),
+                      size: 13,
+                      color: isSettled
+                          ? Colors.green.shade600
+                          : Colors.orange.shade600),
                   const SizedBox(width: 4),
                   Text(
-                    '${dispute!.evidenceUrls.length} evidence link(s) attached',
+                    '${d.evidenceUrls.length} evidence link(s) attached',
                     style: TextStyle(
-                        fontSize: 12, color: Colors.orange.shade700),
+                        fontSize: 12,
+                        color: isSettled
+                            ? Colors.green.shade700
+                            : Colors.orange.shade700),
                   ),
                 ],
               ),
             ],
+
+            // ── Admin resolution block (only when settled) ────────────────
+            if (isSettled && d.resolution != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade300),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.admin_panel_settings_outlined,
+                            size: 14, color: Colors.green),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Admin Decision: ${d.resolution!.displayName}',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Colors.green),
+                        ),
+                      ],
+                    ),
+                    if (d.adminNotes != null &&
+                        d.adminNotes!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        d.adminNotes!,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green.shade800),
+                      ),
+                    ],
+                    if (d.reviewedAt != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Reviewed on '
+                        '${d.reviewedAt!.day.toString().padLeft(2, '0')}/'
+                        '${d.reviewedAt!.month.toString().padLeft(2, '0')}/'
+                        '${d.reviewedAt!.year}',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.green.shade600),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+
+            // ── Footer status line ────────────────────────────────────────
             const SizedBox(height: 8),
-            const Text(
-              '⏸ Payment releases are paused until the admin resolves this dispute.',
+            Text(
+              footerText,
               style: TextStyle(
                   fontSize: 12,
-                  color: Colors.deepOrange,
+                  color: footerColor,
                   fontStyle: FontStyle.italic),
             ),
           ],
