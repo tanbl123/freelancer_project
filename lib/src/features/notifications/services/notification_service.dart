@@ -475,35 +475,6 @@ class NotificationService {
         createdAt: DateTime.now(),
       );
 
-  static InAppNotification makeOrderPlaced({
-    required String freelancerId,
-    required String serviceName,
-    required String clientName,
-  }) =>
-      InAppNotification(
-        id: _uuid.v4(),
-        userId: freelancerId,
-        title: '🛒 New service order',
-        body: '$clientName placed an order for "$serviceName". '
-            'Accept or reject within 48 hours.',
-        type: NotificationType.orderPlaced,
-        createdAt: DateTime.now(),
-      );
-
-  static InAppNotification makeOrderAccepted({
-    required String clientId,
-    required String serviceName,
-  }) =>
-      InAppNotification(
-        id: _uuid.v4(),
-        userId: clientId,
-        title: '✅ Order accepted',
-        body: 'The freelancer accepted your order for "$serviceName". '
-            'Work will begin shortly.',
-        type: NotificationType.orderAccepted,
-        createdAt: DateTime.now(),
-      );
-
   static InAppNotification makeOrderCompleted({
     required String clientId,
     required String serviceName,
@@ -515,20 +486,6 @@ class NotificationService {
         body: '"$serviceName" has been marked as completed. '
             'Please leave a review for the freelancer.',
         type: NotificationType.orderCompleted,
-        createdAt: DateTime.now(),
-      );
-
-  static InAppNotification makeOrderRejected({
-    required String clientId,
-    required String serviceName,
-  }) =>
-      InAppNotification(
-        id: _uuid.v4(),
-        userId: clientId,
-        title: 'Order not accepted',
-        body: 'The freelancer was unable to accept your order '
-            'for "$serviceName". Please try another provider.',
-        type: NotificationType.orderRejected,
         createdAt: DateTime.now(),
       );
 
