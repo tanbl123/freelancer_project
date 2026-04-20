@@ -1577,7 +1577,15 @@ class SupabaseService {
   // ── In-App Notifications ───────────────────────────────────────────────────
 
   Future<void> insertNotification(InAppNotification n) async {
-    await _client.from('in_app_notifications').insert(n.toSupabaseMap());
+    try {
+      await _client.from('in_app_notifications').insert(n.toSupabaseMap());
+    } catch (e) {
+      // Log so RLS / network failures are visible during development.
+      // ignore: avoid_print
+      print('[NotificationInsert] failed for type=${n.type.name} '
+          'userId=${n.userId}: $e');
+      rethrow;
+    }
   }
 
   Future<List<InAppNotification>> getNotificationsForUser(
@@ -1774,17 +1782,15 @@ class SupabaseService {
 
   /// Upsert the user's last-read timestamp for a room.
   Future<void> markRoomRead(String roomId, String userId) async {
-    // Use UTC so comparisons against Supabase server timestamps are correct.
-    // onConflict ensures we UPDATE the existing row rather than inserting a
-    // duplicate (requires a unique constraint on (room_id, user_id)).
-    await _client.from('chat_reads').upsert(
-      {
-        'room_id': roomId,
-        'user_id': userId,
-        'last_read_at': DateTime.now().toUtc().toIso8601String(),
-      },
-      onConflict: 'room_id,user_id',
-    );
+    // Use a SECURITY DEFINER RPC so the timestamp is set by the Supabase
+    // server (PostgreSQL NOW()) rather than the device clock.
+    // This eliminates clock-skew where a device timestamp could be slightly
+    // earlier than the message's server timestamp, causing the room to appear
+    // unread again after the Realtime stream refreshes the unread map.
+    await _client.rpc('mark_chat_room_read', params: {
+      'p_room_id': roomId,
+      'p_user_id': userId,
+    });
   }
 
   /// Get last-read timestamps for all rooms the user is in.
@@ -1796,7 +1802,7 @@ class SupabaseService {
     final Map<String, DateTime> result = {};
     for (final row in rows) {
       final roomId = row['room_id'] as String;
-      final ts = row['last_read_at'];
+      final ts = row['read_until'];
       if (ts != null) {
         final parsed =
             ts is String ? DateTime.tryParse(ts)?.toUtc() : null;

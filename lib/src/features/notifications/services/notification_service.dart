@@ -314,7 +314,8 @@ class NotificationService {
         body: '$clientName has placed an order for your service. '
             'Accept to create a project, or reject if you cannot take it.',
         type: NotificationType.orderPlaced,
-        linkedProjectId: orderId, // links to order detail via notification tap
+        // linkedProjectId is intentionally null here — no project exists yet.
+        // The project is only created when the freelancer accepts the order.
         createdAt: DateTime.now(),
       );
 
@@ -351,7 +352,8 @@ class NotificationService {
         body: '$freelancerName could not accept your order. '
             'Reason: $reason. You may order from another freelancer.',
         type: NotificationType.orderRejected,
-        linkedProjectId: orderId,
+        // No project exists for a rejected order — don't store the orderId
+        // in linked_project_id as it would violate the projects FK constraint.
         createdAt: DateTime.now(),
       );
 

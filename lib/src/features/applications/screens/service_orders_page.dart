@@ -11,7 +11,8 @@ import 'service_order_form_page.dart';
 /// - **Client view**: orders they submitted; can Cancel pending ones.
 /// - **Freelancer view**: orders received; can Accept / Reject pending ones.
 ///
-/// Uses [StreamBuilder] for real-time updates via Supabase Realtime.
+/// Uses [StreamBuilder] backed by Supabase Realtime so new orders appear
+/// instantly on both sides without needing a pull-to-refresh.
 class ServiceOrdersPage extends StatefulWidget {
   const ServiceOrdersPage({super.key});
 
@@ -29,25 +30,28 @@ class _ServiceOrdersPageState extends State<ServiceOrdersPage> {
   @override
   void initState() {
     super.initState();
-    AppState.instance.addListener(_onStateChanged);
+    // Seed in-memory cache so the stream's initialData is up to date.
     AppState.instance.reloadServiceOrders();
-  }
-
-  @override
-  void dispose() {
-    AppState.instance.removeListener(_onStateChanged);
-    super.dispose();
-  }
-
-  void _onStateChanged() {
-    if (mounted) setState(() {});
+    // Refresh notification badge whenever this tab is opened.
+    AppState.instance.loadNotifications();
   }
 
   @override
   Widget build(BuildContext context) {
     final user = AppState.instance.currentUser;
     final isFreelancer = user?.role == UserRole.freelancer;
-    final orders = AppState.instance.serviceOrders;
+
+    return StreamBuilder<List<ServiceOrder>>(
+      stream: AppState.instance.serviceOrdersStream,
+      initialData: AppState.instance.serviceOrders,
+      builder: (context, snapshot) {
+        // Keep AppState in sync so badge counts stay accurate.
+        if (snapshot.hasData) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            AppState.instance.syncServiceOrders(snapshot.data!);
+          });
+        }
+        final orders = snapshot.data ?? AppState.instance.serviceOrders;
 
     // Active = pending or accepted (user can still act on these)
     final activeOrders =
@@ -64,7 +68,7 @@ class _ServiceOrdersPageState extends State<ServiceOrdersPage> {
 
     final shown = _showActive ? activeOrders : shownClosed;
 
-    return RefreshIndicator(
+        return RefreshIndicator(
       onRefresh: AppState.instance.reloadServiceOrders,
       child: Column(
         children: [
@@ -180,7 +184,9 @@ class _ServiceOrdersPageState extends State<ServiceOrdersPage> {
           ),
         ],
       ),
-    );
+        ); // RefreshIndicator
+      },
+    ); // StreamBuilder
   }
 }
 

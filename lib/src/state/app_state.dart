@@ -1458,6 +1458,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Called by ServiceOrdersPage's StreamBuilder on each Realtime emission
+  /// to keep the in-memory list (used by badge counts) in sync.
+  void syncServiceOrders(List<ServiceOrder> fresh) {
+    if (fresh == _serviceOrders) return;
+    _serviceOrders = fresh;
+    notifyListeners();
+  }
+
   /// Client: submit a new service order.
   Future<String?> submitServiceOrder(ServiceOrder order) async {
     if (_currentUser == null) return 'Not logged in.';
@@ -3407,7 +3415,14 @@ class AppState extends ChangeNotifier {
   Future<void> markChatRoomRead(String roomId) async {
     if (_currentUser == null) return;
     try {
+      // Write the read timestamp using server NOW() (via RPC) so the
+      // timestamp is always >= the message's server timestamp — eliminates
+      // the clock-skew bug where device time < server time made the room
+      // appear unread again after the Realtime stream refreshed.
       await _chatSvc.markRead(roomId, _currentUser!.uid);
+
+      // Immediately clear in-memory so the dot vanishes without waiting for
+      // the next stream emission.
       _chatUnreadMap[roomId] = false;
 
       // Clear matching newChatMessage notification records locally + in DB.
@@ -3428,6 +3443,16 @@ class AppState extends ChangeNotifier {
       }
 
       notifyListeners();
+
+      // Re-fetch the unread map from DB so the badge stays accurate after
+      // the server write. Fire-and-forget: failures are non-critical.
+      _chatSvc
+          .unreadRooms(_currentUser!.uid, _chatRooms)
+          .then((fresh) {
+            _chatUnreadMap = fresh;
+            notifyListeners();
+          })
+          .catchError((_) {});
     } catch (_) {}
   }
 
