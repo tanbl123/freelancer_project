@@ -165,6 +165,38 @@ class _EditProfilePageState extends State<EditProfilePage> {
     });
   }
 
+  /// Validates a Malaysian phone number.
+  ///
+  /// Accepts:
+  ///  - Mobile   : 01X-XXXXXXX(X)  → 10–11 digits  (e.g. 0123456789, 0111234567)
+  ///  - Landline : 0X-XXXXXXX(X)   → 9–10 digits   (e.g. 0312345678)
+  ///  - International prefix +60 or 60 is normalised to a leading 0 before
+  ///    the check, so +60123456789 is also accepted.
+  String? _validatePhone(String? v) {
+    if (v == null || v.trim().isEmpty) return 'Phone number is required.';
+
+    // Strip whitespace / formatting characters
+    var digits = v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
+
+    // Normalise international prefix → local format
+    if (digits.startsWith('+60')) {
+      digits = '0${digits.substring(3)}';
+    } else if (digits.startsWith('60') && digits.length >= 10) {
+      digits = '0${digits.substring(2)}';
+    }
+
+    // Malaysian mobile: 010–019, total 10–11 digits
+    final isMobile = RegExp(r'^01[0-9]\d{7,8}$').hasMatch(digits);
+    // Malaysian landline: 02–09, total 9–10 digits
+    final isLandline = RegExp(r'^0[2-9]\d{6,8}$').hasMatch(digits);
+
+    if (!isMobile && !isLandline) {
+      return 'Enter a valid Malaysian phone number\n'
+          'Mobile: 01X-XXXXXXX(X) · Landline: 0X-XXXXXXXX';
+    }
+    return null;
+  }
+
   Future<void> _save() async {
     final user = AppState.instance.currentUser!;
     final isFreelancer = user.role == UserRole.freelancer;
@@ -342,24 +374,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   labelText: 'Phone Number *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.phone_outlined),
-                  hintText: 'e.g. 0123456789',
+                  hintText: 'e.g. 0123456789 or +60123456789',
+                  helperText: 'Malaysian mobile (01X) or landline (03–09)',
                 ),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9+\-\s()]')),
                 ],
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) {
-                    return 'Phone number is required';
-                  }
-                  final digits =
-                      v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
-                  if (!RegExp(r'^\+?[0-9]{9,15}$').hasMatch(digits)) {
-                    return 'Enter a valid phone number (e.g. 0123456789)';
-                  }
-                  return null;
-                },
+                validator: _validatePhone,
               ),
               const SizedBox(height: 12),
               TextFormField(

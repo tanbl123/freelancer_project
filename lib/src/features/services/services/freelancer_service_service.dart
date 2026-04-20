@@ -142,22 +142,32 @@ class FreelancerServiceService {
     return null;
   }
 
+  /// Maximum allowed service price in RM.
+  /// Keeps listings realistic and prevents test/junk data like RM 9,999,999.
+  static const double maxPrice = 10000;
+
   static String? validatePrice(double? min, double? max) {
     if (min != null && min < 0) return 'Price cannot be negative.';
-    if (max != null && max <= 0) return 'Max price must be greater than 0.';
+    if (max != null && max <= 0) return 'Price must be greater than RM 0.';
+    if (max != null && max > maxPrice) {
+      return 'Price cannot exceed RM ${maxPrice.toStringAsFixed(0)}.';
+    }
     if (min != null && max != null && min > max) {
       return 'Minimum price cannot exceed the maximum price.';
     }
     return null;
   }
 
-  /// Validates a single budget form-field string (used by TextFormField).
+  /// Validates a single price form-field string (used by TextFormField).
   static String? validatePriceField(String? v, {required bool isMin}) {
     if (v == null || v.trim().isEmpty) return null; // price is optional
     final parsed = double.tryParse(v.trim());
     if (parsed == null) return 'Enter a valid number.';
     if (parsed < 0) return 'Price cannot be negative.';
-    if (!isMin && parsed <= 0) return 'Max price must be greater than 0.';
+    if (!isMin && parsed <= 0) return 'Price must be greater than RM 0.';
+    if (!isMin && parsed > maxPrice) {
+      return 'Price cannot exceed RM ${maxPrice.toStringAsFixed(0)}.';
+    }
     return null;
   }
 

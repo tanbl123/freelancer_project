@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../../backend/shared/domain_types.dart';
 import '../../../routing/app_router.dart';
 import '../../../shared/enums/job_status.dart';
 import '../../../shared/enums/user_role.dart';
@@ -27,7 +28,33 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
   bool _actionLoading = false;
 
   void _onStateChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+
+    // 1. Sync _post from the latest in-memory job post (picks up status changes,
+    //    viewCount, and any server-side applicationCount increments).
+    JobPost? updated;
+    for (final p in [
+      ...AppState.instance.jobPosts,
+      ...AppState.instance.myJobPosts,
+    ]) {
+      if (p.id == _post.id) { updated = p; break; }
+    }
+
+    // 2. Optimistic local boost: if the current user just applied and the
+    //    DB fetch hasn't returned yet, show at least 1 from their own record.
+    //    For all other cases, refreshJobPost() fetches the real count from
+    //    the applications table so every user sees the accurate number.
+    final myApplications = AppState.instance.userApplications
+        .where((a) => a.jobId == _post.id)
+        .length;
+
+    setState(() {
+      final base = updated ?? _post;
+      final bestCount = myApplications > base.applicationCount
+          ? myApplications
+          : base.applicationCount;
+      _post = base.copyWith(applicationCount: bestCount);
+    });
   }
 
   @override
@@ -39,7 +66,12 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     if (user?.uid != _post.clientId) {
       AppState.instance.recordJobPostView(_post.id);
     }
+    // Reload applications so the "Already Applied" button reflects real state.
     AppState.instance.reloadApplications();
+    // Fetch the freshest counters (applicationCount, viewCount) from Supabase.
+    // This ensures the client always sees the true number of applicants even
+    // when applications were submitted from other devices.
+    AppState.instance.refreshJobPost(_post.id);
   }
 
   bool get _isOwner =>
@@ -708,22 +740,45 @@ class _SectionCard extends StatelessWidget {
 
 // ── Apply / Applied button ─────────────────────────────────────────────────
 
-class _AlreadyAppliedButton extends StatelessWidget {
+/// Self-contained button that listens to [AppState] directly so it updates
+/// immediately after applying — no parent rebuild required.
+class _AlreadyAppliedButton extends StatefulWidget {
   const _AlreadyAppliedButton({required this.jobId});
   final String jobId;
 
-  bool _hasActiveApplication() {
+  @override
+  State<_AlreadyAppliedButton> createState() => _AlreadyAppliedButtonState();
+}
+
+class _AlreadyAppliedButtonState extends State<_AlreadyAppliedButton> {
+  @override
+  void initState() {
+    super.initState();
+    AppState.instance.addListener(_onStateChanged);
+  }
+
+  @override
+  void dispose() {
+    AppState.instance.removeListener(_onStateChanged);
+    super.dispose();
+  }
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _hasApplied {
     final me = AppState.instance.currentUser;
     if (me == null) return false;
     return AppState.instance.userApplications.any((a) =>
-        a.jobId == jobId &&
+        a.jobId == widget.jobId &&
         a.freelancerId == me.uid &&
-        a.status.name != 'withdrawn');
+        a.status != ApplicationStatus.withdrawn);
   }
 
-  void _handleApply(BuildContext context) {
+  void _handleApply() {
     final post = AppState.instance.jobPosts
-        .where((p) => p.id == jobId)
+        .where((p) => p.id == widget.jobId)
         .firstOrNull;
     if (post == null) return;
     Navigator.pushNamed(context, AppRoutes.applicationApply, arguments: post);
@@ -731,16 +786,27 @@ class _AlreadyAppliedButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final applied = _hasActiveApplication();
+    final applied = _hasApplied;
+    if (applied) {
+      return OutlinedButton.icon(
+        icon: const Icon(Icons.check_circle, size: 18, color: Colors.green),
+        label: const Text('Applied',
+            style: TextStyle(
+                color: Colors.green, fontWeight: FontWeight.w600)),
+        onPressed: null, // disabled
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          side: const BorderSide(color: Colors.green),
+          disabledForegroundColor: Colors.green,
+        ),
+      );
+    }
     return FilledButton.icon(
-      icon: Icon(applied ? Icons.check_circle_outline : Icons.send,
-          size: 18),
-      label: Text(applied ? 'Already Applied' : 'Apply Now'),
-      onPressed: applied ? null : () => _handleApply(context),
+      icon: const Icon(Icons.send, size: 18),
+      label: const Text('Apply Now'),
+      onPressed: _handleApply,
       style: FilledButton.styleFrom(
         padding: const EdgeInsets.symmetric(vertical: 14),
-        disabledBackgroundColor: Colors.grey.shade300,
-        disabledForegroundColor: Colors.grey.shade600,
       ),
     );
   }

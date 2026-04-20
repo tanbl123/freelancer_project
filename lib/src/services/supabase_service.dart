@@ -187,6 +187,35 @@ class SupabaseService {
     }).eq('uid', uid);
   }
 
+  /// Cleans up public-facing content when a user deactivates their account.
+  ///
+  /// - **Freelancer**: hides all active services (→ inactive) and withdraws
+  ///   every pending job application they submitted.
+  /// - **Client**: closes all open job posts (→ closed) so freelancers stop
+  ///   seeing them in the browse feed.
+  Future<void> deactivateUserContent(String uid, UserRole role) async {
+    final now = DateTime.now().toIso8601String();
+    if (role == UserRole.freelancer) {
+      // Hide services from browse feed
+      await _client.from('freelancer_services').update({
+        'status': ServiceStatus.inactive.name,
+        'updated_at': now,
+      }).eq('freelancer_id', uid).eq('status', ServiceStatus.active.name);
+
+      // Withdraw all pending applications
+      await _client.from('applications').update({
+        'status': ApplicationStatus.withdrawn.name,
+        'updated_at': now,
+      }).eq('freelancer_id', uid).eq('status', ApplicationStatus.pending.name);
+    } else if (role == UserRole.client) {
+      // Close open job posts so they stop appearing in the browse feed
+      await _client.from('job_posts').update({
+        'status': JobStatus.closed.name,
+        'updated_at': now,
+      }).eq('client_id', uid).eq('status', JobStatus.open.name);
+    }
+  }
+
   /// Admin: set a user's account status (active, restricted, deactivated).
   Future<void> updateAccountStatus(String uid, AccountStatus status) async {
     await _client.from('profiles').update({
@@ -424,6 +453,18 @@ class SupabaseService {
         .eq('freelancer_id', freelancerId)
         .neq('status', 'withdrawn');
     return rows.isNotEmpty;
+  }
+
+  /// Returns the real-time count of non-withdrawn applications for a job.
+  /// This is the source of truth — it reads directly from the applications
+  /// table so it works even if the application_count counter column is stale.
+  Future<int> getJobApplicationCount(String jobId) async {
+    final rows = await _client
+        .from('applications')
+        .select('id')
+        .eq('job_id', jobId)
+        .neq('status', ApplicationStatus.withdrawn.name);
+    return rows.length;
   }
 
   Future<void> updateApplicationStatus(
@@ -1135,6 +1176,11 @@ class SupabaseService {
     await _client.rpc('increment_job_post_view', params: {'post_id': id});
   }
 
+  /// Atomically increments application_count on the job post row.
+  Future<void> incrementJobPostApplicationCount(String id) async {
+    await _client.rpc('increment_job_application_count', params: {'post_id': id});
+  }
+
   // ── Offline cache (SQLite only) ────────────────────────────────────────────
 
   Future<void> cacheJobs(List<MarketplacePost> posts) async {
@@ -1280,6 +1326,13 @@ class SupabaseService {
   Future<void> incrementServiceViewCount(String id) async {
     await _client
         .rpc('increment_service_view', params: {'service_id': id});
+  }
+
+  /// Atomically increments order_count on the service row when a project
+  /// that originated from a service order is completed.
+  Future<void> incrementServiceOrderCount(String serviceId) async {
+    await _client
+        .rpc('increment_service_order_count', params: {'svc_id': serviceId});
   }
 
   // ── Service cache (SQLite) ─────────────────────────────────────────────────

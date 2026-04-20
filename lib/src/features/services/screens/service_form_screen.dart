@@ -385,10 +385,11 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                   labelText: 'Price (RM) *',
                   border: OutlineInputBorder(),
                   prefixText: 'RM ',
-                  prefixIcon: Icon(Icons.attach_money),
+                  helperText: 'Min RM 1 · Max RM 10,000',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(
                     decimal: true),
+                maxLength: 10,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(
                       RegExp(r'^\d+\.?\d{0,2}')),

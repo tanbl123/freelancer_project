@@ -43,6 +43,10 @@ class FreelancerServiceRepository {
   Future<void> incrementViewCount(String id) =>
       _db.incrementServiceViewCount(id);
 
+  /// Atomically increments order_count on the service row.
+  Future<void> incrementOrderCount(String id) =>
+      _db.incrementServiceOrderCount(id);
+
   // ── Offline cache ─────────────────────────────────────────────────────────
 
   Future<List<FreelancerService>> getCached() =>

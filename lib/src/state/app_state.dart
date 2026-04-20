@@ -718,11 +718,59 @@ class AppState extends ChangeNotifier {
   }
 
   /// Self-initiated soft deactivation. Keeps the row for audit trail.
+  ///
+  /// **Guards:**
+  /// - Freelancers with any ongoing project (`pendingStart` or `inProgress`)
+  ///   are blocked until they complete or cancel all active work.
+  ///
+  /// **Side-effects on success:**
+  /// - Freelancer: all active services → inactive; pending applications → withdrawn.
+  /// - Client: all open job posts → closed.
   Future<String?> deleteAccount() async {
     try {
       final uid = _currentUser?.uid;
-      if (uid == null) return 'No user logged in.';
+      if (uid == null) return 'Not logged in.';
+      final role = _currentUser!.role;
+
+      // ── Guard: block freelancers with active projects ──────────────────────
+      if (role == UserRole.freelancer) {
+        final hasActiveWork = _projects.any((p) =>
+            p.freelancerId == uid &&
+            (p.status == ProjectStatus.pendingStart ||
+                p.status == ProjectStatus.inProgress ||
+                p.status == ProjectStatus.disputed));
+        if (hasActiveWork) {
+          return 'You have ongoing projects. Please complete or cancel all '
+              'active projects before deactivating your account.';
+        }
+      }
+
+      // ── Hide content from browse feeds ────────────────────────────────────
+      await _db.deactivateUserContent(uid, role);
+
+      // ── Deactivate the profile row ────────────────────────────────────────
       await _db.deactivateUser(uid);
+
+      // ── Update in-memory state so UI responds immediately ─────────────────
+      if (role == UserRole.freelancer) {
+        // Mark services inactive locally
+        _myServices = _myServices
+            .map((s) => s.status == ServiceStatus.active
+                ? s.copyWith(status: ServiceStatus.inactive)
+                : s)
+            .toList();
+        // Remove withdrawn pending applications from the local list
+        _applications.removeWhere(
+            (a) => a.freelancerId == uid && a.status == ApplicationStatus.pending);
+      } else if (role == UserRole.client) {
+        // Mark open job posts closed locally
+        _myJobPosts = _myJobPosts
+            .map((p) => p.status == JobStatus.open
+                ? p.copyWith(status: JobStatus.closed)
+                : p)
+            .toList();
+      }
+
       try {
         await Supabase.instance.client.auth.signOut();
       } catch (_) {}
@@ -1079,6 +1127,32 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Fetches the latest version of a single job post from Supabase and updates
+  /// both in-memory lists. Used to refresh counters (applicationCount, viewCount)
+  /// that may have changed on other devices since the post was last loaded.
+  Future<void> refreshJobPost(String postId) async {
+    try {
+      final fresh = await _jobRepo.getById(postId);
+      if (fresh == null) return;
+
+      // Count directly from the applications table — this is always accurate
+      // regardless of whether the application_count counter column is up to date.
+      // This ensures every user (not just the one who applied) sees the real number.
+      final realCount = await _db.getJobApplicationCount(postId);
+      final withCount = fresh.applicationCount >= realCount
+          ? fresh
+          : fresh.copyWith(applicationCount: realCount);
+
+      for (final list in [_jobPosts, _myJobPosts]) {
+        final idx = list.indexWhere((p) => p.id == postId);
+        if (idx >= 0) list[idx] = withCount;
+      }
+      notifyListeners();
+    } catch (_) {
+      // Non-critical — fail silently.
+    }
+  }
+
   /// Fire-and-forget view tracking — no UI feedback needed.
   void recordJobPostView(String postId) {
     _jobRepo.incrementViewCount(postId).catchError((_) {});
@@ -1280,6 +1354,17 @@ class AppState extends ChangeNotifier {
   /// Client: submit a new service order.
   Future<String?> submitServiceOrder(ServiceOrder order) async {
     if (_currentUser == null) return 'Not logged in.';
+
+    // Guard: prevent duplicate active orders for the same service
+    final hasActiveOrder = _serviceOrders.any((o) =>
+        o.clientId == order.clientId &&
+        o.serviceId == order.serviceId &&
+        !o.status.isTerminal);
+    if (hasActiveOrder) {
+      return 'You already have an active order for this service. '
+          'Wait for it to be resolved before placing a new one.';
+    }
+
     final error = await _orderService.submitOrder(_currentUser!, order);
     if (error == null) {
       _serviceOrders.insert(0, order);
@@ -1292,6 +1377,17 @@ class AppState extends ChangeNotifier {
           orderId: order.id,
         ));
       } catch (_) {}
+      notifyListeners();
+    }
+    return error;
+  }
+
+  /// Client: edit a pending service order.
+  Future<String?> updateServiceOrder(ServiceOrder updated) async {
+    if (_currentUser == null) return 'Not logged in.';
+    final error = await _orderService.editOrder(_currentUser!, updated);
+    if (error == null) {
+      _replaceOrderInList(updated);
       notifyListeners();
     }
     return error;
@@ -1459,6 +1555,19 @@ class AppState extends ChangeNotifier {
 
     await _db.insertApplication(app);
     _applications.insert(0, app);
+
+    // Increment applicationCount on the cached JobPost in both lists.
+    for (final list in [_jobPosts, _myJobPosts]) {
+      final idx = list.indexWhere((p) => p.id == app.jobId);
+      if (idx >= 0) {
+        list[idx] = list[idx].copyWith(
+          applicationCount: list[idx].applicationCount + 1,
+        );
+      }
+    }
+
+    // Persist the incremented count to Supabase (fire-and-forget).
+    _jobRepo.incrementApplicationCount(app.jobId).catchError((_) {});
 
     // Notify the client that a new freelancer has applied to their job.
     try {
@@ -1665,6 +1774,7 @@ class AppState extends ChangeNotifier {
       _updateProjectInList(project.id,
           (p) => p.copyWith(status: ProjectStatus.completed,
               clientSignatureUrl: signatureUrl));
+      _incrementServiceOrderCount(project);
       notifyListeners();
     }
     return error;
@@ -1979,6 +2089,29 @@ class AppState extends ChangeNotifier {
       String id, ProjectItem Function(ProjectItem) updater) {
     final idx = _projects.indexWhere((p) => p.id == id);
     if (idx >= 0) _projects[idx] = updater(_projects[idx]);
+  }
+
+  /// Fire-and-forget: bumps `order_count` on the linked [FreelancerService]
+  /// when a service-sourced project is completed.
+  ///
+  /// Does nothing for job-sourced projects or when the service order cannot
+  /// be resolved.
+  void _incrementServiceOrderCount(ProjectItem project) {
+    if (project.sourceType != 'service' || project.serviceOrderId == null) {
+      return;
+    }
+    _orderRepo.getById(project.serviceOrderId!).then((order) {
+      if (order == null) return;
+      // Persist to DB (fire-and-forget)
+      _serviceRepo.incrementOrderCount(order.serviceId).catchError((_) {});
+      // Update in-memory list so the UI refreshes immediately
+      final idx = _myServices.indexWhere((s) => s.id == order.serviceId);
+      if (idx >= 0) {
+        _myServices[idx] =
+            _myServices[idx].copyWith(orderCount: _myServices[idx].orderCount + 1);
+        notifyListeners();
+      }
+    }).catchError((_) {});
   }
 
   Future<List<MilestoneItem>> getMilestonesForProject(
@@ -2461,6 +2594,8 @@ class AppState extends ChangeNotifier {
         status: ProjectStatus.completed,
         clientSignatureUrl: signaturePath,
       ));
+
+      _incrementServiceOrderCount(project);
 
       // Notify freelancer
       try {
@@ -3003,6 +3138,24 @@ class AppState extends ChangeNotifier {
       final room = await _chatSvc.getOrCreateDirectRoom(
           _currentUser!.uid, otherUserId);
       _upsertRoom(room);
+
+      // Ensure the other user's name is in _chatUserNames so the AppBar
+      // title shows their name instead of "Direct Message" immediately.
+      if (!_chatUserNames.containsKey(otherUserId)) {
+        // Try the already-loaded users list first (no extra DB call)
+        final cached = _users.cast<ProfileUser?>()
+            .firstWhere((u) => u?.uid == otherUserId, orElse: () => null);
+        if (cached != null) {
+          _chatUserNames = {..._chatUserNames, otherUserId: cached.displayName};
+        } else {
+          // Fall back to a DB lookup for users not yet loaded
+          final names = await _db.getDisplayNamesByIds([otherUserId]);
+          if (names.isNotEmpty) {
+            _chatUserNames = {..._chatUserNames, ...names};
+          }
+        }
+      }
+
       notifyListeners();
       return room;
     } catch (_) {

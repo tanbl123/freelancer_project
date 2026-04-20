@@ -42,6 +42,11 @@ class FreelancerProfilePage extends StatelessWidget {
             .toList();
         final colors = Theme.of(context).colorScheme;
 
+        // Who is viewing this profile
+        final viewer = AppState.instance.currentUser;
+        final viewerIsAdmin = viewer?.role == UserRole.admin;
+        final viewerIsOwner = viewer?.uid == userId;
+
         return Scaffold(
           appBar: AppBar(
             title: Text(user.displayName),
@@ -369,8 +374,11 @@ class FreelancerProfilePage extends StatelessWidget {
                     ownerName: user.displayName,
                   ),
 
-                  // Resume
-                  if (user.resumeUrl != null &&
+                  // Resume — only visible to admin or the freelancer themselves.
+                  // Clients viewing a freelancer's profile do NOT see the CV;
+                  // it is only relevant during the freelancer-request review.
+                  if ((viewerIsAdmin || viewerIsOwner) &&
+                      user.resumeUrl != null &&
                       File(user.resumeUrl!).existsSync()) ...[
                     const SizedBox(height: 12),
                     _Section(

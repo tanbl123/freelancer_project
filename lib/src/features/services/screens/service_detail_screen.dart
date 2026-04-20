@@ -390,14 +390,9 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                     if (_service.isLive) ...[
                       const SizedBox(width: 12),
                       Expanded(
-                        child: FilledButton.icon(
-                          icon: const Icon(Icons.shopping_cart_outlined,
-                              size: 18),
-                          label: const Text('Order This Service'),
-                          onPressed: _handleOrder,
-                          style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14)),
+                        child: _OrderButton(
+                          serviceId: _service.id,
+                          onOrder: _handleOrder,
                         ),
                       ),
                     ],
@@ -821,6 +816,73 @@ class _GalleryPlaceholder extends StatelessWidget {
         child: Icon(Icons.image_not_supported_outlined,
             size: 48, color: Colors.grey),
       ),
+    );
+  }
+}
+
+// ── Order button — reactive, shows "Order Pending" when a live order exists ──
+//
+// Must be a StatefulWidget with its own AppState listener so it rebuilds the
+// moment submitServiceOrder() notifies listeners — no parent rebuild required.
+
+class _OrderButton extends StatefulWidget {
+  const _OrderButton({required this.serviceId, required this.onOrder});
+  final String serviceId;
+  final VoidCallback onOrder;
+
+  @override
+  State<_OrderButton> createState() => _OrderButtonState();
+}
+
+class _OrderButtonState extends State<_OrderButton> {
+  @override
+  void initState() {
+    super.initState();
+    AppState.instance.addListener(_onStateChanged);
+    // Ensure the current user's orders are loaded so the check is accurate.
+    AppState.instance.reloadServiceOrders();
+  }
+
+  @override
+  void dispose() {
+    AppState.instance.removeListener(_onStateChanged);
+    super.dispose();
+  }
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _hasActiveOrder {
+    final me = AppState.instance.currentUser;
+    if (me == null) return false;
+    return AppState.instance.serviceOrders.any((o) =>
+        o.clientId == me.uid &&
+        o.serviceId == widget.serviceId &&
+        !o.status.isTerminal);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hasActiveOrder) {
+      return FilledButton.icon(
+        icon: const Icon(Icons.hourglass_top_rounded, size: 18),
+        label: const Text('Order Pending'),
+        onPressed: null, // disabled
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          disabledBackgroundColor: Colors.grey.shade300,
+          disabledForegroundColor: Colors.grey.shade600,
+        ),
+      );
+    }
+
+    return FilledButton.icon(
+      icon: const Icon(Icons.shopping_cart_outlined, size: 18),
+      label: const Text('Order This Service'),
+      onPressed: widget.onOrder,
+      style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 14)),
     );
   }
 }

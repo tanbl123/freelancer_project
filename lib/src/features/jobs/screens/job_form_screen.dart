@@ -415,9 +415,11 @@ class _JobFormScreenState extends State<JobFormScreen> {
                   hintText: 'e.g. 500',
                   border: OutlineInputBorder(),
                   prefixText: 'RM ',
+                  helperText: 'Min RM 1 · Max RM 10,000',
                 ),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
+                maxLength: 10,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(
                       RegExp(r'^\d+\.?\d{0,2}')),
@@ -428,7 +430,10 @@ class _JobFormScreenState extends State<JobFormScreen> {
                   }
                   final amount = double.tryParse(v.trim());
                   if (amount == null) return 'Enter a valid number.';
-                  if (amount <= 0) return 'Budget must be greater than zero.';
+                  if (amount <= 0) return 'Budget must be greater than RM 0.';
+                  if (amount > JobPostService.maxBudget) {
+                    return 'Budget cannot exceed RM ${JobPostService.maxBudget.toStringAsFixed(0)}.';
+                  }
                   return null;
                 },
               ),

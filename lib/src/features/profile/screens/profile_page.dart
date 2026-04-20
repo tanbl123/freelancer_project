@@ -489,6 +489,30 @@ class ProfilePage extends StatelessWidget {
         ),
         const SizedBox(height: 20),
 
+        // ── Profile ────────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 10),
+          child: Text('Profile',
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: cs.onSurface)),
+        ),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.person_outline),
+            label: const Text('Profile Details'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ProfileDetailsPage()),
+            ),
+            style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14)),
+          ),
+        ),
+        const SizedBox(height: 20),
+
         // ── Account actions ────────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 10),

@@ -439,14 +439,7 @@ class _ApplicationCard extends StatelessWidget {
                     label: const Text('Reject'),
                     style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.red),
-                    onPressed: () {
-                      AppState.instance.updateApplicationStatus(
-                          item.id, ApplicationStatus.rejected);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Application rejected.')),
-                      );
-                    },
+                    onPressed: () => _confirmReject(context),
                   ),
                   const SizedBox(width: 8),
                   FilledButton.icon(
@@ -496,6 +489,35 @@ class _ApplicationCard extends StatelessWidget {
           ],
         ),
       ),
+      ),
+    );
+  }
+
+  void _confirmReject(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Reject Application'),
+        content: Text(
+            'Reject ${item.freelancerName}\'s application?\n\n'
+            'They will be notified that their application was not selected.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.pop(context);
+              AppState.instance.updateApplicationStatus(
+                  item.id, ApplicationStatus.rejected);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Application rejected.')),
+              );
+            },
+            child: const Text('Reject'),
+          ),
+        ],
       ),
     );
   }

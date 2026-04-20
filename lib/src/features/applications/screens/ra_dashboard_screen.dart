@@ -9,9 +9,9 @@ import 'service_orders_page.dart';
 
 /// Request & Application Module — root tab screen.
 ///
-/// Two tabs:
-///  - **Job Applications** — [JobApplicationsBody]
-///  - **Service Orders**   — [ServiceOrdersPage]
+/// Tab labels are role-aware:
+///  - **Freelancer**: "My Applications" / "Incoming Orders"
+///  - **Client**:     "Applications Received" / "My Orders"
 ///
 /// ## Realtime badge counts
 /// Both tab badges subscribe directly to the Supabase Realtime streams
@@ -72,7 +72,9 @@ class _RaDashboardScreenState extends State<RaDashboardScreen>
                       .where((a) => a.status == ApplicationStatus.pending)
                       .length;
                   return _TabLabel(
-                    label: 'Job Applications',
+                    label: isFreelancer
+                        ? 'My Applications'
+                        : 'Applications Received',
                     badgeCount: pending,
                   );
                 },
@@ -86,7 +88,7 @@ class _RaDashboardScreenState extends State<RaDashboardScreen>
                       .where((o) => o.status == ServiceOrderStatus.pending)
                       .length;
                   return _TabLabel(
-                    label: 'Service Orders',
+                    label: isFreelancer ? 'Incoming Orders' : 'My Orders',
                     badgeCount: pending,
                   );
                 },

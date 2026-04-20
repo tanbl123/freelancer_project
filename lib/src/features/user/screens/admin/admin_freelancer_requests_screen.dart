@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:open_file/open_file.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../routing/app_router.dart';
 import '../../../../shared/enums/request_status.dart';
@@ -602,29 +604,7 @@ class _ApplicationDetailPage extends StatelessWidget {
               _Section(
                 title: 'Resume / CV',
                 icon: Icons.picture_as_pdf,
-                child: r?.resumeUrl != null &&
-                        File(r!.resumeUrl!).existsSync()
-                    ? Row(
-                        children: [
-                          const Icon(Icons.picture_as_pdf,
-                              color: Colors.red, size: 28),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              r.resumeUrl!
-                                  .split('/')
-                                  .last
-                                  .split('\\')
-                                  .last,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w500),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      )
-                    : const Text('No resume uploaded.',
-                        style: TextStyle(color: Colors.grey)),
+                child: _ResumeRow(resumeUrl: r?.resumeUrl),
               ),
               const SizedBox(height: 12),
 
@@ -879,6 +859,65 @@ class _CertTile extends StatelessWidget {
             style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Resume row — handles both remote (https) and local file URLs ──────────────
+
+class _ResumeRow extends StatelessWidget {
+  const _ResumeRow({required this.resumeUrl});
+  final String? resumeUrl;
+
+  bool get _hasResume {
+    if (resumeUrl == null || resumeUrl!.isEmpty) return false;
+    if (resumeUrl!.startsWith('http')) return true;        // remote URL
+    return File(resumeUrl!).existsSync();                  // local file
+  }
+
+  Future<void> _open() async {
+    if (resumeUrl == null) return;
+    if (resumeUrl!.startsWith('http')) {
+      final uri = Uri.parse(resumeUrl!);
+      if (await canLaunchUrl(uri)) await launchUrl(uri);
+    } else {
+      await OpenFile.open(resumeUrl!);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_hasResume) {
+      return const Text('No resume uploaded.',
+          style: TextStyle(color: Colors.grey));
+    }
+
+    final fileName = resumeUrl!.split('/').last.split('\\').last;
+
+    return InkWell(
+      onTap: _open,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            const Icon(Icons.picture_as_pdf, color: Colors.red, size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                fileName,
+                style: const TextStyle(fontWeight: FontWeight.w500),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Tap to open',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
       ),
     );
   }

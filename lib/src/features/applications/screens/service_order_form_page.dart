@@ -7,16 +7,30 @@ import '../../services/models/freelancer_service.dart';
 import '../models/service_order.dart';
 import '../services/service_order_service.dart';
 
-/// Client-facing form for submitting a [ServiceOrder] against a
-/// [FreelancerService].
+/// Client-facing form for submitting **or editing** a [ServiceOrder].
+///
+/// Pass [existing] to pre-fill the form for editing a pending order.
+/// Pass [service] (without [existing]) to create a fresh order.
 ///
 /// Fields:
 ///  - Message (required, 20-2000 chars) — describe what you need
 ///  - Proposed budget (optional, numeric)
 ///  - Timeline in days (optional, 1-365)
 class ServiceOrderFormPage extends StatefulWidget {
-  const ServiceOrderFormPage({super.key, required this.service});
-  final FreelancerService service;
+  const ServiceOrderFormPage({
+    super.key,
+    this.service,
+    this.existing,
+  }) : assert(service != null || existing != null,
+            'Provide either service (new) or existing (edit).');
+
+  /// The service being ordered — required for new orders.
+  final FreelancerService? service;
+
+  /// An existing pending order — required for edits.
+  final ServiceOrder? existing;
+
+  bool get isEditing => existing != null;
 
   @override
   State<ServiceOrderFormPage> createState() => _ServiceOrderFormPageState();
@@ -25,16 +39,28 @@ class ServiceOrderFormPage extends StatefulWidget {
 class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
   static const _uuid = Uuid();
   final _formKey = GlobalKey<FormState>();
-  final _messageController = TextEditingController();
-  final _budgetController = TextEditingController();
-  final _daysController = TextEditingController();
+  late final _messageController = TextEditingController(
+      text: widget.existing?.message ?? '');
+  late final _budgetController = TextEditingController(
+      text: widget.existing?.proposedBudget?.toStringAsFixed(0) ?? '');
+  late final _daysController = TextEditingController(
+      text: widget.existing?.timelineDays?.toString() ?? '');
   bool _isLoading = false;
 
-  // ── Unsaved-changes detection (create-only form) ──────────────────────────
-  bool get _hasChanges =>
-      _messageController.text.trim().isNotEmpty ||
-      _budgetController.text.trim().isNotEmpty ||
-      _daysController.text.trim().isNotEmpty;
+  // ── Unsaved-changes detection ─────────────────────────────────────────────
+  bool get _hasChanges {
+    if (widget.isEditing) {
+      final orig = widget.existing!;
+      return _messageController.text.trim() != orig.message.trim() ||
+          _budgetController.text.trim() !=
+              (orig.proposedBudget?.toStringAsFixed(0) ?? '') ||
+          _daysController.text.trim() !=
+              (orig.timelineDays?.toString() ?? '');
+    }
+    return _messageController.text.trim().isNotEmpty ||
+        _budgetController.text.trim().isNotEmpty ||
+        _daysController.text.trim().isNotEmpty;
+  }
 
   @override
   void dispose() {
@@ -49,47 +75,92 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
     setState(() => _isLoading = true);
 
     final user = AppState.instance.currentUser!;
-    final order = ServiceOrder(
-      id: _uuid.v4(),
-      serviceId: widget.service.id,
-      serviceTitle: widget.service.title,
-      freelancerId: widget.service.freelancerId,
-      freelancerName: widget.service.freelancerName,
-      clientId: user.uid,
-      clientName: user.displayName,
-      message: _messageController.text.trim(),
-      status: ServiceOrderStatus.pending,
-      proposedBudget: _budgetController.text.trim().isEmpty
-          ? null
-          : double.tryParse(_budgetController.text.trim()),
-      timelineDays: _daysController.text.trim().isEmpty
-          ? null
-          : int.tryParse(_daysController.text.trim()),
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
+    final budget = _budgetController.text.trim().isEmpty
+        ? null
+        : double.tryParse(_budgetController.text.trim());
+    final days = _daysController.text.trim().isEmpty
+        ? null
+        : int.tryParse(_daysController.text.trim());
 
-    final error = await AppState.instance.submitServiceOrder(order);
-    if (!mounted) return;
-    setState(() => _isLoading = false);
+    String? error;
 
-    if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(error), backgroundColor: Colors.red),
+    if (widget.isEditing) {
+      // Edit mode — rebuild order so optional fields can be cleared to null
+      final orig = widget.existing!;
+      final updated = ServiceOrder(
+        id: orig.id,
+        serviceId: orig.serviceId,
+        serviceTitle: orig.serviceTitle,
+        freelancerId: orig.freelancerId,
+        freelancerName: orig.freelancerName,
+        clientId: orig.clientId,
+        clientName: orig.clientName,
+        status: orig.status,
+        freelancerNote: orig.freelancerNote,
+        createdAt: orig.createdAt,
+        message: _messageController.text.trim(),
+        proposedBudget: budget,   // null clears the field
+        timelineDays: days,       // null clears the field
+        updatedAt: DateTime.now(),
       );
+      error = await AppState.instance.updateServiceOrder(updated);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+      } else {
+        Navigator.pop(context, true); // signal a successful save
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Order updated.')),
+        );
+      }
     } else {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Order submitted! The freelancer will respond soon.')),
+      // Create mode — build a new order
+      final order = ServiceOrder(
+        id: _uuid.v4(),
+        serviceId: widget.service!.id,
+        serviceTitle: widget.service!.title,
+        freelancerId: widget.service!.freelancerId,
+        freelancerName: widget.service!.freelancerName,
+        clientId: user.uid,
+        clientName: user.displayName,
+        message: _messageController.text.trim(),
+        status: ServiceOrderStatus.pending,
+        proposedBudget: budget,
+        timelineDays: days,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
       );
+      error = await AppState.instance.submitServiceOrder(order);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+      } else {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Order submitted! The freelancer will respond soon.')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isEdit = widget.isEditing;
+    final order = widget.existing;
     final svc = widget.service;
+
+    // Service info — prefer data from the existing order when editing
+    final serviceTitle = order?.serviceTitle ?? svc?.title ?? '';
+    final freelancerName = order?.freelancerName ?? svc?.freelancerName ?? '';
+    final priceDisplay = svc?.priceDisplay;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
@@ -115,7 +186,7 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
         if (leave == true && context.mounted) Navigator.pop(context);
       },
       child: Scaffold(
-      appBar: AppBar(title: const Text('Order Service')),
+      appBar: AppBar(title: Text(isEdit ? 'Edit Order' : 'Order Service')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -136,15 +207,15 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(svc.title,
+                            Text(serviceTitle,
                                 style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 15)),
-                            Text('by ${svc.freelancerName}',
+                            Text('by $freelancerName',
                                 style: const TextStyle(
                                     color: Colors.grey, fontSize: 13)),
-                            if (svc.priceDisplay != null)
-                              Text(svc.priceDisplay!,
+                            if (priceDisplay != null)
+                              Text(priceDisplay,
                                   style: const TextStyle(
                                       color: Colors.green,
                                       fontWeight: FontWeight.w600)),
@@ -205,7 +276,7 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
               ),
               const SizedBox(height: 28),
 
-              // ── Submit button ──────────────────────────────────────────
+              // ── Submit / Save button ───────────────────────────────────
               FilledButton(
                 onPressed: _isLoading ? null : _submit,
                 style: FilledButton.styleFrom(
@@ -215,12 +286,14 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
                         height: 20,
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Submit Order',
-                        style: TextStyle(fontSize: 16)),
+                    : Text(isEdit ? 'Save Changes' : 'Submit Order',
+                        style: const TextStyle(fontSize: 16)),
               ),
               const SizedBox(height: 8),
               Text(
-                'The freelancer will review your order and accept or decline.',
+                isEdit
+                    ? 'Changes are only allowed while the order is pending.'
+                    : 'The freelancer will review your order and accept or decline.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     color: Colors.grey.shade600, fontSize: 12),

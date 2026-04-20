@@ -46,6 +46,10 @@ class JobPostRepository {
   Future<void> incrementViewCount(String id) =>
       _db.incrementJobPostViewCount(id);
 
+  /// Atomically increments application_count on the job post row.
+  Future<void> incrementApplicationCount(String id) =>
+      _db.incrementJobPostApplicationCount(id);
+
   // ── Offline cache (SQLite via JobCacheDao) ───────────────────────────────
 
   Future<List<JobPost>> getCached() => _db.getCachedJobPosts();
