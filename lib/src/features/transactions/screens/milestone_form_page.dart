@@ -219,8 +219,11 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
                     return 'Percentage is required';
                   }
                   final val = double.tryParse(v);
-                  if (val == null || val <= 0 || val > 100) {
-                    return 'Enter a value between 1 and 100';
+                  if (val == null || val > 100) {
+                    return 'Enter a value between 10 and 100';
+                  }
+                  if (val < 10) {
+                    return 'Each milestone must be at least 10%';
                   }
                   return null;
                 },

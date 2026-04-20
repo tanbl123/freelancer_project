@@ -99,6 +99,7 @@ class ApplicationItem {
   }
 
   ApplicationItem copyWith({
+    String? freelancerName,
     String? proposalMessage,
     double? expectedBudget,
     int? timelineDays,
@@ -111,7 +112,7 @@ class ApplicationItem {
       jobId: jobId,
       clientId: clientId,
       freelancerId: freelancerId,
-      freelancerName: freelancerName,
+      freelancerName: freelancerName ?? this.freelancerName,
       proposalMessage: proposalMessage ?? this.proposalMessage,
       expectedBudget: expectedBudget ?? this.expectedBudget,
       timelineDays: timelineDays ?? this.timelineDays,

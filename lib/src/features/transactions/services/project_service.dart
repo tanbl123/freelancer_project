@@ -47,6 +47,9 @@ class ProjectService {
     }
     if (project.isCancelled) return 'This project has already been cancelled.';
     if (project.isCompleted) return 'Completed projects cannot be cancelled.';
+    if (project.isDisputed) {
+      return 'This project is under dispute and cannot be cancelled until the admin resolves it.';
+    }
 
     try {
       await _repo.updateStatus(

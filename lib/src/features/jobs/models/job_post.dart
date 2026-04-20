@@ -219,6 +219,7 @@ class JobPost {
   // ── copyWith ─────────────────────────────────────────────────────────────
 
   JobPost copyWith({
+    String? clientName,
     String? title,
     String? description,
     String? category,
@@ -236,7 +237,7 @@ class JobPost {
     return JobPost(
       id: id,
       clientId: clientId,
-      clientName: clientName,
+      clientName: clientName ?? this.clientName,
       title: title ?? this.title,
       description: description ?? this.description,
       category: category ?? this.category,

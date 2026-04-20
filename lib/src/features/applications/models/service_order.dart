@@ -106,6 +106,8 @@ class ServiceOrder {
   }
 
   ServiceOrder copyWith({
+    String? freelancerName,
+    String? clientName,
     String? message,
     ServiceOrderStatus? status,
     double? proposedBudget,
@@ -117,9 +119,9 @@ class ServiceOrder {
       serviceId: serviceId,
       serviceTitle: serviceTitle,
       freelancerId: freelancerId,
-      freelancerName: freelancerName,
+      freelancerName: freelancerName ?? this.freelancerName,
       clientId: clientId,
-      clientName: clientName,
+      clientName: clientName ?? this.clientName,
       message: message ?? this.message,
       status: status ?? this.status,
       proposedBudget: proposedBudget ?? this.proposedBudget,

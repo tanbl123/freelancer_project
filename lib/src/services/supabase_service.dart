@@ -170,6 +170,42 @@ class SupabaseService {
         .eq('uid', user.uid);
   }
 
+  /// Propagates a new display name to every table that stores a denormalized
+  /// copy of the user's name.
+  ///
+  /// Called automatically by [AppState.updateProfile] when the name changes.
+  /// All updates run in parallel via [Future.wait].
+  Future<void> updateUserDisplayNameEverywhere(
+      String uid, String newName) async {
+    await Future.wait([
+      // Client-side denormalized names
+      _client.from('job_posts')
+          .update({'client_name': newName}).eq('client_id', uid),
+      _client.from('service_orders')
+          .update({'client_name': newName}).eq('client_id', uid),
+      _client.from('projects')
+          .update({'client_name': newName}).eq('client_id', uid),
+
+      // Freelancer-side denormalized names
+      _client.from('freelancer_services')
+          .update({'freelancer_name': newName}).eq('freelancer_id', uid),
+      _client.from('applications')
+          .update({'freelancer_name': newName}).eq('freelancer_id', uid),
+      _client.from('service_orders')
+          .update({'freelancer_name': newName}).eq('freelancer_id', uid),
+      _client.from('projects')
+          .update({'freelancer_name': newName}).eq('freelancer_id', uid),
+
+      // Shared / marketplace
+      _client.from('posts')
+          .update({'owner_name': newName}).eq('owner_id', uid),
+      _client.from('reviews')
+          .update({'reviewer_name': newName}).eq('reviewer_id', uid),
+      _client.from('chat_rooms')
+          .update({'last_sender_name': newName}).eq('last_sender_id', uid),
+    ]);
+  }
+
   /// Hard-delete for accounts that never completed email verification.
   /// RLS enforces that only the owner can delete, and only while the account
   /// is still in pendingVerification status (see profiles_own_delete policy).

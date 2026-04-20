@@ -48,14 +48,22 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     super.dispose();
   }
 
-  /// Called whenever AppState calls notifyListeners() (e.g. after a
-  /// dispute resolution reloads the projects list cross-device via the
-  /// notifications Realtime stream). Syncs _project without a full reload.
+  /// Called whenever AppState calls notifyListeners().
+  ///
+  /// • Status change (e.g. disputed → inProgress after admin resolves,
+  ///   inProgress → cancelled) → full _load() so _dispute and _milestones
+  ///   are also refreshed.
+  /// • Minor change (name rename, etc.) → lightweight setState only.
   void _onAppStateChange() {
+    if (!mounted) return;
     final updated = AppState.instance.projects
         .where((p) => p.id == widget.projectId)
         .firstOrNull;
-    if (updated != null && updated != _project && mounted) {
+    if (updated == null) return;
+    if (updated.status != _project?.status) {
+      // Status changed — full reload so _dispute / _milestones stay in sync.
+      _load();
+    } else if (updated != _project) {
       setState(() => _project = updated);
     }
   }
@@ -548,6 +556,32 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         return [_DeliveryModeChoiceCard(
           project: project,
           onSingleDelivery: () async {
+            // ── Confirmation dialog before locking in Single Delivery ─────
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Choose Single Delivery?'),
+                content: const Text(
+                  'You will submit all your work as one deliverable.\n\n'
+                  'The client will pay upfront before you start, then '
+                  'review and approve your final submission.\n\n'
+                  'This cannot be changed once confirmed.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Confirm'),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed != true) return;
+            // ─────────────────────────────────────────────────────────────
+            if (!mounted) return;
             final messenger = ScaffoldMessenger.of(context);
             final err = await AppState.instance.chooseSingleDelivery(project);
             if (!mounted) return;

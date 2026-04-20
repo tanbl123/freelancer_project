@@ -181,8 +181,11 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) return 'Required';
                         final val = double.tryParse(v);
-                        if (val == null || val <= 0 || val > 100) {
-                          return 'Enter a value between 1 and 100';
+                        if (val == null || val > 100) {
+                          return 'Enter a value between 10 and 100';
+                        }
+                        if (val < 10) {
+                          return 'Each milestone must be at least 10%';
                         }
                         return null;
                       },
@@ -332,7 +335,37 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
         ? Colors.green
         : (_totalPct > 100 ? Colors.red : Colors.orange);
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        // Nothing added yet — leave freely.
+        if (_milestones.isEmpty) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Milestone Plan?'),
+            content: const Text(
+              'You have unsaved milestones.\n\n'
+              'If you go back now your plan will be lost. '
+              'Submit the plan first to save your work.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Keep Editing'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Discard'),
+              ),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Propose Milestone Plan'),
         actions: [
@@ -618,6 +651,7 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
           ),
         ],
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 }

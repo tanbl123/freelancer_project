@@ -49,10 +49,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex)));
 
   double get _total => widget.project.totalBudget ?? 0;
-  double get _totalFees =>
-      PaymentService.totalPlatformFees(widget.milestones);
-  double get _freelancerNet =>
-      PaymentService.totalFreelancerNet(widget.milestones);
+
+  // For single-delivery the milestones list is empty, so compute fees
+  // directly from the total budget; for milestone plans use the sum
+  // across all individual milestone amounts.
+  double get _totalFees => widget.milestones.isEmpty
+      ? PaymentService.calculatePayout(_total).platformFee
+      : PaymentService.totalPlatformFees(widget.milestones);
+
+  double get _freelancerNet => widget.milestones.isEmpty
+      ? PaymentService.calculatePayout(_total).netAmount
+      : PaymentService.totalFreelancerNet(widget.milestones);
 
   // ── Payment flow ───────────────────────────────────────────────────────────
 
@@ -294,13 +301,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    CardField(
-                      onCardChanged: (details) =>
-                          setState(() => _cardDetails = details),
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        contentPadding:
-                            EdgeInsets.symmetric(horizontal: 12),
+                    // Wrap the native Stripe CardField in a plain
+                    // container border — passing InputDecoration to the
+                    // native view can break keyboard / focus on some
+                    // platforms (shows blank / unresponsive field).
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      child: CardField(
+                        onCardChanged: (details) =>
+                            setState(() => _cardDetails = details),
+                        style: const TextStyle(fontSize: 15),
                       ),
                     ),
                     const SizedBox(height: 8),

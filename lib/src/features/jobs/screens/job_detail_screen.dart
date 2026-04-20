@@ -767,13 +767,18 @@ class _AlreadyAppliedButtonState extends State<_AlreadyAppliedButton> {
     if (mounted) setState(() {});
   }
 
-  bool get _hasApplied {
+  /// Returns the current application status for this job, or null if
+  /// the freelancer hasn't applied (or has withdrawn).
+  ApplicationStatus? get _applicationStatus {
     final me = AppState.instance.currentUser;
-    if (me == null) return false;
-    return AppState.instance.userApplications.any((a) =>
-        a.jobId == widget.jobId &&
-        a.freelancerId == me.uid &&
-        a.status != ApplicationStatus.withdrawn);
+    if (me == null) return null;
+    final app = AppState.instance.userApplications
+        .where((a) =>
+            a.jobId == widget.jobId &&
+            a.freelancerId == me.uid &&
+            a.status != ApplicationStatus.withdrawn)
+        .firstOrNull;
+    return app?.status;
   }
 
   void _handleApply() {
@@ -786,8 +791,26 @@ class _AlreadyAppliedButtonState extends State<_AlreadyAppliedButton> {
 
   @override
   Widget build(BuildContext context) {
-    final applied = _hasApplied;
-    if (applied) {
+    final status = _applicationStatus;
+
+    // ── Rejected ──────────────────────────────────────────────────────────
+    if (status == ApplicationStatus.rejected) {
+      return OutlinedButton.icon(
+        icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.red),
+        label: const Text('Rejected',
+            style: TextStyle(
+                color: Colors.red, fontWeight: FontWeight.w600)),
+        onPressed: null, // disabled
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          side: const BorderSide(color: Colors.red),
+          disabledForegroundColor: Colors.red,
+        ),
+      );
+    }
+
+    // ── Pending / Accepted / Converted ────────────────────────────────────
+    if (status != null) {
       return OutlinedButton.icon(
         icon: const Icon(Icons.check_circle, size: 18, color: Colors.green),
         label: const Text('Applied',
@@ -801,6 +824,8 @@ class _AlreadyAppliedButtonState extends State<_AlreadyAppliedButton> {
         ),
       );
     }
+
+    // ── Not yet applied ───────────────────────────────────────────────────
     return FilledButton.icon(
       icon: const Icon(Icons.send, size: 18),
       label: const Text('Apply Now'),

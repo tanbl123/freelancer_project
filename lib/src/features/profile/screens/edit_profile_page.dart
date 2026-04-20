@@ -352,7 +352,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.person_outline),
                 ),
+                textCapitalization: TextCapitalization.words,
                 textInputAction: TextInputAction.next,
+                maxLength: 50,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(
                       RegExp(r"[\p{L}\s'\-]", unicode: true)),
@@ -360,6 +362,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Name is required';
                   if (v.trim().length < 2) return 'Name must be at least 2 characters';
+                  if (v.trim().length > 50) return 'Name must be 50 characters or fewer';
                   if (!RegExp(r"^[\p{L}\s'-]+$", unicode: true)
                       .hasMatch(v.trim())) {
                     return 'Name can only contain letters, spaces, hyphens or apostrophes';

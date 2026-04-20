@@ -784,6 +784,64 @@ class AppState extends ChangeNotifier {
 
   Future<void> updateProfile(ProfileUser updated) async {
     await _db.updateUser(updated);
+
+    // ── Propagate display name change everywhere it is denormalized ──────────
+    final oldName = _currentUser?.displayName;
+    final newName = updated.displayName;
+    if (oldName != null && oldName != newName) {
+      // Fire-and-forget — non-critical; the DB will be consistent shortly.
+      _db.updateUserDisplayNameEverywhere(updated.uid, newName).catchError((_) {});
+
+      // Mirror the rename in every in-memory list immediately so the UI
+      // updates without waiting for a full reload.
+      final uid = updated.uid;
+
+      // Job posts (client_name)
+      for (final list in [_jobPosts, _myJobPosts]) {
+        for (int i = 0; i < list.length; i++) {
+          if (list[i].clientId == uid) {
+            list[i] = list[i].copyWith(clientName: newName);
+          }
+        }
+      }
+
+      // Freelancer services (freelancer_name)
+      for (final list in [_services, _myServices]) {
+        for (int i = 0; i < list.length; i++) {
+          if (list[i].freelancerId == uid) {
+            list[i] = list[i].copyWith(freelancerName: newName);
+          }
+        }
+      }
+
+      // Applications (freelancer_name)
+      for (int i = 0; i < _applications.length; i++) {
+        if (_applications[i].freelancerId == uid) {
+          _applications[i] = _applications[i].copyWith(freelancerName: newName);
+        }
+      }
+
+      // Service orders (both sides)
+      for (int i = 0; i < _serviceOrders.length; i++) {
+        final o = _serviceOrders[i];
+        if (o.freelancerId == uid) {
+          _serviceOrders[i] = o.copyWith(freelancerName: newName);
+        } else if (o.clientId == uid) {
+          _serviceOrders[i] = o.copyWith(clientName: newName);
+        }
+      }
+
+      // Projects (both sides)
+      for (int i = 0; i < _projects.length; i++) {
+        final p = _projects[i];
+        if (p.freelancerId == uid) {
+          _projects[i] = p.copyWith(freelancerName: newName);
+        } else if (p.clientId == uid) {
+          _projects[i] = p.copyWith(clientName: newName);
+        }
+      }
+    }
+
     final idx = _users.indexWhere((u) => u.uid == updated.uid);
     if (idx >= 0) _users[idx] = updated;
     if (_currentUser?.uid == updated.uid) _currentUser = updated;
@@ -1653,7 +1711,11 @@ class AppState extends ChangeNotifier {
         jobTitle: jobTitle,
         clientName: client?.displayName,
         freelancerName: freelancer?.displayName,
-        totalBudget: app.expectedBudget,
+        // Use the freelancer's proposed budget if they set one; otherwise
+        // fall back to the job post's budget (budgetMax, then budgetMin).
+        totalBudget: app.expectedBudget > 0
+            ? app.expectedBudget
+            : (acceptedJobPost?.budgetMax ?? acceptedJobPost?.budgetMin),
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
@@ -3045,13 +3107,23 @@ class AppState extends ChangeNotifier {
         // list so ProjectDetailPage (and any other listener) sees the updated
         // status without requiring a manual pull-to-refresh.
         if (notifs.length > prevCount && _currentUser != null) {
+          // All notification types that signal a project status change.
           const projectStatusTypes = {
             NotificationType.disputeResolved,
             NotificationType.disputeRaised,
+            NotificationType.applicationAccepted,  // new project created
+            NotificationType.paymentHeld,           // escrow funded → project starts
+            NotificationType.paymentReleased,       // milestone paid
+            NotificationType.refundInitiated,       // cancellation / refund
+            NotificationType.milestoneApproved,
+            NotificationType.milestoneRejected,
+            NotificationType.milestoneSubmitted,
+            NotificationType.overdueEnforced,       // auto-cancel
           };
-          final hasProjectUpdate = notifs
-              .take(notifs.length - prevCount)
-              .any((n) => projectStatusTypes.contains(n.type));
+          final newNotifs =
+              notifs.take(notifs.length - prevCount).toList();
+          final hasProjectUpdate =
+              newNotifs.any((n) => projectStatusTypes.contains(n.type));
           if (hasProjectUpdate) {
             _projects = await _db.getProjectsForUser(_currentUser!.uid);
           }
