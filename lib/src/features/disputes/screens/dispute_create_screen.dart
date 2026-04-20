@@ -24,6 +24,13 @@ class _DisputeCreateScreenState extends State<DisputeCreateScreen> {
   DisputeReason _selectedReason = DisputeReason.other;
   bool _submitting = false;
 
+  // ── Unsaved-changes detection ─────────────────────────────────────────────
+  // Dispute is always a new form — detect any non-default input.
+  bool get _hasChanges =>
+      _selectedReason != DisputeReason.other ||
+      _descCtrl.text.trim().isNotEmpty ||
+      _urlCtrls.any((c) => c.text.trim().isNotEmpty);
+
   @override
   void dispose() {
     _descCtrl.dispose();
@@ -80,7 +87,31 @@ class _DisputeCreateScreenState extends State<DisputeCreateScreen> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                'You have unsaved changes. If you leave now, they will be lost.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(title: const Text('Raise a Dispute')),
       body: Form(
         key: _formKey,
@@ -236,6 +267,7 @@ class _DisputeCreateScreenState extends State<DisputeCreateScreen> {
           ],
         ),
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 }

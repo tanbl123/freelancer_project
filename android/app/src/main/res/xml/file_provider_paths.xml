@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- App's internal files directory (where resumes and deliverables are saved) -->
+    <files-path name="files" path="." />
+    <!-- App's external files directory -->
+    <external-files-path name="external_files" path="." />
+    <!-- Cache directory -->
+    <cache-path name="cache" path="." />
+</paths>

@@ -523,6 +523,7 @@ class ProfilePage extends StatelessWidget {
             onPressed: () => _confirmLogout(context),
           ),
         ),
+
         const SizedBox(height: 16),
       ],
     );

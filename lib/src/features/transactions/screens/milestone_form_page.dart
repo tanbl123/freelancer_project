@@ -39,6 +39,18 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
   late DateTime _deadline;
   bool _isLoading = false;
 
+  // ── Unsaved-changes detection ─────────────────────────────────────────────
+  late String _origTitle;
+  late String _origDesc;
+  late String _origPct;
+  late DateTime _origDeadline;
+
+  bool get _hasChanges =>
+      _titleController.text.trim() != _origTitle ||
+      _descController.text.trim() != _origDesc ||
+      _pctController.text.trim() != _origPct ||
+      _deadline != _origDeadline;
+
   bool get _isEditing => widget.existing != null;
 
   double get _previewAmount {
@@ -55,6 +67,10 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
     _pctController = TextEditingController(
         text: e != null ? e.percentage.toStringAsFixed(0) : '');
     _deadline = e?.deadline ?? DateTime.now().add(const Duration(days: 14));
+    _origTitle    = _titleController.text.trim();
+    _origDesc     = _descController.text.trim();
+    _origPct      = _pctController.text.trim();
+    _origDeadline = _deadline;
   }
 
   @override
@@ -120,7 +136,31 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                'You have unsaved changes. If you leave now, they will be lost.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(_isEditing ? 'Edit Milestone' : 'Add Milestone'),
       ),
@@ -219,6 +259,7 @@ class _MilestoneFormPageState extends State<MilestoneFormPage> {
           ),
         ),
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 }

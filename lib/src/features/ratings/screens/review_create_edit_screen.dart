@@ -38,6 +38,14 @@ class _ReviewCreateEditScreenState extends State<ReviewCreateEditScreen> {
   int _stars = 5;
   bool _submitting = false;
 
+  // ── Unsaved-changes detection ─────────────────────────────────────────────
+  late int _origStars;
+  late String _origComment;
+
+  bool get _hasChanges =>
+      _stars != _origStars ||
+      _commentCtrl.text.trim() != _origComment;
+
   @override
   void initState() {
     super.initState();
@@ -45,6 +53,8 @@ class _ReviewCreateEditScreenState extends State<ReviewCreateEditScreen> {
       _stars = widget.review!.stars;
       _commentCtrl.text = widget.review!.comment;
     }
+    _origStars   = _stars;
+    _origComment = _commentCtrl.text.trim();
   }
 
   @override
@@ -150,7 +160,31 @@ class _ReviewCreateEditScreenState extends State<ReviewCreateEditScreen> {
             ?.jobTitle
         ?? 'Project';
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                'You have unsaved changes. If you leave now, they will be lost.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(widget.isEdit ? 'Edit Review' : 'Write Review'),
       ),
@@ -275,7 +309,8 @@ class _ReviewCreateEditScreenState extends State<ReviewCreateEditScreen> {
           ],
         ),
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 
   String _starLabel(int s) {

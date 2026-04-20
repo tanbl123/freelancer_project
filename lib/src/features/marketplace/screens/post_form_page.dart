@@ -33,6 +33,28 @@ class _PostFormPageState extends State<PostFormPage> {
   String? _imagePath;
   bool _isLoading = false;
 
+  // ── Unsaved-changes detection ─────────────────────────────────────────────
+  late String _origTitle;
+  late String _origDesc;
+  late String _origBudget;
+  late PostType _origType;
+  late DateTime _origDeadline;
+  late List<String> _origSkills;
+  late String? _origImage;
+
+  bool get _hasChanges =>
+      _titleController.text.trim() != _origTitle ||
+      _descController.text.trim() != _origDesc ||
+      _budgetController.text.trim() != _origBudget ||
+      _type != _origType ||
+      _deadline != _origDeadline ||
+      !_listEq(_skills, _origSkills) ||
+      _imagePath != _origImage;
+
+  static bool _listEq(List<String> a, List<String> b) =>
+      a.length == b.length &&
+      List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);
+
   bool get _isEditing => widget.existing != null;
 
   @override
@@ -48,6 +70,13 @@ class _PostFormPageState extends State<PostFormPage> {
       _skills.addAll(p.skills);
       _imagePath = p.imageUrl;
     }
+    _origTitle    = _titleController.text.trim();
+    _origDesc     = _descController.text.trim();
+    _origBudget   = _budgetController.text.trim();
+    _origType     = _type;
+    _origDeadline = _deadline;
+    _origSkills   = List.from(_skills);
+    _origImage    = _imagePath;
   }
 
   @override
@@ -164,7 +193,31 @@ class _PostFormPageState extends State<PostFormPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                'You have unsaved changes. If you leave now, they will be lost.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(_isEditing ? 'Edit Listing' : 'Create Listing'),
       ),
@@ -397,7 +450,8 @@ class _PostFormPageState extends State<PostFormPage> {
           ),
         ),
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 }
 

@@ -50,6 +50,30 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
   final List<String> _portfolioImages = [];
   final List<String> _tags = [];
 
+  // ── Unsaved-changes detection ─────────────────────────────────────────────
+  late String _origTitle;
+  late String _origDesc;
+  late String _origPrice;
+  late String? _origCategory;
+  late List<String> _origTags;
+  late List<String> _origImages;
+  late int _origDeliveryValue;
+  late String _origDeliveryUnit;
+
+  bool get _hasChanges =>
+      _titleController.text.trim() != _origTitle ||
+      _descController.text.trim() != _origDesc ||
+      _priceController.text.trim() != _origPrice ||
+      _category != _origCategory ||
+      !_listEq(_tags, _origTags) ||
+      !_listEq(_portfolioImages, _origImages) ||
+      _deliveryValue != _origDeliveryValue ||
+      _deliveryUnit != _origDeliveryUnit;
+
+  static bool _listEq(List<String> a, List<String> b) =>
+      a.length == b.length &&
+      List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);
+
   bool get _isEdit => widget.existing != null;
 
   @override
@@ -82,6 +106,15 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
         }
       }
     }
+    // Capture initial state after loading existing data.
+    _origTitle         = _titleController.text.trim();
+    _origDesc          = _descController.text.trim();
+    _origPrice         = _priceController.text.trim();
+    _origCategory      = _category;
+    _origTags          = List.from(_tags);
+    _origImages        = List.from(_portfolioImages);
+    _origDeliveryValue = _deliveryValue;
+    _origDeliveryUnit  = _deliveryUnit;
   }
 
   @override
@@ -234,7 +267,31 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                'You have unsaved changes. If you leave now, they will be lost.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(_isEdit ? 'Edit Service' : 'New Service'),
       ),
@@ -421,7 +478,8 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
           ),
         ),
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 }
 

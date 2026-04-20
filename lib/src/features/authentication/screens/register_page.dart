@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../services/email_validation_service.dart';
 import '../../../services/file_storage_service.dart';
 import '../../../state/app_state.dart';
 import '../../user/screens/email_verification_screen.dart';
@@ -71,6 +72,22 @@ class _RegisterPageState extends State<RegisterPage> {
       _isLoading = true;
       _errorMessage = null;
     });
+
+    // ── Abstract Email Validation API check ───────────────────────────────
+    // Verifies the email is real and deliverable before calling Supabase.
+    // Soft-fail: if the API is down or quota exceeded we proceed normally.
+    final emailError = await EmailValidationService.validate(
+      _emailController.text.trim(),
+    );
+    if (!mounted) return;
+    if (emailError != null) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = emailError;
+      });
+      return;
+    }
+    // ──────────────────────────────────────────────────────────────────────
 
     final error = await AppState.instance.register(
       name: _nameController.text.trim(),
@@ -218,21 +235,16 @@ class _RegisterPageState extends State<RegisterPage> {
                   labelText: 'Email *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.email_outlined),
+                  helperText:
+                      'A verification code will be sent here — use a real inbox.',
+                  helperMaxLines: 2,
                 ),
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
                 inputFormatters: [
                   FilteringTextInputFormatter.deny(RegExp(r'\s')),
                 ],
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Email is required';
-                  final emailRegex = RegExp(
-                      r'^[\w.+\-]+@[a-zA-Z0-9\-]+(\.[a-zA-Z0-9\-]+)*\.[a-zA-Z]{2,}$');
-                  if (!emailRegex.hasMatch(v.trim())) {
-                    return 'Enter a valid email (e.g. user@gmail.com)';
-                  }
-                  return null;
-                },
+                validator: UserValidator.validateEmail,
               ),
               const SizedBox(height: 12),
               TextFormField(

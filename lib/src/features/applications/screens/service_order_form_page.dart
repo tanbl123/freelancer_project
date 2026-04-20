@@ -30,6 +30,12 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
   final _daysController = TextEditingController();
   bool _isLoading = false;
 
+  // ── Unsaved-changes detection (create-only form) ──────────────────────────
+  bool get _hasChanges =>
+      _messageController.text.trim().isNotEmpty ||
+      _budgetController.text.trim().isNotEmpty ||
+      _daysController.text.trim().isNotEmpty;
+
   @override
   void dispose() {
     _messageController.dispose();
@@ -84,7 +90,31 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
   @override
   Widget build(BuildContext context) {
     final svc = widget.service;
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                'You have unsaved changes. If you leave now, they will be lost.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(title: const Text('Order Service')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -199,6 +229,7 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
           ),
         ),
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 }

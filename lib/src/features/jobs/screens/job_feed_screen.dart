@@ -574,11 +574,13 @@ class _JobCard extends StatelessWidget {
                     Icon(Icons.schedule, size: 13, color: deadlineColor),
                     const SizedBox(width: 3),
                     Text(
-                      daysLeft <= 0
-                          ? 'Expired'
-                          : daysLeft == 1
-                              ? '1 day left'
-                              : '$daysLeft days left',
+                      daysLeft < 0
+                          ? 'Deadline passed'
+                          : daysLeft == 0
+                              ? 'Closing today'
+                              : daysLeft == 1
+                                  ? '1 day left'
+                                  : '$daysLeft days left',
                       style:
                           TextStyle(fontSize: 11, color: deadlineColor),
                     ),

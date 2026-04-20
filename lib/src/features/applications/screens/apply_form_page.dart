@@ -38,6 +38,14 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
   // When a JobPost is preselected we store its details for use in _submit().
   JobPost? _preselectedJobPost;
 
+  // ── Unsaved-changes detection ─────────────────────────────────────────────
+  late String _origProposal;
+  late String? _origJobId;
+
+  bool get _hasChanges =>
+      _proposalController.text.trim() != _origProposal ||
+      _selectedJobId != _origJobId;
+
   bool get _isEditing => widget.existing != null;
 
   @override
@@ -57,6 +65,8 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
     } else if (widget.preselectedPost != null) {
       _selectedJobId = widget.preselectedPost!.id;
     }
+    _origProposal = _proposalController.text.trim();
+    _origJobId    = _selectedJobId;
   }
 
   void _loadJobs() {
@@ -150,7 +160,31 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                'You have unsaved changes. If you leave now, they will be lost.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(
           title: Text(_isEditing ? 'Edit Application' : 'Submit Application')),
       body: SingleChildScrollView(
@@ -247,6 +281,7 @@ class _ApplyFormPageState extends State<ApplyFormPage> {
           ),
         ),
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 }

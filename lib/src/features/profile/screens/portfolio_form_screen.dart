@@ -35,6 +35,26 @@ class _PortfolioFormScreenState extends State<PortfolioFormScreen> {
   int _durationAmount = 1;
   String _durationUnit = 'Days';
 
+  // ── Unsaved-changes detection ─────────────────────────────────────────────
+  late String _origTitle;
+  late String _origDesc;
+  late String? _origImage;
+  late List<String> _origSkills;
+  late int _origDurationAmount;
+  late String _origDurationUnit;
+
+  bool get _hasChanges =>
+      _titleCtrl.text.trim() != _origTitle ||
+      _descCtrl.text.trim() != _origDesc ||
+      _imageUrl != _origImage ||
+      !_listEq(_skills, _origSkills) ||
+      _durationAmount != _origDurationAmount ||
+      _durationUnit != _origDurationUnit;
+
+  static bool _listEq(List<String> a, List<String> b) =>
+      a.length == b.length &&
+      List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);
+
   bool get _isEdit => widget.existing != null;
 
   @override
@@ -60,6 +80,12 @@ class _PortfolioFormScreenState extends State<PortfolioFormScreen> {
         }
       }
     }
+    _origTitle         = _titleCtrl.text.trim();
+    _origDesc          = _descCtrl.text.trim();
+    _origImage         = _imageUrl;
+    _origSkills        = List.from(_skills);
+    _origDurationAmount = _durationAmount;
+    _origDurationUnit  = _durationUnit;
   }
 
   @override
@@ -177,7 +203,31 @@ class _PortfolioFormScreenState extends State<PortfolioFormScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                'You have unsaved changes. If you leave now, they will be lost.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(_isEdit ? 'Edit Portfolio Item' : 'Add Portfolio Item'),
       ),
@@ -367,7 +417,8 @@ class _PortfolioFormScreenState extends State<PortfolioFormScreen> {
           ),
         ),
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 }
 

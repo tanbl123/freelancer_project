@@ -39,6 +39,17 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // ── Unsaved-changes detection ─────────────────────────────────────────────
+  bool get _hasChanges =>
+      _aboutController.text.trim().isNotEmpty ||
+      _portfolioDescController.text.trim().isNotEmpty ||
+      _motivationController.text.trim().isNotEmpty ||
+      _skills.isNotEmpty ||
+      _workExperiences.isNotEmpty ||
+      _educations.isNotEmpty ||
+      _certifications.isNotEmpty ||
+      _resumePath != null;
+
   // Per-section inline validation errors
   String? _skillsError;
   String? _workError;
@@ -332,7 +343,31 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                'You have unsaved changes. If you leave now, they will be lost.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: ListenableBuilder(
       listenable: AppState.instance,
       builder: (context, _) {
         final existing = AppState.instance.myFreelancerRequest;
@@ -349,6 +384,7 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
           ),
         );
       },
+      ),
     );
   }
 

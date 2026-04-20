@@ -47,10 +47,40 @@ class _JobFormScreenState extends State<JobFormScreen> {
   // ── Timeline state ──────────────────────────────────────────────────────
   _TimelineType _timelineType = _TimelineType.specificDate;
   DateTime? _specificDate;       // used when timelineType == specificDate
-  int _durationValue = 2;        // used when timelineType == duration
+  int _durationValue = 1;        // used when timelineType == duration
   String _durationUnit = 'Weeks';
   DateTime? _postingDeadline;    // posting close date, used when timelineType == duration
   String? _timelineError;        // inline validation error for the timeline section
+
+  // ── Unsaved-changes detection ───────────────────────────────────────────
+  late String _origTitle;
+  late String _origDesc;
+  late String _origBudget;
+  late String _origCategory;
+  late String? _origCover;
+  late List<String> _origSkills;
+  late _TimelineType _origTimelineType;
+  late DateTime? _origSpecificDate;
+  late int _origDurationValue;
+  late String _origDurationUnit;
+  late DateTime? _origPostingDeadline;
+
+  bool get _hasChanges =>
+      _titleController.text.trim() != _origTitle ||
+      _descController.text.trim() != _origDesc ||
+      _budgetController.text.trim() != _origBudget ||
+      _category != _origCategory ||
+      _coverImagePath != _origCover ||
+      !_listEq(_skills, _origSkills) ||
+      _timelineType != _origTimelineType ||
+      _specificDate != _origSpecificDate ||
+      _durationValue != _origDurationValue ||
+      _durationUnit != _origDurationUnit ||
+      _postingDeadline != _origPostingDeadline;
+
+  static bool _listEq(List<String> a, List<String> b) =>
+      a.length == b.length &&
+      List.generate(a.length, (i) => a[i] == b[i]).every((v) => v);
 
   bool get _isEdit => widget.existing != null;
 
@@ -84,6 +114,18 @@ class _JobFormScreenState extends State<JobFormScreen> {
         _specificDate = p.deadline;
       }
     }
+    // Capture initial state for change detection (works for both create & edit).
+    _origTitle         = _titleController.text.trim();
+    _origDesc          = _descController.text.trim();
+    _origBudget        = _budgetController.text.trim();
+    _origCategory      = _category;
+    _origCover         = _coverImagePath;
+    _origSkills        = List.from(_skills);
+    _origTimelineType  = _timelineType;
+    _origSpecificDate  = _specificDate;
+    _origDurationValue = _durationValue;
+    _origDurationUnit  = _durationUnit;
+    _origPostingDeadline = _postingDeadline;
   }
 
   @override
@@ -259,7 +301,32 @@ class _JobFormScreenState extends State<JobFormScreen> {
     }
 
     final colors = Theme.of(context).colorScheme;
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) { Navigator.pop(context); return; }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+                "You have unsaved changes. If you leave now, they will be lost."),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Keep Editing')),
+              FilledButton(
+                  style: FilledButton.styleFrom(
+                      backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Discard')),
+            ],
+          ),
+        );
+        if (leave == true && context.mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(_isEdit ? 'Edit Job Post' : 'Post a Job'),
       ),
@@ -411,7 +478,8 @@ class _JobFormScreenState extends State<JobFormScreen> {
           ),
         ),
       ),
-    );
+      ), // Scaffold
+    ); // PopScope
   }
 }
 

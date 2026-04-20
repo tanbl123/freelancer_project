@@ -559,9 +559,18 @@ class _ProjectDetailsCard extends StatelessWidget {
     }
 
     if (post.deadline != null) {
-      final deadlineStr = daysLeft != null && daysLeft > 0
-          ? '$daysLeft days left'
-          : DateFormat('d MMM y').format(post.deadline!);
+      final String deadlineStr;
+      if (daysLeft == null) {
+        deadlineStr = DateFormat('d MMM y').format(post.deadline!);
+      } else if (daysLeft > 1) {
+        deadlineStr = '$daysLeft days left';
+      } else if (daysLeft == 1) {
+        deadlineStr = '1 day left';
+      } else if (daysLeft == 0) {
+        deadlineStr = 'Closing today';
+      } else {
+        deadlineStr = 'Deadline passed';
+      }
       items.add(_DetailItem(
         icon: Icons.event_outlined,
         label: 'Application Deadline',
