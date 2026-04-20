@@ -44,6 +44,7 @@ import '../features/disputes/services/dispute_service.dart';
 import '../features/notifications/models/in_app_notification.dart';
 import '../features/notifications/repositories/notification_repository.dart';
 import '../features/notifications/services/notification_service.dart';
+import '../shared/enums/notification_type.dart';
 import '../features/overdue/models/overdue_record.dart';
 import '../features/overdue/repositories/overdue_repository.dart';
 import '../features/overdue/services/overdue_service.dart';
@@ -157,8 +158,11 @@ class AppState extends ChangeNotifier {
 
   List<InAppNotification> get notifications =>
       List.unmodifiable(_notifications);
-  int get unreadNotificationCount =>
-      _notifications.where((n) => !n.isRead).length;
+  // Chat messages have their own unread dot (unreadChatCount).
+  // Exclude them from the bell badge to avoid double-counting.
+  int get unreadNotificationCount => _notifications
+      .where((n) => !n.isRead && n.type != NotificationType.newChatMessage)
+      .length;
 
   // Dispute getters
   DisputeRecord? get activeDispute => _activeDispute;
@@ -1136,6 +1140,9 @@ class AppState extends ChangeNotifier {
         await _jobService.closePost(_currentUser!, postId, ownerId);
     if (error == null) {
       _updateJobPostStatus(postId, JobStatus.closed);
+      // Reject lingering pending applications so the badge clears.
+      _db.rejectAllPendingApplicationsForJob(postId).catchError((_) {});
+      _rejectPendingApplicationsLocally(postId);
       notifyListeners();
     }
     return error;
@@ -1148,9 +1155,23 @@ class AppState extends ChangeNotifier {
         await _jobService.cancelPost(_currentUser!, postId, ownerId);
     if (error == null) {
       _updateJobPostStatus(postId, JobStatus.cancelled);
+      // Reject lingering pending applications so the badge clears.
+      _db.rejectAllPendingApplicationsForJob(postId).catchError((_) {});
+      _rejectPendingApplicationsLocally(postId);
       notifyListeners();
     }
     return error;
+  }
+
+  /// Update in-memory applications to rejected when their job is closed/cancelled.
+  void _rejectPendingApplicationsLocally(String jobId) {
+    for (int i = 0; i < _applications.length; i++) {
+      if (_applications[i].jobId == jobId &&
+          _applications[i].status == ApplicationStatus.pending) {
+        _applications[i] =
+            _applications[i].copyWith(status: ApplicationStatus.rejected);
+      }
+    }
   }
 
   /// Client: reopen a previously closed post.
@@ -3304,11 +3325,31 @@ class AppState extends ChangeNotifier {
   }
 
   /// Mark all messages in [roomId] as read for the current user.
+  /// Also silently marks any newChatMessage notifications for this room as
+  /// read so the bell badge clears together with the chat unread dot.
   Future<void> markChatRoomRead(String roomId) async {
     if (_currentUser == null) return;
     try {
       await _chatSvc.markRead(roomId, _currentUser!.uid);
       _chatUnreadMap[roomId] = false;
+
+      // Clear matching newChatMessage notification records locally + in DB.
+      final chatNotifIds = _notifications
+          .where((n) =>
+              !n.isRead &&
+              n.type == NotificationType.newChatMessage &&
+              n.linkedChatRoomId == roomId)
+          .map((n) => n.id)
+          .toList();
+      for (final id in chatNotifIds) {
+        _notifSvc.markRead(id).catchError((_) {});
+      }
+      if (chatNotifIds.isNotEmpty) {
+        _notifications = _notifications
+            .map((n) => chatNotifIds.contains(n.id) ? n.copyWith(isRead: true) : n)
+            .toList();
+      }
+
       notifyListeners();
     } catch (_) {}
   }

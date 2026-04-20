@@ -60,40 +60,34 @@ class _RaDashboardScreenState extends State<RaDashboardScreen>
       // No AppBar — the main shell already provides one.
       body: Column(
         children: [
-          TabBar(
-            controller: _tabs,
-            tabs: [
-              // ── Tab 1 badge — live pending application count ──────────
-              StreamBuilder<List<ApplicationItem>>(
-                stream: AppState.instance.applicationsStream,
-                initialData: AppState.instance.userApplications,
-                builder: (_, snapshot) {
-                  final pending = (snapshot.data ?? const [])
-                      .where((a) => a.status == ApplicationStatus.pending)
-                      .length;
-                  return _TabLabel(
+          // Use ListenableBuilder so badge counts always match the list
+          // (both read from the same in-memory AppState, eliminating the
+          // stream vs. in-memory divergence that caused stale badge numbers).
+          ListenableBuilder(
+            listenable: AppState.instance,
+            builder: (_, __) {
+              final pendingApps = AppState.instance.userApplications
+                  .where((a) => a.status == ApplicationStatus.pending)
+                  .length;
+              final pendingOrders = AppState.instance.serviceOrders
+                  .where((o) => o.status == ServiceOrderStatus.pending)
+                  .length;
+              return TabBar(
+                controller: _tabs,
+                tabs: [
+                  _TabLabel(
                     label: isFreelancer
                         ? 'My Applications'
                         : 'Applications Received',
-                    badgeCount: pending,
-                  );
-                },
-              ),
-              // ── Tab 2 badge — live pending order count ────────────────
-              StreamBuilder<List<ServiceOrder>>(
-                stream: AppState.instance.serviceOrdersStream,
-                initialData: AppState.instance.serviceOrders,
-                builder: (_, snapshot) {
-                  final pending = (snapshot.data ?? const [])
-                      .where((o) => o.status == ServiceOrderStatus.pending)
-                      .length;
-                  return _TabLabel(
+                    badgeCount: pendingApps,
+                  ),
+                  _TabLabel(
                     label: isFreelancer ? 'Incoming Orders' : 'My Orders',
-                    badgeCount: pending,
-                  );
-                },
-              ),
-            ],
+                    badgeCount: pendingOrders,
+                  ),
+                ],
+              );
+            },
           ),
           Expanded(
             child: TabBarView(

@@ -519,6 +519,15 @@ class SupabaseService {
     }).eq('job_id', jobId).neq('id', winnerAppId).eq('status', 'pending');
   }
 
+  /// Rejects ALL pending applications for a job (used when the job is
+  /// closed or cancelled without accepting any specific application).
+  Future<void> rejectAllPendingApplicationsForJob(String jobId) async {
+    await _client.from('applications').update({
+      'status': ApplicationStatus.rejected.name,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('job_id', jobId).eq('status', 'pending');
+  }
+
   Future<void> updateApplication(ApplicationItem app) async {
     await _client
         .from('applications')
