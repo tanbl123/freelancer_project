@@ -492,16 +492,17 @@ class SupabaseService {
   }
 
   /// Returns the count of currently ACTIVE (pending) applications for a job.
-  /// Only pending applications are counted — withdrawn and rejected ones are
-  /// excluded so the number shown on the job card matches what the client
-  /// actually sees in their inbox (mirrors how Fiverr counts proposals).
+  ///
+  /// Uses a SECURITY DEFINER RPC so the count is visible to ALL users
+  /// (freelancers, clients, guests) regardless of the RLS policy on the
+  /// applications table — only the aggregate count is exposed, never
+  /// individual rows.  Withdrawn and rejected applications are excluded.
   Future<int> getJobApplicationCount(String jobId) async {
-    final rows = await _client
-        .from('applications')
-        .select('id')
-        .eq('job_id', jobId)
-        .eq('status', ApplicationStatus.pending.name);
-    return rows.length;
+    final result = await _client.rpc(
+      'get_job_pending_application_count',
+      params: {'p_job_id': jobId},
+    );
+    return (result as int?) ?? 0;
   }
 
   Future<void> updateApplicationStatus(
@@ -512,21 +513,52 @@ class SupabaseService {
     }).eq('id', appId);
   }
 
-  Future<void> rejectAllOtherApplications(
+  /// Rejects all pending applications for a job except the winner.
+  /// Returns the list of rejected applications so callers can send
+  /// rejection notifications to each affected freelancer.
+  Future<List<ApplicationItem>> rejectAllOtherApplications(
       String jobId, String winnerAppId) async {
+    // Fetch the pending losers BEFORE updating so we have their data.
+    final rows = await _client
+        .from('applications')
+        .select()
+        .eq('job_id', jobId)
+        .neq('id', winnerAppId)
+        .eq('status', 'pending');
+    final rejected = (rows as List)
+        .map((r) => ApplicationItem.fromMap(r as Map<String, dynamic>))
+        .toList();
+
+    // Bulk-update them to rejected.
     await _client.from('applications').update({
       'status': ApplicationStatus.rejected.name,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('job_id', jobId).neq('id', winnerAppId).eq('status', 'pending');
+
+    return rejected;
   }
 
   /// Rejects ALL pending applications for a job (used when the job is
   /// closed or cancelled without accepting any specific application).
-  Future<void> rejectAllPendingApplicationsForJob(String jobId) async {
+  /// Returns the list of rejected applications so callers can notify them.
+  Future<List<ApplicationItem>> rejectAllPendingApplicationsForJob(
+      String jobId) async {
+    // Fetch pending applicants BEFORE the bulk update.
+    final rows = await _client
+        .from('applications')
+        .select()
+        .eq('job_id', jobId)
+        .eq('status', 'pending');
+    final rejected = (rows as List)
+        .map((r) => ApplicationItem.fromMap(r as Map<String, dynamic>))
+        .toList();
+
     await _client.from('applications').update({
       'status': ApplicationStatus.rejected.name,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('job_id', jobId).eq('status', 'pending');
+
+    return rejected;
   }
 
   Future<void> updateApplication(ApplicationItem app) async {

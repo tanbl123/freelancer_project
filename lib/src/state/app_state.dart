@@ -1140,9 +1140,9 @@ class AppState extends ChangeNotifier {
         await _jobService.closePost(_currentUser!, postId, ownerId);
     if (error == null) {
       _updateJobPostStatus(postId, JobStatus.closed);
-      // Reject lingering pending applications so the badge clears.
-      _db.rejectAllPendingApplicationsForJob(postId).catchError((_) {});
-      _rejectPendingApplicationsLocally(postId);
+      // Reject lingering pending applications, notify each freelancer,
+      // and clear the badge locally.
+      _rejectPendingAndNotify(postId);
       notifyListeners();
     }
     return error;
@@ -1155,12 +1155,39 @@ class AppState extends ChangeNotifier {
         await _jobService.cancelPost(_currentUser!, postId, ownerId);
     if (error == null) {
       _updateJobPostStatus(postId, JobStatus.cancelled);
-      // Reject lingering pending applications so the badge clears.
-      _db.rejectAllPendingApplicationsForJob(postId).catchError((_) {});
-      _rejectPendingApplicationsLocally(postId);
+      // Reject lingering pending applications, notify each freelancer,
+      // and clear the badge locally.
+      _rejectPendingAndNotify(postId);
       notifyListeners();
     }
     return error;
+  }
+
+  /// Bulk-rejects all pending applications for a job, sends a bell notification
+  /// to every affected freelancer, and updates the in-memory list.
+  Future<void> _rejectPendingAndNotify(String jobId) async {
+    try {
+      final rejected =
+          await _db.rejectAllPendingApplicationsForJob(jobId);
+      _rejectPendingApplicationsLocally(jobId);
+
+      // Look up job title once from in-memory lists.
+      final jobPost = [..._myJobPosts, ..._jobPosts]
+          .where((p) => p.id == jobId)
+          .firstOrNull;
+      final jobTitle = jobPost?.title ?? 'the job';
+
+      for (final app in rejected) {
+        try {
+          await _notifSvc.send(NotificationService.makeApplicationRejected(
+            freelancerId: app.freelancerId,
+            jobTitle: jobTitle,
+          ));
+        } catch (_) {}
+      }
+    } catch (_) {
+      // Non-critical — badge will still clear from local update.
+    }
   }
 
   /// Update in-memory applications to rejected when their job is closed/cancelled.
@@ -1724,7 +1751,9 @@ class AppState extends ChangeNotifier {
       }
 
       await _db.updateApplicationStatus(app.id, ApplicationStatus.accepted);
-      await _db.rejectAllOtherApplications(app.jobId, app.id);
+      // Fetch the pending losers before bulk-rejecting so we can notify them.
+      final rejectedApps =
+          await _db.rejectAllOtherApplications(app.jobId, app.id);
 
       // Close the job so no further applications are accepted.
       // Try new JobPost system first; fall back to legacy MarketplacePost.
@@ -1763,7 +1792,7 @@ class AppState extends ChangeNotifier {
       );
       await _db.insertProject(project);
 
-      // Notify the freelancer their application was accepted
+      // Notify the winner their application was accepted.
       try {
         await _notifSvc.send(NotificationService.makeApplicationAccepted(
           freelancerId: app.freelancerId,
@@ -1771,6 +1800,16 @@ class AppState extends ChangeNotifier {
           projectId: projectId,
         ));
       } catch (_) {}
+
+      // Notify every other freelancer that their application was not selected.
+      for (final rejected in rejectedApps) {
+        try {
+          await _notifSvc.send(NotificationService.makeApplicationRejected(
+            freelancerId: rejected.freelancerId,
+            jobTitle: jobTitle ?? 'the job',
+          ));
+        } catch (_) {}
+      }
 
       await _reloadUserData();
       notifyListeners();
