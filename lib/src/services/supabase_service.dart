@@ -491,15 +491,16 @@ class SupabaseService {
     return rows.isNotEmpty;
   }
 
-  /// Returns the real-time count of non-withdrawn applications for a job.
-  /// This is the source of truth — it reads directly from the applications
-  /// table so it works even if the application_count counter column is stale.
+  /// Returns the count of currently ACTIVE (pending) applications for a job.
+  /// Only pending applications are counted — withdrawn and rejected ones are
+  /// excluded so the number shown on the job card matches what the client
+  /// actually sees in their inbox (mirrors how Fiverr counts proposals).
   Future<int> getJobApplicationCount(String jobId) async {
     final rows = await _client
         .from('applications')
         .select('id')
         .eq('job_id', jobId)
-        .neq('status', ApplicationStatus.withdrawn.name);
+        .eq('status', ApplicationStatus.pending.name);
     return rows.length;
   }
 

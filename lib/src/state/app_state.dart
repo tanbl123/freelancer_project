@@ -1214,13 +1214,14 @@ class AppState extends ChangeNotifier {
       final fresh = await _jobRepo.getById(postId);
       if (fresh == null) return;
 
-      // Count directly from the applications table — this is always accurate
-      // regardless of whether the application_count counter column is up to date.
-      // This ensures every user (not just the one who applied) sees the real number.
+      // Always use the live count from the applications table — this is the
+      // source of truth and counts only PENDING applications (matching
+      // Fiverr-style: withdrawn/rejected proposals don't inflate the number).
+      // We intentionally ignore the application_count column on the job_posts
+      // row because it is a write-ahead counter that is never decremented on
+      // withdraw/reject and will always be >= the real active count.
       final realCount = await _db.getJobApplicationCount(postId);
-      final withCount = fresh.applicationCount >= realCount
-          ? fresh
-          : fresh.copyWith(applicationCount: realCount);
+      final withCount = fresh.copyWith(applicationCount: realCount);
 
       for (final list in [_jobPosts, _myJobPosts]) {
         final idx = list.indexWhere((p) => p.id == postId);
@@ -1675,11 +1676,31 @@ class AppState extends ChangeNotifier {
   Future<void> updateApplicationStatus(
       String appId, ApplicationStatus status) async {
     await _db.updateApplicationStatus(appId, status);
+
+    // Capture app reference before mutating the list (used for notification below).
+    final appBefore = _applications.where((a) => a.id == appId).firstOrNull;
+
     final idx = _applications.indexWhere((a) => a.id == appId);
     if (idx >= 0) {
       _applications[idx] = _applications[idx].copyWith(status: status);
     }
     notifyListeners();
+
+    // Send bell notification when a client manually rejects an application.
+    if (status == ApplicationStatus.rejected && appBefore != null) {
+      // Look up the job title from the client's in-memory job posts.
+      final jobPost = [
+        ..._myJobPosts,
+        ..._jobPosts,
+      ].where((p) => p.id == appBefore.jobId).firstOrNull;
+      final jobTitle = jobPost?.title ?? 'your application';
+      try {
+        await _notifSvc.send(NotificationService.makeApplicationRejected(
+          freelancerId: appBefore.freelancerId,
+          jobTitle: jobTitle,
+        ));
+      } catch (_) {}
+    }
   }
 
   /// Accept an application: locks winner, rejects others, marks post accepted,
@@ -1839,6 +1860,22 @@ class AppState extends ChangeNotifier {
     if (_currentUser == null) return 'Not logged in.';
     final error =
         await _milestoneSvc.rejectPlan(_currentUser!, project, milestones);
+    if (error == null) {
+      // Notify the freelancer that their plan was rejected and they need to re-propose.
+      try {
+        await _notifSvc.send(InAppNotification(
+          id: _uuid.v4(),
+          userId: project.freelancerId,
+          title: '❌ Milestone plan rejected',
+          body: 'The client has rejected your milestone plan for '
+              '"${project.jobTitle ?? 'your project'}". '
+              'Please revise and propose a new plan.',
+          type: NotificationType.milestoneRejected,
+          linkedProjectId: project.id,
+          createdAt: DateTime.now(),
+        ));
+      } catch (_) {}
+    }
     notifyListeners();
     return error;
   }
@@ -3133,6 +3170,7 @@ class AppState extends ChangeNotifier {
             NotificationType.disputeResolved,
             NotificationType.disputeRaised,
             NotificationType.applicationAccepted,  // new project created
+            NotificationType.orderAccepted,         // service order accepted → project created
             NotificationType.paymentHeld,           // escrow funded → project starts
             NotificationType.paymentReleased,       // milestone paid
             NotificationType.refundInitiated,       // cancellation / refund

@@ -40,18 +40,23 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       if (p.id == _post.id) { updated = p; break; }
     }
 
-    // 2. Optimistic local boost: if the current user just applied and the
-    //    DB fetch hasn't returned yet, show at least 1 from their own record.
-    //    For all other cases, refreshJobPost() fetches the real count from
-    //    the applications table so every user sees the accurate number.
-    final myApplications = AppState.instance.userApplications
-        .where((a) => a.jobId == _post.id)
+    // 2. Optimistic local boost: if the current user just submitted a PENDING
+    //    application and the DB refresh hasn't returned yet, bump the count by
+    //    1 so the freelancer immediately sees their submission reflected.
+    //    Only count pending applications (not withdrawn/rejected) to match the
+    //    server-side count from refreshJobPost().
+    final myPendingApplications = AppState.instance.userApplications
+        .where((a) =>
+            a.jobId == _post.id && a.status == ApplicationStatus.pending)
         .length;
 
     setState(() {
       final base = updated ?? _post;
-      final bestCount = myApplications > base.applicationCount
-          ? myApplications
+      // Trust the server count (from refreshJobPost) once it arrives.
+      // Only apply the optimistic +1 if we have a pending app but the server
+      // count is still 0 (i.e. the DB refresh hasn't completed yet).
+      final bestCount = myPendingApplications > 0 && base.applicationCount == 0
+          ? myPendingApplications
           : base.applicationCount;
       _post = base.copyWith(applicationCount: bestCount);
     });
