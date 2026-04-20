@@ -16,7 +16,7 @@ enum JobStatus {
   String get displayName {
     switch (this) {
       case JobStatus.open:
-        return 'Open';
+        return 'Accepting Applications';
       case JobStatus.closed:
         return 'Closed';
       case JobStatus.cancelled:

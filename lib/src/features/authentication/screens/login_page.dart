@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../../routing/app_router.dart';
 import '../../../state/app_state.dart';
+import 'register_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -210,8 +211,11 @@ class _LoginPageState extends State<LoginPage> {
                   children: [
                     const Text("Don't have an account?"),
                     TextButton(
-                      onPressed: () =>
-                          Navigator.pushNamed(context, AppRoutes.register),
+                      onPressed: () => Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const RegisterPage()),
+                      ),
                       child: const Text('Register'),
                     ),
                   ],

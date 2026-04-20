@@ -13,8 +13,7 @@ import '../widgets/service_badges.dart';
 
 /// Full detail view for a single [FreelancerService].
 ///
-/// - Clients see an "Order Service" button (stub — engagement belongs to the
-///   Request & Application Module).
+/// - Clients see "Contact" + "Order Service" buttons (when the service is live).
 /// - The service owner (freelancer) or an admin sees Edit / Deactivate /
 ///   Activate / Delete actions via the overflow menu.
 class ServiceDetailScreen extends StatefulWidget {
@@ -34,7 +33,6 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   void initState() {
     super.initState();
     _service = widget.service;
-    // Fire-and-forget view count increment (non-critical).
     final user = AppState.instance.currentUser;
     if (user?.uid != _service.freelancerId) {
       AppState.instance.recordServiceView(_service.id);
@@ -49,9 +47,9 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
 
   Future<void> _handleDeactivate() async {
     final confirmed = await _confirm(
-      'Deactivate Service',
-      'Hide "${_service.title}" from the public feed? '
-          'You can reactivate it at any time.',
+      'Pause Service',
+      'Hide "${_service.title}" from the service listing? '
+          'Clients will not be able to find or order it until you reactivate.',
     );
     if (!confirmed || !mounted) return;
     setState(() => _actionLoading = true);
@@ -64,13 +62,13 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         _service = _service.copyWith(status: ServiceStatus.inactive);
       }
     });
-    _snack(err, 'Service deactivated.');
+    _snack(err, 'Service paused — no longer visible to clients.');
   }
 
   Future<void> _handleActivate() async {
     final confirmed = await _confirm(
-      'Activate Service',
-      'Make "${_service.title}" visible in the service feed again?',
+      'Make Service Available',
+      'Make "${_service.title}" visible to clients again?',
     );
     if (!confirmed || !mounted) return;
     setState(() => _actionLoading = true);
@@ -83,13 +81,13 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
         _service = _service.copyWith(status: ServiceStatus.active);
       }
     });
-    _snack(err, 'Service activated.');
+    _snack(err, 'Service is now available to clients.');
   }
 
   Future<void> _handleDelete() async {
     final confirmed = await _confirm(
-      'Delete Service',
-      'Permanently delete "${_service.title}"? This cannot be undone.',
+      'Remove Service',
+      'Permanently remove "${_service.title}"? This cannot be undone.',
     );
     if (!confirmed || !mounted) return;
     setState(() => _actionLoading = true);
@@ -159,6 +157,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     final user = AppState.instance.currentUser;
     final isClient = user?.role == UserRole.client;
     final isActive = _service.status == ServiceStatus.active;
+    final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -189,7 +188,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   value: 'edit',
                   child: ListTile(
                     leading: Icon(Icons.edit_outlined),
-                    title: Text('Edit'),
+                    title: Text('Edit Service'),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
@@ -197,9 +196,9 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   const PopupMenuItem(
                     value: 'deactivate',
                     child: ListTile(
-                      leading: Icon(Icons.visibility_off_outlined,
+                      leading: Icon(Icons.pause_circle_outline,
                           color: Colors.orange),
-                      title: Text('Deactivate',
+                      title: Text('Pause Service',
                           style: TextStyle(color: Colors.orange)),
                       contentPadding: EdgeInsets.zero,
                     ),
@@ -208,9 +207,9 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   const PopupMenuItem(
                     value: 'activate',
                     child: ListTile(
-                      leading: Icon(Icons.visibility_outlined,
+                      leading: Icon(Icons.play_circle_outline,
                           color: Colors.green),
-                      title: Text('Activate',
+                      title: Text('Make Available',
                           style: TextStyle(color: Colors.green)),
                       contentPadding: EdgeInsets.zero,
                     ),
@@ -219,7 +218,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   value: 'delete',
                   child: ListTile(
                     leading: Icon(Icons.delete_outline, color: Colors.red),
-                    title: Text('Delete',
+                    title: Text('Remove Service',
                         style: TextStyle(color: Colors.red)),
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -235,22 +234,25 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Portfolio gallery ──────────────────────────────────
-                  if (_service.portfolioImageUrls.isNotEmpty) ...[
+                  // ── Portfolio gallery ────────────────────────────────
+                  if (_service.portfolioImageUrls.isNotEmpty)
                     _PortfolioGallery(
                       urls: _service.portfolioImageUrls,
                       currentIndex: _galleryIndex,
                       onPageChanged: (i) =>
                           setState(() => _galleryIndex = i),
                     ),
-                  ],
+
+                  // ── Status banner ────────────────────────────────────
+                  if (isClient)
+                    _StatusBanner(isLive: _service.isLive),
 
                   Padding(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ── Status / category badges ───────────────────
+                        // ── Badges row ───────────────────────────────
                         Row(
                           children: [
                             ServiceCategoryBadge(_service.category),
@@ -258,101 +260,97 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                             ServiceStatusBadge(_service.status),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
 
-                        // ── Title ──────────────────────────────────────
+                        // ── Title ────────────────────────────────────
                         Text(
                           _service.title,
                           style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold),
+                              fontSize: 22, fontWeight: FontWeight.bold),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 8),
 
-                        // ── Freelancer info ────────────────────────────
+                        // ── Freelancer info row ──────────────────────
                         Row(
                           children: [
-                            const Icon(Icons.person_outline,
-                                size: 14, color: Colors.grey),
-                            const SizedBox(width: 4),
-                            Text(
-                              'by ${_service.freelancerName}',
-                              style: const TextStyle(
-                                  color: Colors.grey, fontSize: 13),
-                            ),
-                            if (_service.createdAt != null) ...[
-                              const Text(' · ',
-                                  style: TextStyle(color: Colors.grey)),
-                              Text(
-                                DateFormat('d MMM y')
-                                    .format(_service.createdAt!),
-                                style: const TextStyle(
-                                    color: Colors.grey, fontSize: 13),
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundColor:
+                                  colors.primaryContainer,
+                              child: Text(
+                                _service.freelancerName.isNotEmpty
+                                    ? _service.freelancerName[0]
+                                        .toUpperCase()
+                                    : '?',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: colors.primary),
                               ),
-                            ],
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _service.freelancerName,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13),
+                                  ),
+                                  if (_service.createdAt != null)
+                                    Text(
+                                      'Listed on ${DateFormat('d MMM y').format(_service.createdAt!)}',
+                                      style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 11),
+                                    ),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 16),
 
-                        // ── Key info tiles ─────────────────────────────
-                        _InfoRow(children: [
-                          if (_service.priceDisplay != null)
-                            _InfoTile(
-                              icon: Icons.attach_money,
-                              label: 'Price',
-                              value: _service.priceDisplay!,
-                              valueColor: Colors.green.shade700,
-                            ),
-                          if (_service.deliveryDisplay != null)
-                            _InfoTile(
-                              icon: Icons.schedule_outlined,
-                              label: 'Delivery',
-                              value: _service.deliveryDisplay!,
-                            ),
-                          _InfoTile(
-                            icon: Icons.visibility_outlined,
-                            label: 'Views',
-                            value: '${_service.viewCount}',
-                          ),
-                          _InfoTile(
-                            icon: Icons.shopping_bag_outlined,
-                            label: 'Orders',
-                            value: '${_service.orderCount}',
-                          ),
-                        ]),
+                        // ── Key stats card ───────────────────────────
+                        _StatsCard(service: _service),
                         const SizedBox(height: 20),
 
-                        // ── Description ────────────────────────────────
-                        const Text('About this Service',
-                            style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        Text(
-                          _service.description,
-                          style: const TextStyle(
-                              height: 1.6, fontSize: 14),
+                        // ── Description ──────────────────────────────
+                        _SectionCard(
+                          title: 'About This Service',
+                          child: Text(
+                            _service.description,
+                            style: const TextStyle(
+                                height: 1.65, fontSize: 14),
+                          ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 16),
 
-                        // ── Tags ───────────────────────────────────────
+                        // ── Tags ─────────────────────────────────────
                         if (_service.tags.isNotEmpty) ...[
-                          const Text('Skills & Tags',
-                              style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 6,
-                            children: _service.tags
-                                .map((t) => Chip(
-                                      label: Text(t),
-                                      visualDensity:
-                                          VisualDensity.compact,
-                                    ))
-                                .toList(),
+                          _SectionCard(
+                            title: 'Skills & Expertise',
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: _service.tags
+                                  .map((t) => Chip(
+                                        label: Text(t,
+                                            style: const TextStyle(
+                                                fontSize: 12)),
+                                        visualDensity:
+                                            VisualDensity.compact,
+                                        materialTapTargetSize:
+                                            MaterialTapTargetSize
+                                                .shrinkWrap,
+                                      ))
+                                  .toList(),
+                            ),
                           ),
+                          const SizedBox(height: 16),
                         ],
 
                         const SizedBox(height: 80),
@@ -363,25 +361,39 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
               ),
             ),
 
-      // ── Bottom CTA ────────────────────────────────────────────────────────
-      bottomNavigationBar: !_actionLoading && !_isOwner
+      // ── Bottom CTA (clients only) ──────────────────────────────────────────
+      bottomNavigationBar: !_actionLoading && !_isOwner && isClient
           ? SafeArea(
-              child: Padding(
+              child: Container(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
                 child: Row(
                   children: [
                     OutlinedButton.icon(
-                      icon: const Icon(Icons.chat_bubble_outline),
-                      label: const Text('Contact'),
+                      icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                      label: const Text('Message'),
                       onPressed: _handleContact,
+                      style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12)),
                     ),
-                    if (isClient && _service.isLive) ...[
+                    if (_service.isLive) ...[
                       const SizedBox(width: 12),
                       Expanded(
                         child: FilledButton.icon(
-                          icon: const Icon(Icons.shopping_cart_outlined),
-                          label: const Text('Order Service'),
+                          icon: const Icon(Icons.shopping_cart_outlined,
+                              size: 18),
+                          label: const Text('Order This Service'),
                           onPressed: _handleOrder,
                           style: FilledButton.styleFrom(
                               padding: const EdgeInsets.symmetric(
@@ -398,6 +410,202 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   }
 }
 
+// ── Status banner ──────────────────────────────────────────────────────────
+
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({required this.isLive});
+  final bool isLive;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLive) {
+      return Container(
+        width: double.infinity,
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: Colors.green.shade50,
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_outline,
+                size: 16, color: Colors.green.shade700),
+            const SizedBox(width: 8),
+            Text(
+              'This service is available to order now',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.green.shade800,
+                  fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      );
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: Colors.orange.shade50,
+      child: Row(
+        children: [
+          Icon(Icons.pause_circle_outline,
+              size: 16, color: Colors.orange.shade700),
+          const SizedBox(width: 8),
+          Text(
+            'This service is temporarily paused by the provider',
+            style: TextStyle(
+                fontSize: 13,
+                color: Colors.orange.shade800,
+                fontWeight: FontWeight.w500),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Stats card ─────────────────────────────────────────────────────────────
+
+class _StatsCard extends StatelessWidget {
+  const _StatsCard({required this.service});
+  final FreelancerService service;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final items = <_StatItem>[
+      if (service.priceDisplay != null)
+        _StatItem(
+          icon: Icons.payments_outlined,
+          label: 'Price',
+          value: service.priceDisplay!,
+          valueColor: Colors.green.shade700,
+        ),
+      if (service.deliveryDisplay != null)
+        _StatItem(
+          icon: Icons.schedule_outlined,
+          label: 'Delivery Time',
+          value: service.deliveryDisplay!,
+        ),
+      _StatItem(
+        icon: Icons.visibility_outlined,
+        label: 'Total Views',
+        value: '${service.viewCount}',
+      ),
+      _StatItem(
+        icon: Icons.shopping_bag_outlined,
+        label: 'Orders Completed',
+        value: '${service.orderCount}',
+      ),
+    ];
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+            color: colors.outline.withValues(alpha: 0.2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Wrap(
+          spacing: 16,
+          runSpacing: 12,
+          children: items
+              .map((item) => SizedBox(
+                    width: 130,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color:
+                                colors.primaryContainer.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(item.icon,
+                              size: 16, color: colors.primary),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(item.label,
+                                  style: const TextStyle(
+                                      fontSize: 11, color: Colors.grey)),
+                              const SizedBox(height: 1),
+                              Text(
+                                item.value,
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: item.valueColor),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ))
+              .toList(),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatItem {
+  const _StatItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color? valueColor;
+}
+
+// ── Section card ───────────────────────────────────────────────────────────
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({required this.title, required this.child});
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 4,
+              height: 18,
+              decoration: BoxDecoration(
+                color: colors.primary,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        child,
+      ],
+    );
+  }
+}
+
 // ── Portfolio gallery ──────────────────────────────────────────────────────
 
 class _PortfolioGallery extends StatelessWidget {
@@ -410,33 +618,74 @@ class _PortfolioGallery extends StatelessWidget {
   final int currentIndex;
   final void Function(int) onPageChanged;
 
+  void _openFullScreen(BuildContext context, int startIndex) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _FullScreenGallery(
+          urls: urls,
+          initialIndex: startIndex,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        SizedBox(
-          height: 240,
-          child: PageView.builder(
-            itemCount: urls.length,
-            onPageChanged: onPageChanged,
-            itemBuilder: (_, i) {
-              final url = urls[i];
-              final isRemote = url.startsWith('http');
-              final isLocal =
-                  url.isNotEmpty && !isRemote && File(url).existsSync();
-              return isRemote
-                  ? Image.network(url,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const _GalleryPlaceholder())
-                  : isLocal
-                      ? Image.file(File(url),
-                          width: double.infinity, fit: BoxFit.cover)
-                      : const _GalleryPlaceholder();
-            },
+        GestureDetector(
+          onTap: () => _openFullScreen(context, currentIndex),
+          child: AspectRatio(
+            aspectRatio: 4 / 3,
+            child: PageView.builder(
+              itemCount: urls.length,
+              onPageChanged: onPageChanged,
+              itemBuilder: (_, i) {
+                final url = urls[i];
+                final isRemote = url.startsWith('http');
+                final isLocal =
+                    url.isNotEmpty && !isRemote && File(url).existsSync();
+                return Container(
+                  color: Colors.black,
+                  child: isRemote
+                      ? Image.network(url,
+                          width: double.infinity,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) =>
+                              const _GalleryPlaceholder())
+                      : isLocal
+                          ? Image.file(File(url),
+                              width: double.infinity, fit: BoxFit.contain)
+                          : const _GalleryPlaceholder(),
+                );
+              },
+            ),
           ),
         ),
-        // Dot indicators
+        Positioned(
+          top: 8,
+          left: 8,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black45,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.fullscreen, color: Colors.white, size: 14),
+                SizedBox(width: 4),
+                Text('Tap to expand',
+                    style:
+                        TextStyle(color: Colors.white, fontSize: 11)),
+              ],
+            ),
+          ),
+        ),
         if (urls.length > 1)
           Positioned(
             bottom: 8,
@@ -461,7 +710,6 @@ class _PortfolioGallery extends StatelessWidget {
               ),
             ),
           ),
-        // Image counter badge
         Positioned(
           top: 8,
           right: 8,
@@ -486,6 +734,82 @@ class _PortfolioGallery extends StatelessWidget {
   }
 }
 
+// ── Full-screen image viewer ───────────────────────────────────────────────
+
+class _FullScreenGallery extends StatefulWidget {
+  const _FullScreenGallery({
+    required this.urls,
+    required this.initialIndex,
+  });
+  final List<String> urls;
+  final int initialIndex;
+
+  @override
+  State<_FullScreenGallery> createState() => _FullScreenGalleryState();
+}
+
+class _FullScreenGalleryState extends State<_FullScreenGallery> {
+  late int _current;
+  late PageController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _current = widget.initialIndex;
+    _ctrl = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: widget.urls.length > 1
+            ? Text('${_current + 1} / ${widget.urls.length}')
+            : null,
+      ),
+      body: PageView.builder(
+        controller: _ctrl,
+        itemCount: widget.urls.length,
+        onPageChanged: (i) => setState(() => _current = i),
+        itemBuilder: (_, i) {
+          final url = widget.urls[i];
+          final isRemote = url.startsWith('http');
+          final isLocal =
+              url.isNotEmpty && !isRemote && File(url).existsSync();
+          return InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 5.0,
+            child: Center(
+              child: isRemote
+                  ? Image.network(url,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Icon(
+                          Icons.image_not_supported_outlined,
+                          color: Colors.grey,
+                          size: 64))
+                  : isLocal
+                      ? Image.file(File(url), fit: BoxFit.contain)
+                      : const Icon(
+                          Icons.image_not_supported_outlined,
+                          color: Colors.grey,
+                          size: 64),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _GalleryPlaceholder extends StatelessWidget {
   const _GalleryPlaceholder();
 
@@ -496,67 +820,6 @@ class _GalleryPlaceholder extends StatelessWidget {
       child: const Center(
         child: Icon(Icons.image_not_supported_outlined,
             size: 48, color: Colors.grey),
-      ),
-    );
-  }
-}
-
-// ── Info tile widgets ──────────────────────────────────────────────────────
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.children});
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) =>
-      Wrap(spacing: 10, runSpacing: 10, children: children);
-}
-
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 13, color: Colors.grey),
-              const SizedBox(width: 4),
-              Text(label,
-                  style: const TextStyle(
-                      fontSize: 11, color: Colors.grey)),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                color: valueColor),
-          ),
-        ],
       ),
     );
   }

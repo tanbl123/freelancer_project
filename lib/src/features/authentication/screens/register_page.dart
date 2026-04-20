@@ -9,6 +9,7 @@ import '../../../services/file_storage_service.dart';
 import '../../../state/app_state.dart';
 import '../../user/screens/email_verification_screen.dart';
 import '../../user/services/user_validator.dart';
+import 'login_page.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -349,7 +350,14 @@ class _RegisterPageState extends State<RegisterPage> {
                   if (user != null) {
                     await AppState.instance.cancelRegistration();
                   }
-                  if (mounted) Navigator.pop(context);
+                  if (mounted) {
+                    // Replace register page with login so the back button
+                    // returns to Welcome, not back to this form.
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginPage()),
+                    );
+                  }
                 },
                 child: const Text('Already have an account? Sign In'),
               ),

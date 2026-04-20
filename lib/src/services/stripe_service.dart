@@ -21,7 +21,7 @@ import 'package:uuid/uuid.dart';
 /// ─────────────────────────────────────────────────────────────────────────────
 class StripeService {
   static const _testPublishableKey =
-      'pk_test_51PLACEHOLDER_REPLACE_WITH_YOUR_STRIPE_TEST_KEY';
+      'pk_test_51TNyboGcnylCxTxKpGLGeRnolaskCbuPyxCodqsHyyr5phhpY2eNoSw3rIgXE34QPRBUbqgFxniEskdlhO9jl10j00fAmNUKvl';
 
   static const _uuid = Uuid();
 

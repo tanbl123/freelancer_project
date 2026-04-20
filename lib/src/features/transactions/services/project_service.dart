@@ -38,16 +38,22 @@ class ProjectService {
 
   Future<String?> cancelProject(
     ProfileUser actor,
-    ProjectItem project,
-  ) async {
+    ProjectItem project, {
+    String? reason,
+  }) async {
     if (actor.uid != project.clientId &&
         actor.uid != project.freelancerId) {
       return 'Access denied.';
     }
+    if (project.isCancelled) return 'This project has already been cancelled.';
     if (project.isCompleted) return 'Completed projects cannot be cancelled.';
 
     try {
-      await _repo.updateStatus(project.id, ProjectStatus.cancelled);
+      await _repo.updateStatus(
+        project.id,
+        ProjectStatus.cancelled,
+        cancellationReason: reason,
+      );
       return null;
     } catch (e) {
       return 'Failed to cancel project: $e';

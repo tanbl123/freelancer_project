@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:open_file/open_file.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../backend/shared/domain_types.dart';
@@ -30,6 +31,32 @@ class _EditProfilePageState extends State<EditProfilePage> {
   String? _resumePath;
   bool _isLoading = false;
 
+  // Inline errors for freelancer-only required fields
+  String? _skillsError;
+  String? _resumeError;
+
+  // ── Snapshot of original values to detect unsaved changes ─────────────────
+  late String _origName;
+  late String _origBio;
+  late String _origExperience;
+  late String _origPhone;
+  late List<String> _origSkills;
+  late String? _origPhoto;
+  late String? _origResume;
+
+  bool get _hasChanges =>
+      _nameController.text.trim() != _origName ||
+      _bioController.text.trim() != _origBio ||
+      _experienceController.text.trim() != _origExperience ||
+      _phoneController.text.trim() != _origPhone ||
+      _photoPath != _origPhoto ||
+      _resumePath != _origResume ||
+      !_listEquals(_skills, _origSkills);
+
+  static bool _listEquals(List<String> a, List<String> b) =>
+      a.length == b.length &&
+      List.generate(a.length, (i) => a[i] == b[i]).every((e) => e);
+
 
   @override
   void initState() {
@@ -44,6 +71,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _skills = List.from(user.skills);
     _photoPath = user.photoUrl;
     _resumePath = user.resumeUrl;
+
+    // Snapshot originals for change detection
+    _origName = user.displayName ?? '';
+    _origBio = user.bio ?? '';
+    _origExperience = user.experience ?? '';
+    _origPhone = user.phone ?? '';
+    _origSkills = List.from(user.skills);
+    _origPhoto = user.photoUrl;
+    _origResume = user.resumeUrl;
   }
 
   @override
@@ -73,18 +109,50 @@ class _EditProfilePageState extends State<EditProfilePage> {
     if (xfile == null) return;
     final saved =
         await FileStorageService.instance.saveImage(xfile, 'avatars');
-    setState(() => _photoPath = saved);
+    setState(() {
+      _photoPath = saved;
+    });
   }
 
   Future<void> _pickResume() async {
+    // PDF only — universally viewable on all devices without extra apps.
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['pdf', 'doc', 'docx'],
+      allowedExtensions: ['pdf'],
     );
     if (result == null || result.files.isEmpty) return;
     final saved = await FileStorageService.instance
         .savePlatformFile(result.files.first, 'resumes');
-    setState(() => _resumePath = saved);
+    setState(() {
+      _resumePath = saved;
+      _resumeError = null;
+    });
+  }
+
+  Future<void> _openResume() async {
+    if (_resumePath == null) return;
+    final result = await OpenFile.open(_resumePath!);
+    if (result.type != ResultType.done && mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Cannot Open File'),
+          content: const Text(
+            'No PDF viewer found on this device.\n\n'
+            'Please install one of these free apps:\n'
+            '• Google Drive\n'
+            '• Adobe Acrobat Reader\n'
+            '• WPS Office',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   void _addSkill() {
@@ -93,26 +161,40 @@ class _EditProfilePageState extends State<EditProfilePage> {
     setState(() {
       if (!_skills.contains(s)) _skills.add(s);
       _skillInput.clear();
+      _skillsError = null;
     });
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    final user = AppState.instance.currentUser!;
+    final isFreelancer = user.role == UserRole.freelancer;
+
+    final formValid = _formKey.currentState!.validate();
+
+    if (isFreelancer) {
+      setState(() {
+        _skillsError = _skills.isEmpty ? 'Please add at least one skill.' : null;
+        _resumeError = _resumePath == null ? 'Please upload your resume (PDF).' : null;
+      });
+    }
+
+    if (!formValid || _skillsError != null || _resumeError != null) return;
     setState(() => _isLoading = true);
 
-    final user = AppState.instance.currentUser!;
+    final bio = _bioController.text.trim();
+    final experience = _experienceController.text.trim();
     final updated = user.copyWith(
       displayName: _nameController.text.trim(),
-      bio: _bioController.text.trim().isEmpty
-          ? null
-          : _bioController.text.trim(),
-      experience: _experienceController.text.trim().isEmpty
-          ? null
-          : _experienceController.text.trim(),
+      bio: bio.isEmpty ? null : bio,
+      clearBio: bio.isEmpty,
+      experience: experience.isEmpty ? null : experience,
+      clearExperience: experience.isEmpty,
       phone: _phoneController.text.trim(),
       skills: _skills,
       photoUrl: _photoPath,
+      clearPhotoUrl: _photoPath == null,
       resumeUrl: _resumePath,
+      clearResumeUrl: _resumePath == null,
     );
     await AppState.instance.updateProfile(updated);
 
@@ -129,7 +211,41 @@ class _EditProfilePageState extends State<EditProfilePage> {
     final user = AppState.instance.currentUser!;
     final isFreelancer = user.role == UserRole.freelancer;
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (!_hasChanges) {
+          Navigator.pop(context);
+          return;
+        }
+        final leave = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Discard Changes?'),
+            content: const Text(
+              "You've made changes that haven't been saved yet. "
+              'If you leave now, your updates will be lost.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Keep Editing'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                    backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Discard & Leave'),
+              ),
+            ],
+          ),
+        );
+        if ((leave ?? false) && context.mounted) {
+          Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(title: const Text('Edit Profile')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -207,7 +323,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 textInputAction: TextInputAction.next,
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(
-                      RegExp(r"^[\p{L}\s'-]+$", unicode: true)),
+                      RegExp(r"[\p{L}\s'\-]", unicode: true)),
                 ],
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Name is required';
@@ -223,7 +339,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
               TextFormField(
                 controller: _phoneController,
                 decoration: const InputDecoration(
-                  labelText: 'Phone Number',
+                  labelText: 'Phone Number *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.phone_outlined),
                   hintText: 'e.g. 0123456789',
@@ -234,13 +350,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9+\-\s()]')),
                 ],
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty) return null; // optional
+                  if (v == null || v.trim().isEmpty) {
+                    return 'Phone number is required';
+                  }
                   final digits =
                       v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
                   if (!RegExp(r'^\+?[0-9]{9,15}$').hasMatch(digits)) {
                     return 'Enter a valid phone number (e.g. 0123456789)';
                   }
-                  //0123456789, 012-345-6789, +60123456789
                   return null;
                 },
               ),
@@ -259,11 +376,17 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 TextFormField(
                   controller: _experienceController,
                   decoration: const InputDecoration(
-                    labelText: 'Experience',
+                    labelText: 'Experience *',
                     border: OutlineInputBorder(),
                     hintText: 'Describe your work experience...',
                   ),
                   maxLines: 3,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Experience is required';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 16),
 
@@ -274,7 +397,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Skills',
+                        const Text('Skills *',
                             style:
                                 TextStyle(fontWeight: FontWeight.w600)),
                         const SizedBox(height: 8),
@@ -312,6 +435,24 @@ class _EditProfilePageState extends State<EditProfilePage> {
                                 icon: const Icon(Icons.add)),
                           ],
                         ),
+                        if (_skillsError != null) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(Icons.error_outline,
+                                  size: 13,
+                                  color: Theme.of(context).colorScheme.error),
+                              const SizedBox(width: 4),
+                              Text(
+                                _skillsError!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -325,35 +466,129 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Resume / CV',
+                        const Text('Resume / CV *',
                             style:
                                 TextStyle(fontWeight: FontWeight.w600)),
                         const SizedBox(height: 8),
                         if (_resumePath != null &&
-                            File(_resumePath!).existsSync())
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.description,
-                                color: Colors.blue),
-                            title: Text(
-                              _resumePath!.split('/').last,
-                              overflow: TextOverflow.ellipsis,
+                            File(_resumePath!).existsSync()) ...[
+                          // File info row — tap to preview
+                          InkWell(
+                            onTap: _openResume,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 8),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.description,
+                                      color: Colors.blue, size: 32),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _resumePath!
+                                              .split('/')
+                                              .last
+                                              .split('\\')
+                                              .last,
+                                          overflow:
+                                              TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              fontWeight:
+                                                  FontWeight.w500),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        const Row(
+                                          children: [
+                                            Icon(Icons.visibility,
+                                                size: 12,
+                                                color: Colors.blue),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'Tap to preview',
+                                              style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.blue),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            subtitle: const Text('Tap to replace'),
-                            onTap: _pickResume,
-                            trailing: IconButton(
-                              icon: const Icon(Icons.close,
-                                  color: Colors.red),
-                              onPressed: () =>
-                                  setState(() => _resumePath = null),
-                            ),
-                          )
-                        else
+                          ),
+                          const SizedBox(height: 8),
+                          // Action buttons row
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _openResume,
+                                  icon: const Icon(Icons.visibility,
+                                      size: 16),
+                                  label: const Text('Preview'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.blue,
+                                    side: const BorderSide(
+                                        color: Colors.blue),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 8),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _pickResume,
+                                  icon: const Icon(Icons.swap_horiz,
+                                      size: 16),
+                                  label: const Text('Replace'),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 8),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                onPressed: () =>
+                                    setState(() => _resumePath = null),
+                                icon: const Icon(Icons.delete_outline,
+                                    color: Colors.red),
+                                tooltip: 'Remove',
+                              ),
+                            ],
+                          ),
+                        ] else
                           OutlinedButton.icon(
                             onPressed: _pickResume,
                             icon: const Icon(Icons.upload_file),
-                            label: const Text('Upload Resume (PDF/DOCX)'),
+                            label: const Text('Upload Resume (PDF only)'),
                           ),
+                        if (_resumeError != null) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(Icons.error_outline,
+                                  size: 13,
+                                  color: Theme.of(context).colorScheme.error),
+                              const SizedBox(width: 4),
+                              Text(
+                                _resumeError!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -376,6 +611,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
           ),
         ),
       ),
-    );
+    ), // Scaffold
+    ); // PopScope
   }
 }

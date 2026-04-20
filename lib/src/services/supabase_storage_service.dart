@@ -28,9 +28,10 @@ class SupabaseStorageService {
 
   static const _uuid = Uuid();
 
-  static const bucketJobCovers        = 'job-covers';
-  static const bucketServicePortfolio = 'service-portfolio';
-  static const bucketProjectSignatures = 'project-signatures';
+  static const bucketJobCovers            = 'job-covers';
+  static const bucketServicePortfolio     = 'service-portfolio';
+  static const bucketProjectSignatures    = 'project-signatures';
+  static const bucketMilestoneDeliverables = 'milestone-deliverables';
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -110,6 +111,41 @@ class SupabaseStorageService {
     }
   }
 
+  /// Uploads any file (PDF, docx, zip, image, etc.) as a milestone deliverable.
+  ///
+  /// Stored under `milestone-deliverables/{userId}/{milestoneId}/{uuid}.ext`.
+  /// Returns the public HTTPS URL, or `null` if the upload failed.
+  Future<String?> uploadDeliverableFile({
+    required String localPath,
+    required String userId,
+    required String milestoneId,
+  }) async {
+    try {
+      final file = File(localPath);
+      if (!file.existsSync()) return null;
+
+      final bytes = await file.readAsBytes();
+      final ext = p.extension(localPath).toLowerCase().replaceFirst('.', '');
+      final mime = _mimeForFile(ext);
+      final remoteName = '${_uuid.v4()}${ext.isNotEmpty ? '.$ext' : ''}';
+      final remotePath = '$userId/$milestoneId/$remoteName';
+
+      await Supabase.instance.client.storage
+          .from(bucketMilestoneDeliverables)
+          .uploadBinary(
+            remotePath,
+            bytes,
+            fileOptions: FileOptions(contentType: mime, upsert: true),
+          );
+
+      return Supabase.instance.client.storage
+          .from(bucketMilestoneDeliverables)
+          .getPublicUrl(remotePath);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Deletes a previously-uploaded file given its full public [url].
   ///
   /// Silently swallows errors — deletion is best-effort.
@@ -147,6 +183,29 @@ class SupabaseStorageService {
         return 'image/heic';
       default:
         return 'image/jpeg';
+    }
+  }
+
+  static String _mimeForFile(String ext) {
+    switch (ext) {
+      case 'pdf':  return 'application/pdf';
+      case 'doc':  return 'application/msword';
+      case 'docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'xls':  return 'application/vnd.ms-excel';
+      case 'xlsx': return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case 'ppt':  return 'application/vnd.ms-powerpoint';
+      case 'pptx': return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      case 'zip':  return 'application/zip';
+      case 'rar':  return 'application/x-rar-compressed';
+      case 'txt':  return 'text/plain';
+      case 'jpg':
+      case 'jpeg': return 'image/jpeg';
+      case 'png':  return 'image/png';
+      case 'gif':  return 'image/gif';
+      case 'webp': return 'image/webp';
+      case 'mp4':  return 'video/mp4';
+      case 'mov':  return 'video/quicktime';
+      default:     return 'application/octet-stream';
     }
   }
 }

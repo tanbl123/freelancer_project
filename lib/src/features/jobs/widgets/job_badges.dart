@@ -1,11 +1,25 @@
 import 'package:flutter/material.dart';
 
 import '../../../shared/enums/job_status.dart';
+import '../../../shared/models/category_item.dart';
+import '../../../state/app_state.dart';
 
-/// Small colored pill showing the category name.
+/// Small colored pill showing the category display name (looks up from AppState).
 class JobCategoryBadge extends StatelessWidget {
   const JobCategoryBadge(this.category, {super.key});
   final String category;
+
+  String _resolveDisplayName() {
+    final cats = AppState.instance.categories;
+    final match = cats.cast<CategoryItem?>().firstWhere(
+          (c) => c?.id == category,
+          orElse: () => null,
+        );
+    if (match != null) return match.displayName;
+    // Fallback: capitalise the slug (e.g. "design" → "Design")
+    if (category.isEmpty) return 'Other';
+    return category[0].toUpperCase() + category.substring(1);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +31,7 @@ class JobCategoryBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
-        category,
+        _resolveDisplayName(),
         style: TextStyle(
             fontSize: 10, fontWeight: FontWeight.w600, color: color),
       ),
@@ -33,10 +47,10 @@ class JobStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (status) {
-      JobStatus.open => Colors.green,
-      JobStatus.closed => Colors.orange,
+      JobStatus.open      => Colors.green,
+      JobStatus.closed    => Colors.orange,
       JobStatus.cancelled => Colors.red,
-      JobStatus.deleted => Colors.grey,
+      JobStatus.deleted   => Colors.grey,
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

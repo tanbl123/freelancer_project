@@ -247,7 +247,12 @@ class DisputeService {
     }
 
     // ── Close the project ────────────────────────────────────────────────────
-    if (resolution != DisputeResolution.noAction) {
+    if (resolution == DisputeResolution.noAction) {
+      // Dismiss dispute without financial consequences — restore project to
+      // active so the parties can continue working.
+      await _projectRepo.updateStatus(
+          dispute.projectId, ProjectStatus.inProgress);
+    } else {
       await _projectRepo.updateStatus(
           dispute.projectId, ProjectStatus.cancelled);
     }

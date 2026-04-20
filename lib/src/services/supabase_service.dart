@@ -529,6 +529,15 @@ class SupabaseService {
     return row == null ? null : ProjectItem.fromMap(row);
   }
 
+  Future<ProjectItem?> getProjectByApplicationId(String applicationId) async {
+    final row = await _client
+        .from('projects')
+        .select()
+        .eq('application_id', applicationId)
+        .maybeSingle();
+    return row == null ? null : ProjectItem.fromMap(row);
+  }
+
   /// Typed status update — also optionally sets [clientSignatureUrl] and
   /// [startDate] in the same round trip.
   Future<void> updateProjectStatusEnum(
@@ -536,6 +545,7 @@ class SupabaseService {
     ProjectStatus status, {
     String? clientSignatureUrl,
     DateTime? startDate,
+    String? cancellationReason,
   }) async {
     await _client.from('projects').update({
       'status': status.name,
@@ -543,6 +553,8 @@ class SupabaseService {
         'client_signature_url': clientSignatureUrl,
       if (startDate != null)
         'start_date': startDate.toIso8601String(),
+      if (cancellationReason != null)
+        'cancellation_reason': cancellationReason,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('id', projectId);
   }
@@ -1443,6 +1455,18 @@ class SupabaseService {
       'is_read': true,
     }).eq('user_id', userId).eq('is_read', false);
   }
+
+  /// Supabase Realtime stream — emits every time a notification is
+  /// inserted or updated for [userId].  The app uses this to update the
+  /// badge and inbox without the user having to pull-to-refresh.
+  Stream<List<InAppNotification>> notificationsStream(String userId) =>
+      _client
+          .from('in_app_notifications')
+          .stream(primaryKey: ['id'])
+          .eq('user_id', userId)
+          .order('created_at', ascending: false)
+          .limit(50)
+          .map((rows) => rows.map(InAppNotification.fromMap).toList());
 
   // ── Chat Rooms ─────────────────────────────────────────────────────────────
 

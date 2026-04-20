@@ -114,7 +114,8 @@ class AppState extends ChangeNotifier {
   bool _jobPostsFromCache        = false; // true when feed is from SQLite
   bool _isOnline                 = true;  // last-known connectivity status
   DateTime? _jobCacheLastSyncedAt;        // when the cache was last written
-  StreamSubscription<bool>? _connectivitySub; // reconnect watcher
+  StreamSubscription<bool>? _connectivitySub;           // reconnect watcher
+  StreamSubscription<List<InAppNotification>>? _notifSub; // realtime notifs
 
   // Categories (loaded from DB, replaces JobCategory enum)
   List<CategoryItem> _categories = [];
@@ -126,6 +127,9 @@ class AppState extends ChangeNotifier {
 
   // Request & Application Module — Service Orders
   List<ServiceOrder> _serviceOrders = [];    // current user's service orders
+
+  /// Guards acceptApplication / acceptOrder against double-tap duplicate calls.
+  final Set<String> _acceptingIds = {};
 
   // Payment Module state
   /// Payment record for the project currently being viewed.
@@ -431,6 +435,10 @@ class AppState extends ChangeNotifier {
 
     // Chat rooms (load for all users)
     await loadChatRooms();
+
+    // Start realtime notification stream so the badge and inbox update
+    // automatically whenever any user sends a notification to this user.
+    _startNotificationsStream();
   }
 
   void _clearLocalState() {
@@ -447,6 +455,9 @@ class AppState extends ChangeNotifier {
     _jobCacheLastSyncedAt  = null;
     _connectivitySub?.cancel();
     _connectivitySub = null;
+    _notifSub?.cancel();
+    _notifSub = null;
+    _notifications = [];
     _services = [];
     _myServices = [];
     _servicesFromCache = false;
@@ -468,7 +479,12 @@ class AppState extends ChangeNotifier {
   Future<String?> login(String email, String password) async {
     try {
       final response = await Supabase.instance.client.auth
-          .signInWithPassword(email: email.trim(), password: password);
+          .signInWithPassword(email: email.trim(), password: password)
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw Exception(
+                'Connection timed out. Check your internet or try again.'),
+          );
       if (response.user == null) return 'Login failed. Please try again.';
 
       _currentUser = await _db.getUserById(response.user!.id);
@@ -1219,12 +1235,22 @@ class AppState extends ChangeNotifier {
   }
 
   void _updateServiceStatus(String id, ServiceStatus status) {
-    for (final list in [_myServices, _services]) {
-      final idx = list.indexWhere((s) => s.id == id);
-      if (idx >= 0) list[idx] = list[idx].copyWith(status: status);
+    // Always update _myServices
+    final myIdx = _myServices.indexWhere((s) => s.id == id);
+    if (myIdx >= 0) {
+      _myServices[myIdx] = _myServices[myIdx].copyWith(status: status);
     }
-    // Remove from public feed when no longer active.
-    if (status != ServiceStatus.active) {
+
+    if (status == ServiceStatus.active) {
+      // Re-add to public feed if not already present
+      final feedIdx = _services.indexWhere((s) => s.id == id);
+      if (feedIdx >= 0) {
+        _services[feedIdx] = _services[feedIdx].copyWith(status: status);
+      } else if (myIdx >= 0) {
+        _services.insert(0, _myServices[myIdx]);
+      }
+    } else {
+      // Remove from public feed when no longer active
       _services.removeWhere((s) => s.id == id);
     }
   }
@@ -1415,7 +1441,18 @@ class AppState extends ChangeNotifier {
   /// (e.g. network drop after status update) surfaces as an error rather than
   /// leaving the UI silently in a broken state.
   Future<String?> acceptApplication(ApplicationItem app) async {
+    // Prevent duplicate calls from rapid tapping.
+    if (_acceptingIds.contains(app.id)) return null;
+    _acceptingIds.add(app.id);
     try {
+      // DB-level dedup: skip project creation if one already exists.
+      final existing = await _db.getProjectByApplicationId(app.id);
+      if (existing != null) {
+        await _reloadUserData();
+        notifyListeners();
+        return null;
+      }
+
       await _db.updateApplicationStatus(app.id, ApplicationStatus.accepted);
       await _db.rejectAllOtherApplications(app.jobId, app.id);
 
@@ -1452,11 +1489,22 @@ class AppState extends ChangeNotifier {
       );
       await _db.insertProject(project);
 
+      // Notify the freelancer their application was accepted
+      try {
+        await _notifSvc.send(NotificationService.makeApplicationAccepted(
+          freelancerId: app.freelancerId,
+          jobTitle: jobTitle ?? 'the job',
+          projectId: projectId,
+        ));
+      } catch (_) {}
+
       await _reloadUserData();
       notifyListeners();
       return null;
     } catch (e) {
       return 'Failed to accept application: $e';
+    } finally {
+      _acceptingIds.remove(app.id);
     }
   }
 
@@ -1467,6 +1515,9 @@ class AppState extends ChangeNotifier {
     _projects = await _db.getProjectsForUser(_currentUser!.uid);
     notifyListeners();
   }
+
+  /// Fetch a single project directly from the DB (bypasses in-memory cache).
+  Future<ProjectItem?> getProjectById(String id) => _db.getProjectById(id);
 
   /// Update a project's status using the typed [ProjectStatus] enum.
   Future<void> updateProjectStatus(
@@ -1540,13 +1591,16 @@ class AppState extends ChangeNotifier {
 
   /// Either party cancels the project.
   /// On success, any held escrow balance is automatically refunded to the client.
-  Future<String?> cancelProject(ProjectItem project) async {
+  Future<String?> cancelProject(ProjectItem project, {String? reason}) async {
     if (_currentUser == null) return 'Not logged in.';
     final error =
-        await _projectSvc.cancelProject(_currentUser!, project);
+        await _projectSvc.cancelProject(_currentUser!, project, reason: reason);
     if (error == null) {
       _updateProjectInList(project.id,
-          (p) => p.copyWith(status: ProjectStatus.cancelled));
+          (p) => p.copyWith(
+            status: ProjectStatus.cancelled,
+            cancellationReason: reason,
+          ));
       // Refund any remaining escrow balance
       await refundProjectPayment(project);
       notifyListeners();
@@ -1779,11 +1833,15 @@ class AppState extends ChangeNotifier {
       _currentPaymentRecord = result.payment;
       _replaceDisputeInList(result.dispute);
 
-      // Update project status in local list (cancelled for most resolutions)
-      if (resolution != DisputeResolution.noAction) {
-        _updateProjectInList(dispute.projectId,
-            (p) => p.copyWith(status: ProjectStatus.cancelled));
-      }
+      // Update project status in local list
+      _updateProjectInList(
+        dispute.projectId,
+        (p) => p.copyWith(
+          status: resolution == DisputeResolution.noAction
+              ? ProjectStatus.inProgress   // dispute dismissed — resume project
+              : ProjectStatus.cancelled,   // all other resolutions close the project
+        ),
+      );
 
       // Notify both parties
       final project = _projects
@@ -1887,17 +1945,18 @@ class AppState extends ChangeNotifier {
             status: MilestoneStatus.submitted,
             deliverableUrl: deliverableUrl);
       }
-      // Notify the client that work was submitted
-      final project = _projects
-          .where((p) => p.id == milestone.projectId)
-          .firstOrNull;
+      // Notify the client that work was submitted (DB fallback if _projects empty)
+      final project = _projects.where((p) => p.id == milestone.projectId).firstOrNull
+          ?? await _db.getProjectById(milestone.projectId);
       if (project != null) {
-        await _notifSvc.send(NotificationService.makeMilestoneSubmitted(
-          clientId: project.clientId,
-          milestoneTitle: milestone.title,
-          projectId: project.id,
-          milestoneId: milestone.id,
-        ));
+        try {
+          await _notifSvc.send(NotificationService.makeMilestoneSubmitted(
+            clientId: project.clientId,
+            milestoneTitle: milestone.title,
+            projectId: project.id,
+            milestoneId: milestone.id,
+          ));
+        } catch (_) {}
       }
       notifyListeners();
     }
@@ -1925,6 +1984,22 @@ class AppState extends ChangeNotifier {
         clientSignatureUrl: signaturePath,
         paymentToken: paymentToken,
       );
+
+      // Notify the freelancer (fall back to DB lookup if _projects is empty)
+      final milestone = _milestones[idx];
+      final project = _projects.where((p) => p.id == milestone.projectId).firstOrNull
+          ?? await _db.getProjectById(milestone.projectId);
+      if (project != null) {
+        try {
+          await _notifSvc.send(NotificationService.makeMilestoneApproved(
+            freelancerId: project.freelancerId,
+            milestoneTitle: milestone.title,
+            netAmount: milestone.paymentAmount * 0.9,
+            projectId: project.id,
+            milestoneId: milestone.id,
+          ));
+        } catch (_) {}
+      }
     }
     notifyListeners();
   }
@@ -1980,7 +2055,22 @@ class AppState extends ChangeNotifier {
       await _db.advanceMilestoneToNext(
           milestone.projectId, milestone.orderIndex);
 
-      // 5. Update local cache
+      // 5. Notify the freelancer (fall back to DB lookup if _projects is empty)
+      final project = _projects.where((p) => p.id == milestone.projectId).firstOrNull
+          ?? await _db.getProjectById(milestone.projectId);
+      if (project != null) {
+        try {
+          await _notifSvc.send(NotificationService.makeMilestoneApproved(
+            freelancerId: project.freelancerId,
+            milestoneTitle: milestone.title,
+            netAmount: milestone.paymentAmount * 0.9, // after 10% platform fee
+            projectId: project.id,
+            milestoneId: milestone.id,
+          ));
+        } catch (_) {}
+      }
+
+      // 6. Update local cache
       final idx = _milestones.indexWhere((m) => m.id == milestone.id);
       if (idx >= 0) {
         _milestones[idx] = _milestones[idx].copyWith(
@@ -2009,11 +2099,11 @@ class AppState extends ChangeNotifier {
         _milestones[idx] = _milestones[idx]
             .copyWith(status: MilestoneStatus.rejected, rejectionNote: reason);
       }
-      // Notify the freelancer of the rejection
-      final project = _projects
-          .where((p) => p.id == milestone.projectId)
-          .firstOrNull;
+      // Notify the freelancer of the rejection (DB fallback if _projects empty)
+      final project = _projects.where((p) => p.id == milestone.projectId).firstOrNull
+          ?? await _db.getProjectById(milestone.projectId);
       if (project != null) {
+        try {
         await _notifSvc.send(NotificationService.makeMilestoneRejected(
           freelancerId: project.freelancerId,
           milestoneTitle: milestone.title,
@@ -2021,6 +2111,7 @@ class AppState extends ChangeNotifier {
           projectId: project.id,
           milestoneId: milestone.id,
         ));
+        } catch (_) {}
       }
       notifyListeners();
     }
@@ -2517,6 +2608,41 @@ class AppState extends ChangeNotifier {
   }
 
   // ── Notification helpers ───────────────────────────────────────────────────
+
+  /// Subscribes to Supabase Realtime for the current user's notifications.
+  /// Any INSERT or UPDATE on [in_app_notifications] for this user triggers an
+  /// immediate UI refresh — no polling needed.
+  void _startNotificationsStream() {
+    _notifSub?.cancel();
+    if (_currentUser == null) return;
+    _notifSub = _db.notificationsStream(_currentUser!.uid).listen(
+      (notifs) async {
+        final prevCount = _notifications.length;
+        _notifications = notifs;
+
+        // If new project-status notifications arrived, reload the projects
+        // list so ProjectDetailPage (and any other listener) sees the updated
+        // status without requiring a manual pull-to-refresh.
+        if (notifs.length > prevCount && _currentUser != null) {
+          const projectStatusTypes = {
+            NotificationType.disputeResolved,
+            NotificationType.disputeRaised,
+          };
+          final hasProjectUpdate = notifs
+              .take(notifs.length - prevCount)
+              .any((n) => projectStatusTypes.contains(n.type));
+          if (hasProjectUpdate) {
+            _projects = await _db.getProjectsForUser(_currentUser!.uid);
+          }
+        }
+
+        notifyListeners();
+      },
+      onError: (_) {
+        // Stream errors are non-fatal; fall back to manual loads.
+      },
+    );
+  }
 
   /// Loads the current user's notifications and updates the badge count.
   Future<void> loadNotifications() async {

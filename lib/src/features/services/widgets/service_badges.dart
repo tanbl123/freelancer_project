@@ -1,11 +1,25 @@
 import 'package:flutter/material.dart';
 
 import '../../../shared/enums/service_status.dart';
+import '../../../shared/models/category_item.dart';
+import '../../../state/app_state.dart';
 
-/// Small colored pill showing the category name (used for services).
+/// Small colored pill showing the category display name (looks up from AppState).
 class ServiceCategoryBadge extends StatelessWidget {
   const ServiceCategoryBadge(this.category, {super.key});
   final String category;
+
+  String _resolveDisplayName() {
+    final cats = AppState.instance.categories;
+    final match = cats.cast<CategoryItem?>().firstWhere(
+          (c) => c?.id == category,
+          orElse: () => null,
+        );
+    if (match != null) return match.displayName;
+    // Fallback: capitalise the slug (e.g. "video" → "Video")
+    if (category.isEmpty) return 'Other';
+    return category[0].toUpperCase() + category.substring(1);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +31,7 @@ class ServiceCategoryBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
-        category,
+        _resolveDisplayName(),
         style: TextStyle(
             fontSize: 10, fontWeight: FontWeight.w600, color: color),
       ),

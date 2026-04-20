@@ -1,7 +1,12 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../backend/shared/domain_types.dart';
 import '../../../routing/app_router.dart';
+import '../../../services/supabase_storage_service.dart';
 import '../../../state/app_state.dart';
 import '../../disputes/models/dispute_record.dart';
 import '../../overdue/services/overdue_service.dart';
@@ -34,15 +39,37 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   void initState() {
     super.initState();
     _load();
+    AppState.instance.addListener(_onAppStateChange);
+  }
+
+  @override
+  void dispose() {
+    AppState.instance.removeListener(_onAppStateChange);
+    super.dispose();
+  }
+
+  /// Called whenever AppState calls notifyListeners() (e.g. after a
+  /// dispute resolution reloads the projects list cross-device via the
+  /// notifications Realtime stream). Syncs _project without a full reload.
+  void _onAppStateChange() {
+    final updated = AppState.instance.projects
+        .where((p) => p.id == widget.projectId)
+        .firstOrNull;
+    if (updated != null && updated != _project && mounted) {
+      setState(() => _project = updated);
+    }
   }
 
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
     final milestones =
         await AppState.instance.getMilestonesForProject(widget.projectId);
-    final project = AppState.instance.projects
-        .where((p) => p.id == widget.projectId)
-        .firstOrNull;
+    // Always fetch directly from DB so status is always up-to-date
+    // (avoids stale in-memory cache after cancel / dispute / completion)
+    final project = await AppState.instance.getProjectById(widget.projectId)
+        ?? AppState.instance.projects
+            .where((p) => p.id == widget.projectId)
+            .firstOrNull;
     // Load active dispute if project is disputed
     DisputeRecord? dispute;
     if (project != null && project.isDisputed) {
@@ -100,45 +127,9 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   // ── Submit deliverable ─────────────────────────────────────────────────────
 
   Future<void> _submitDeliverable(MilestoneItem milestone) async {
-    final urlController = TextEditingController();
     final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Submit Deliverable'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Milestone: "${milestone.title}"',
-              style: const TextStyle(color: Colors.black54, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: urlController,
-              decoration: const InputDecoration(
-                labelText: 'Deliverable URL or Description *',
-                border: OutlineInputBorder(),
-                hintText: 'https://… or describe the work completed',
-              ),
-              maxLines: 4,
-              autofocus: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () {
-              if (urlController.text.trim().isEmpty) return;
-              Navigator.pop(ctx, urlController.text.trim());
-            },
-            child: const Text('Submit'),
-          ),
-        ],
-      ),
+      builder: (_) => _SubmitDeliverableDialog(milestone: milestone),
     );
     if (result == null || !mounted) return;
 
@@ -290,27 +281,15 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   // ── Cancel / Dispute ───────────────────────────────────────────────────────
 
   Future<void> _cancelProject() async {
-    final ok = await showDialog<bool>(
+    final reason = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cancel Project'),
-        content: const Text(
-            'Are you sure you want to cancel this project? This cannot be undone.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Keep Project')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Cancel Project'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (_) => const _CancelProjectDialog(),
     );
-    if (ok != true || !mounted) return;
+    if (reason == null || !mounted) return;
 
-    final err = await AppState.instance.cancelProject(_project!);
+    final err =
+        await AppState.instance.cancelProject(_project!, reason: reason);
     if (!mounted) return;
     if (err != null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -461,6 +440,9 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             icon: Icons.cancel,
             color: Colors.red,
             title: 'Project Cancelled',
+            subtitle: _project!.cancellationReason != null
+                ? 'Reason: ${_project!.cancellationReason}'
+                : null,
           ),
         ];
       case ProjectStatus.disputed:
@@ -1314,30 +1296,11 @@ class _MilestoneCard extends StatelessWidget {
               ),
             ],
 
-            // Deliverable URL
+            // Deliverable submission
             if (m.deliverableUrl != null &&
                 m.deliverableUrl!.isNotEmpty) ...[
               const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.link, size: 14, color: Colors.blue),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(m.deliverableUrl!,
-                          style: const TextStyle(
-                              color: Colors.blue, fontSize: 12),
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                  ],
-                ),
-              ),
+              _DeliverableView(raw: m.deliverableUrl!),
             ],
 
             // Extension request banner
@@ -1678,6 +1641,461 @@ class _OverdueWarningBanner extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Submit Deliverable Dialog ──────────────────────────────────────────────────
+
+/// Separator used to encode note + file URL in a single [MilestoneItem.deliverableUrl].
+const _deliverableSep = '||FILE||';
+
+/// Parses a raw [deliverableUrl] value into its note and file-URL components.
+({String? note, String? fileUrl}) _parseDeliverable(String raw) {
+  if (raw.contains(_deliverableSep)) {
+    final parts = raw.split(_deliverableSep);
+    return (
+      note: parts[0].trim().isEmpty ? null : parts[0].trim(),
+      fileUrl: parts.length > 1 && parts[1].trim().isNotEmpty
+          ? parts[1].trim()
+          : null,
+    );
+  }
+  // Legacy: plain URL or plain description
+  final isUrl = raw.startsWith('http');
+  return (note: isUrl ? null : raw, fileUrl: isUrl ? raw : null);
+}
+
+class _SubmitDeliverableDialog extends StatefulWidget {
+  const _SubmitDeliverableDialog({required this.milestone});
+  final MilestoneItem milestone;
+
+  @override
+  State<_SubmitDeliverableDialog> createState() =>
+      _SubmitDeliverableDialogState();
+}
+
+class _SubmitDeliverableDialogState extends State<_SubmitDeliverableDialog> {
+  final _noteCtrl = TextEditingController();
+  String? _pickedFilePath;
+  String? _pickedFileName;
+  bool _uploading = false;
+  String? _noteError;
+
+  @override
+  void dispose() {
+    _noteCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    if (file.path == null) return;
+    setState(() {
+      _pickedFilePath = file.path;
+      _pickedFileName = file.name;
+    });
+  }
+
+  void _clearFile() => setState(() {
+        _pickedFilePath = null;
+        _pickedFileName = null;
+      });
+
+  Future<void> _submit() async {
+    final note = _noteCtrl.text.trim();
+    if (note.isEmpty) {
+      setState(() => _noteError = 'Please describe the work completed.');
+      return;
+    }
+    setState(() {
+      _noteError = null;
+      _uploading = true;
+    });
+
+    String? fileUrl;
+    if (_pickedFilePath != null) {
+      final user = AppState.instance.currentUser;
+      if (user != null) {
+        fileUrl = await SupabaseStorageService.instance.uploadDeliverableFile(
+          localPath: _pickedFilePath!,
+          userId: user.uid,
+          milestoneId: widget.milestone.id,
+        );
+      }
+      if (fileUrl == null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'File upload failed — deliverable saved without attachment.'),
+              backgroundColor: Colors.orange),
+        );
+      }
+    }
+
+    final encoded = fileUrl != null ? '$note$_deliverableSep$fileUrl' : note;
+    if (mounted) Navigator.pop(context, encoded);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Submit Deliverable'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Milestone: "${widget.milestone.title}"',
+              style: const TextStyle(color: Colors.black54, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Description (required) ─────────────────────────────────
+            TextField(
+              controller: _noteCtrl,
+              decoration: InputDecoration(
+                labelText: 'Work Description *',
+                hintText: 'Explain what was completed, any decisions made, etc.',
+                border: const OutlineInputBorder(),
+                alignLabelWithHint: true,
+                errorText: _noteError,
+              ),
+              maxLines: 4,
+              autofocus: true,
+              onChanged: (_) {
+                if (_noteError != null) setState(() => _noteError = null);
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // ── File attachment (optional) ─────────────────────────────
+            const Text(
+              'Proof / Attachment (optional)',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            if (_pickedFileName != null)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(_fileIcon(_pickedFileName!),
+                        size: 18, color: Colors.green.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _pickedFileName!,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green.shade800),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _clearFile,
+                      child: Icon(Icons.close,
+                          size: 16, color: Colors.green.shade700),
+                    ),
+                  ],
+                ),
+              )
+            else
+              OutlinedButton.icon(
+                icon: const Icon(Icons.attach_file, size: 18),
+                label: const Text('Attach File'),
+                onPressed: _pickFile,
+              ),
+            const SizedBox(height: 4),
+            Text(
+              'Supported: PDF, Word, Excel, images, zip, video, etc.',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _uploading ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _uploading ? null : _submit,
+          child: _uploading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Submit'),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Deliverable display ────────────────────────────────────────────────────────
+
+class _DeliverableView extends StatelessWidget {
+  const _DeliverableView({required this.raw});
+  final String raw;
+
+  Future<void> _openUrl(BuildContext context, String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      // Fallback: copy to clipboard
+      await Clipboard.setData(ClipboardData(text: url));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Could not open link. URL copied to clipboard.'),
+              duration: Duration(seconds: 3)),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (:note, :fileUrl) = _parseDeliverable(raw);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Description note
+        if (note != null)
+          Container(
+            width: double.infinity,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.description_outlined,
+                    size: 14, color: Colors.blue.shade700),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    note,
+                    style: TextStyle(
+                        color: Colors.blue.shade900, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // File attachment — tappable to open in browser
+        if (fileUrl != null) ...[
+          if (note != null) const SizedBox(height: 4),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(6),
+              onTap: () => _openUrl(context, fileUrl),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.purple.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.purple.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(_fileIcon(fileUrl),
+                        size: 16, color: Colors.purple.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            p.basename(Uri.parse(fileUrl).path),
+                            style: TextStyle(
+                                color: Colors.purple.shade800,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            'Tap to open',
+                            style: TextStyle(
+                                color: Colors.purple.shade400, fontSize: 10),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Open icon
+                    Icon(Icons.open_in_new,
+                        size: 14, color: Colors.purple.shade600),
+                    const SizedBox(width: 6),
+                    // Copy URL
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () async {
+                        await Clipboard.setData(
+                            ClipboardData(text: fileUrl));
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Link copied to clipboard.'),
+                                duration: Duration(seconds: 2)),
+                          );
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Icon(Icons.copy,
+                            size: 14, color: Colors.purple.shade500),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+
+      ],
+    );
+  }
+}
+
+IconData _fileIcon(String nameOrUrl) {
+  final ext = p.extension(nameOrUrl).toLowerCase().replaceFirst('.', '');
+  switch (ext) {
+    case 'pdf':            return Icons.picture_as_pdf_outlined;
+    case 'doc':
+    case 'docx':           return Icons.article_outlined;
+    case 'xls':
+    case 'xlsx':           return Icons.table_chart_outlined;
+    case 'ppt':
+    case 'pptx':           return Icons.slideshow_outlined;
+    case 'zip':
+    case 'rar':            return Icons.folder_zip_outlined;
+    case 'jpg':
+    case 'jpeg':
+    case 'png':
+    case 'gif':
+    case 'webp':           return Icons.image_outlined;
+    case 'mp4':
+    case 'mov':
+    case 'avi':            return Icons.video_file_outlined;
+    default:               return Icons.attach_file;
+  }
+}
+
+// ── Cancel Project Dialog ──────────────────────────────────────────────────────
+
+class _CancelProjectDialog extends StatefulWidget {
+  const _CancelProjectDialog();
+
+  @override
+  State<_CancelProjectDialog> createState() => _CancelProjectDialogState();
+}
+
+class _CancelProjectDialogState extends State<_CancelProjectDialog> {
+  final _reasonCtrl = TextEditingController();
+  String? _reasonError;
+
+  @override
+  void dispose() {
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  void _confirm() {
+    final reason = _reasonCtrl.text.trim();
+    if (reason.isEmpty) {
+      setState(() => _reasonError = 'Please provide a reason for cancellation.');
+      return;
+    }
+    Navigator.pop(context, reason);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Cancel Project'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    color: Colors.red.shade700, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'This action cannot be undone. The project will be '
+                    'cancelled and any held funds will be refunded.',
+                    style: TextStyle(
+                        color: Colors.red.shade800, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _reasonCtrl,
+            autofocus: true,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: 'Reason for Cancellation *',
+              hintText: 'e.g. Scope changed, budget issues, etc.',
+              border: const OutlineInputBorder(),
+              alignLabelWithHint: true,
+              errorText: _reasonError,
+            ),
+            onChanged: (_) {
+              if (_reasonError != null) {
+                setState(() => _reasonError = null);
+              }
+            },
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Keep Project'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: _confirm,
+          child: const Text('Cancel Project'),
+        ),
+      ],
     );
   }
 }

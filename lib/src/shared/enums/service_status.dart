@@ -17,11 +17,11 @@ enum ServiceStatus {
   String get displayName {
     switch (this) {
       case ServiceStatus.active:
-        return 'Active';
+        return 'Available';
       case ServiceStatus.inactive:
-        return 'Inactive';
+        return 'Paused';
       case ServiceStatus.deleted:
-        return 'Deleted';
+        return 'Removed';
     }
   }
 

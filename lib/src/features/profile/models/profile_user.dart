@@ -202,11 +202,15 @@ class ProfileUser {
     UserRole? role,
     AccountStatus? accountStatus,
     String? bio,
+    bool clearBio = false,
     List<String>? skills,
     String? experience,
+    bool clearExperience = false,
     String? resumeUrl,
+    bool clearResumeUrl = false,
     List<String>? portfolioUrls,
     String? photoUrl,
+    bool clearPhotoUrl = false,
     double? averageRating,
     int? totalReviews,
     List<SkillWithLevel>? skillsWithLevel,
@@ -214,6 +218,7 @@ class ProfileUser {
     List<EducationItem>? educations,
     List<CertificationItem>? certifications,
     String? portfolioDescription,
+    bool clearPortfolioDescription = false,
   }) {
     return ProfileUser(
       uid: uid,
@@ -223,12 +228,12 @@ class ProfileUser {
       phone: phone ?? this.phone,
       role: role ?? this.role,
       accountStatus: accountStatus ?? this.accountStatus,
-      bio: bio ?? this.bio,
+      bio: clearBio ? null : (bio ?? this.bio),
       skills: skills ?? this.skills,
-      experience: experience ?? this.experience,
-      resumeUrl: resumeUrl ?? this.resumeUrl,
+      experience: clearExperience ? null : (experience ?? this.experience),
+      resumeUrl: clearResumeUrl ? null : (resumeUrl ?? this.resumeUrl),
       portfolioUrls: portfolioUrls ?? this.portfolioUrls,
-      photoUrl: photoUrl ?? this.photoUrl,
+      photoUrl: clearPhotoUrl ? null : (photoUrl ?? this.photoUrl),
       averageRating: averageRating ?? this.averageRating,
       totalReviews: totalReviews ?? this.totalReviews,
       createdAt: createdAt,
@@ -237,7 +242,9 @@ class ProfileUser {
       workExperiences: workExperiences ?? this.workExperiences,
       educations: educations ?? this.educations,
       certifications: certifications ?? this.certifications,
-      portfolioDescription: portfolioDescription ?? this.portfolioDescription,
+      portfolioDescription: clearPortfolioDescription
+          ? null
+          : (portfolioDescription ?? this.portfolioDescription),
     );
   }
 }

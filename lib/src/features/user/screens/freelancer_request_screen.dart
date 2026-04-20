@@ -39,6 +39,12 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // Per-section inline validation errors
+  String? _skillsError;
+  String? _workError;
+  String? _eduError;
+  String? _resumeError;
+
   // When a previous request was rejected, this flag forces the form to show
   // even though AppState.myFreelancerRequest is non-null.
   bool _forceShowForm = false;
@@ -48,6 +54,11 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
   bool _showWorkForm = false;
   bool _showEducationForm = false;
   bool _showCertForm = false;
+
+  // Edit-mode index trackers (null = add mode, non-null = editing that index)
+  int? _editingWorkIndex;
+  int? _editingEduIndex;
+  int? _editingCertIndex;
 
   // ── Skill inline form state ────────────────────────────────────────────────
   final _skillNameController = TextEditingController();
@@ -136,18 +147,91 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
     _certNameError = null;
   }
 
+  // ── Edit-mode populate helpers ────────────────────────────────────────────
+
+  static DateTime? _parseMonthYear(String? s) {
+    if (s == null) return null;
+    const months = [
+      'Jan','Feb','Mar','Apr','May','Jun',
+      'Jul','Aug','Sep','Oct','Nov','Dec'
+    ];
+    final parts = s.split(' ');
+    if (parts.length != 2) return null;
+    final mi = months.indexOf(parts[0]);
+    final year = int.tryParse(parts[1]);
+    if (mi < 0 || year == null) return null;
+    return DateTime(year, mi + 1);
+  }
+
+  void _populateWorkForm(WorkExperience w) {
+    _workTitleController.text = w.title;
+    _workCompanyController.text = w.company;
+    _workDescController.text = w.description ?? '';
+    _workIndustryController.text = w.industry ?? '';
+    _workEmploymentType = w.employmentType;
+    _workCurrently = w.currentlyWorkHere;
+    _workStartDate = _parseMonthYear(w.startDate);
+    _workEndDate = _parseMonthYear(w.endDate);
+    _workTitleError = null;
+    _workCompanyError = null;
+    _workStartError = null;
+    _workEndError = null;
+  }
+
+  void _populateEduForm(EducationItem e) {
+    _eduSchoolController.text = e.school;
+    _eduFieldController.text = e.fieldOfStudy ?? '';
+    _eduCountry = e.country;
+    _eduDegree = e.degree;
+    _eduYear = e.yearOfGraduation;
+    _eduSchoolError = null;
+  }
+
+  void _populateCertForm(CertificationItem c) {
+    _certNameController.text = c.name;
+    _certIssuedByController.text = c.issuedBy ?? '';
+    _certYear = c.yearReceived;
+    _certNameError = null;
+  }
+
+  // ── Shared remove confirmation ────────────────────────────────────────────
+  Future<bool> _confirmRemove(String title, String itemName) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('Remove $title?'),
+            content: Text('Remove "$itemName"? This cannot be undone.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   // ── Resume picker ─────────────────────────────────────────────────────────
   Future<void> _pickResume() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['pdf', 'doc', 'docx'],
+      allowedExtensions: ['pdf'],
     );
     if (result == null || result.files.isEmpty) return;
     setState(() => _isUploadingResume = true);
     try {
       final saved = await FileStorageService.instance
           .savePlatformFile(result.files.first, 'resumes');
-      setState(() => _resumePath = saved);
+      setState(() {
+        _resumePath = saved;
+        _resumeError = null;
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -176,11 +260,21 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_skills.isEmpty) {
-      setState(() => _errorMessage = 'Please add at least one skill.');
+    // Run both validations together so ALL errors show at once
+    final formValid = _formKey.currentState!.validate();
+
+    setState(() {
+      _skillsError = _skills.isEmpty ? 'Please add at least one skill.' : null;
+      _workError = _workExperiences.isEmpty ? 'Please add at least one work experience.' : null;
+      _eduError = _educations.isEmpty ? 'Please add at least one education entry.' : null;
+      _resumeError = _resumePath == null ? 'Please upload your resume (PDF).' : null;
+    });
+
+    if (!formValid || _skillsError != null || _workError != null ||
+        _eduError != null || _resumeError != null) {
       return;
     }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -245,11 +339,13 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
 
         return Scaffold(
           appBar: AppBar(title: const Text('Become a Freelancer')),
-          body: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: existing != null && !_forceShowForm
-                ? _buildStatusView(existing.status, existing.adminNote)
-                : _buildForm(),
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: existing != null && !_forceShowForm
+                  ? _buildStatusView(existing.status, existing.adminNote)
+                  : _buildForm(),
+            ),
           ),
         );
       },
@@ -484,11 +580,11 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Resume / CV',
+            const Text('Resume / CV *',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             const Text(
-                'Optional. Upload your resume (PDF, DOC, or DOCX).',
+                'Upload your resume in PDF format. Required.',
                 style: TextStyle(fontSize: 13, color: Colors.grey)),
             const SizedBox(height: 12),
             if (_resumePath != null && File(_resumePath!).existsSync()) ...[
@@ -550,10 +646,14 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
                     : const Icon(Icons.upload_file, size: 18),
                 label: Text(_isUploadingResume
                     ? 'Uploading...'
-                    : 'Upload Resume (PDF / DOC / DOCX)'),
+                    : 'Upload Resume (PDF only)'),
                 onPressed:
                     _isUploadingResume ? null : _pickResume,
               ),
+            ],
+            if (_resumeError != null) ...[
+              const SizedBox(height: 6),
+              _InlineError(_resumeError!),
             ],
           ],
         ),
@@ -598,11 +698,11 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Skills & Expertise',
+            const Text('Skills & Expertise *',
                 style:
                     TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            const Text('Add the skills you offer to clients (at least 1 required).',
+            const Text('Add the skills you offer to clients. At least 1 required.',
                 style: TextStyle(fontSize: 13, color: Colors.grey)),
             const SizedBox(height: 12),
             if (_skills.isNotEmpty) ...[
@@ -632,6 +732,10 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
                   _resetSkillForm();
                 }),
               ),
+            if (_skillsError != null) ...[
+              const SizedBox(height: 6),
+              _InlineError(_skillsError!),
+            ],
           ],
         ),
       ),
@@ -692,6 +796,7 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
                     _skills.add(
                         SkillWithLevel(skill: name, level: _skillLevel));
                     _showSkillForm = false;
+                    _skillsError = null;
                     _resetSkillForm();
                   });
                 },
@@ -719,11 +824,11 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Work Experience',
+            const Text('Work Experience *',
                 style:
                     TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            const Text('Optional. Add your relevant work history.',
+            const Text('Add your relevant work history. At least 1 required.',
                 style: TextStyle(fontSize: 13, color: Colors.grey)),
             const SizedBox(height: 12),
             if (_workExperiences.isNotEmpty) ...[
@@ -741,6 +846,10 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
                   _resetWorkForm();
                 }),
               ),
+            if (_workError != null) ...[
+              const SizedBox(height: 6),
+              _InlineError(_workError!),
+            ],
           ],
         ),
       ),
@@ -748,6 +857,7 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
   }
 
   Widget _buildWorkCard(WorkExperience w) {
+    final index = _workExperiences.indexOf(w);
     final dates = [
       if (w.startDate != null) w.startDate!,
       if (w.currentlyWorkHere) 'Present' else if (w.endDate != null) w.endDate!,
@@ -760,10 +870,28 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
             style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(
             '${w.company}${dates.isNotEmpty ? '  •  $dates' : ''}'),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline, size: 20),
-          onPressed: () =>
-              setState(() => _workExperiences.remove(w)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 20),
+              tooltip: 'Edit',
+              onPressed: () => setState(() {
+                _editingWorkIndex = index;
+                _populateWorkForm(w);
+                _showWorkForm = true;
+              }),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              tooltip: 'Delete',
+              onPressed: () async {
+                final confirmed = await _confirmRemove(
+                    'Work Experience', '${w.title} at ${w.company}');
+                if (confirmed) setState(() => _workExperiences.remove(w));
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -980,33 +1108,41 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
                     }
                   }
                   if (hasError) return;
+                  final entry = WorkExperience(
+                    title: title,
+                    company: company,
+                    employmentType: _workEmploymentType,
+                    currentlyWorkHere: _workCurrently,
+                    startDate: _fmtMonthYear(_workStartDate!),
+                    endDate: _workCurrently || _workEndDate == null
+                        ? null
+                        : _fmtMonthYear(_workEndDate!),
+                    description: _workDescController.text.trim().isEmpty
+                        ? null
+                        : _workDescController.text.trim(),
+                    industry: _workIndustryController.text.trim().isEmpty
+                        ? null
+                        : _workIndustryController.text.trim(),
+                  );
                   setState(() {
-                    _workExperiences.add(WorkExperience(
-                      title: title,
-                      company: company,
-                      employmentType: _workEmploymentType,
-                      currentlyWorkHere: _workCurrently,
-                      startDate: _fmtMonthYear(_workStartDate!),
-                      endDate: _workCurrently || _workEndDate == null
-                          ? null
-                          : _fmtMonthYear(_workEndDate!),
-                      description: _workDescController.text.trim().isEmpty
-                          ? null
-                          : _workDescController.text.trim(),
-                      industry: _workIndustryController.text.trim().isEmpty
-                          ? null
-                          : _workIndustryController.text.trim(),
-                    ));
+                    if (_editingWorkIndex != null) {
+                      _workExperiences[_editingWorkIndex!] = entry;
+                      _editingWorkIndex = null;
+                    } else {
+                      _workExperiences.add(entry);
+                    }
                     _showWorkForm = false;
+                    _workError = null;
                     _resetWorkForm();
                   });
                 },
-                child: const Text('Add'),
+                child: Text(_editingWorkIndex != null ? 'Save' : 'Add'),
               ),
               const SizedBox(width: 8),
               OutlinedButton(
                 onPressed: () => setState(() {
                   _showWorkForm = false;
+                  _editingWorkIndex = null;
                   _resetWorkForm();
                 }),
                 child: const Text('Cancel'),
@@ -1027,11 +1163,11 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Education',
+            const Text('Education *',
                 style:
                     TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            const Text('Optional. Add your educational background.',
+            const Text('Add your educational background. At least 1 required.',
                 style: TextStyle(fontSize: 13, color: Colors.grey)),
             const SizedBox(height: 12),
             if (_educations.isNotEmpty) ...[
@@ -1049,6 +1185,10 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
                   _resetEduForm();
                 }),
               ),
+            if (_eduError != null) ...[
+              const SizedBox(height: 6),
+              _InlineError(_eduError!),
+            ],
           ],
         ),
       ),
@@ -1056,6 +1196,7 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
   }
 
   Widget _buildEducationCard(EducationItem e) {
+    final index = _educations.indexOf(e);
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       color: Colors.grey.shade50,
@@ -1068,10 +1209,28 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
           e.country,
           if (e.yearOfGraduation != null) '${e.yearOfGraduation}',
         ].join(' · ')),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline, size: 20),
-          onPressed: () =>
-              setState(() => _educations.remove(e)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 20),
+              tooltip: 'Edit',
+              onPressed: () => setState(() {
+                _editingEduIndex = index;
+                _populateEduForm(e);
+                _showEducationForm = true;
+              }),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              tooltip: 'Delete',
+              onPressed: () async {
+                final confirmed =
+                    await _confirmRemove('Education', e.school);
+                if (confirmed) setState(() => _educations.remove(e));
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -1182,27 +1341,36 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
                         () => _eduSchoolError = 'School name is required');
                     return;
                   }
+                  final entry = EducationItem(
+                    country: _eduCountry,
+                    school: school,
+                    degree: _eduDegree,
+                    fieldOfStudy: _eduFieldController.text.trim().isEmpty
+                        ? null
+                        : _eduFieldController.text.trim(),
+                    yearOfGraduation: _eduYear,
+                  );
                   setState(() {
-                    _educations.add(EducationItem(
-                      country: _eduCountry,
-                      school: school,
-                      degree: _eduDegree,
-                      fieldOfStudy:
-                          _eduFieldController.text.trim().isEmpty
-                              ? null
-                              : _eduFieldController.text.trim(),
-                      yearOfGraduation: _eduYear,
-                    ));
+                    if (_editingEduIndex != null) {
+                      _educations[_editingEduIndex!] = entry;
+                      _editingEduIndex = null;
+                    } else {
+                      _educations.add(entry);
+                    }
                     _showEducationForm = false;
+                    _eduError = null;
                     _resetEduForm();
                   });
                 },
-                child: const Text('Add'),
+                child: Text(_editingEduIndex != null ? 'Save' : 'Add'),
               ),
               const SizedBox(width: 8),
               OutlinedButton(
-                onPressed: () =>
-                    setState(() => _showEducationForm = false),
+                onPressed: () => setState(() {
+                  _showEducationForm = false;
+                  _editingEduIndex = null;
+                  _resetEduForm();
+                }),
                 child: const Text('Cancel'),
               ),
             ],
@@ -1251,6 +1419,7 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
   }
 
   Widget _buildCertCard(CertificationItem c) {
+    final index = _certifications.indexOf(c);
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       color: Colors.grey.shade50,
@@ -1261,10 +1430,28 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
           if (c.issuedBy != null) c.issuedBy!,
           if (c.yearReceived != null) '${c.yearReceived}',
         ].join(' · ')),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline, size: 20),
-          onPressed: () =>
-              setState(() => _certifications.remove(c)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 20),
+              tooltip: 'Edit',
+              onPressed: () => setState(() {
+                _editingCertIndex = index;
+                _populateCertForm(c);
+                _showCertForm = true;
+              }),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              tooltip: 'Delete',
+              onPressed: () async {
+                final confirmed =
+                    await _confirmRemove('Certification', c.name);
+                if (confirmed) setState(() => _certifications.remove(c));
+              },
+            ),
+          ],
         ),
       ),
     );
@@ -1334,31 +1521,66 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
                         () => _certNameError = 'Certificate name is required');
                     return;
                   }
+                  final entry = CertificationItem(
+                    name: name,
+                    issuedBy: _certIssuedByController.text.trim().isEmpty
+                        ? null
+                        : _certIssuedByController.text.trim(),
+                    yearReceived: _certYear,
+                  );
                   setState(() {
-                    _certifications.add(CertificationItem(
-                      name: name,
-                      issuedBy:
-                          _certIssuedByController.text.trim().isEmpty
-                              ? null
-                              : _certIssuedByController.text.trim(),
-                      yearReceived: _certYear,
-                    ));
+                    if (_editingCertIndex != null) {
+                      _certifications[_editingCertIndex!] = entry;
+                      _editingCertIndex = null;
+                    } else {
+                      _certifications.add(entry);
+                    }
                     _showCertForm = false;
                     _resetCertForm();
                   });
                 },
-                child: const Text('Add'),
+                child: Text(_editingCertIndex != null ? 'Save' : 'Add'),
               ),
               const SizedBox(width: 8),
               OutlinedButton(
-                onPressed: () =>
-                    setState(() => _showCertForm = false),
+                onPressed: () => setState(() {
+                  _showCertForm = false;
+                  _editingCertIndex = null;
+                  _resetCertForm();
+                }),
                 child: const Text('Cancel'),
               ),
             ],
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Inline error text (matches Flutter's TextFormField error style) ───────────
+
+class _InlineError extends StatelessWidget {
+  const _InlineError(this.message);
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(Icons.error_outline,
+            size: 13, color: Theme.of(context).colorScheme.error),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            message,
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

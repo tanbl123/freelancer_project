@@ -50,6 +50,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
   int _durationValue = 2;        // used when timelineType == duration
   String _durationUnit = 'Weeks';
   DateTime? _postingDeadline;    // posting close date, used when timelineType == duration
+  String? _timelineError;        // inline validation error for the timeline section
 
   bool get _isEdit => widget.existing != null;
 
@@ -146,7 +147,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
       lastDate: tomorrow.add(const Duration(days: 729)),
       helpText: 'Project completion date',
     );
-    if (picked != null) setState(() => _specificDate = picked);
+    if (picked != null) setState(() { _specificDate = picked; _timelineError = null; });
   }
 
   Future<void> _pickPostingDeadline() async {
@@ -159,7 +160,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
       lastDate: tomorrow.add(const Duration(days: 364)),
       helpText: 'Posting close date',
     );
-    if (picked != null) setState(() => _postingDeadline = picked);
+    if (picked != null) setState(() { _postingDeadline = picked; _timelineError = null; });
   }
 
   String _fmtDate(DateTime dt) =>
@@ -170,9 +171,22 @@ class _JobFormScreenState extends State<JobFormScreen> {
   // ── Submit ─────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    final formValid = _formKey.currentState!.validate();
 
-    // Budget validation
+    // Inline timeline validation — runs even when form is invalid so all
+    // errors appear simultaneously.
+    String? timelineErr;
+    if (_timelineType == _TimelineType.specificDate && _specificDate == null) {
+      timelineErr = 'Please select a completion date.';
+    } else if (_timelineType == _TimelineType.duration &&
+        _postingDeadline == null) {
+      timelineErr = 'Please set a closing date for this posting.';
+    }
+    setState(() => _timelineError = timelineErr);
+
+    if (!formValid || _timelineError != null) return;
+
+    // Budget extra validation (range check beyond the form validator)
     final max = double.tryParse(_budgetController.text.trim());
     final budgetErr = JobPostService.validateBudget(null, max);
     if (budgetErr != null) {
@@ -181,28 +195,15 @@ class _JobFormScreenState extends State<JobFormScreen> {
       return;
     }
 
-    // Timeline validation
+    // Resolve timeline values
     DateTime? deadline;
     String? projectDuration;
 
     if (_timelineType == _TimelineType.specificDate) {
-      if (_specificDate == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select a completion date.')),
-        );
-        return;
-      }
       deadline = _specificDate;
       projectDuration = null;
     } else {
       projectDuration = '$_durationValue $_durationUnit';
-      if (_postingDeadline == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Please set when this posting should close.')),
-        );
-        return;
-      }
       deadline = _postingDeadline;
     }
 
@@ -373,7 +374,9 @@ class _JobFormScreenState extends State<JobFormScreen> {
                 durationValue: _durationValue,
                 durationUnit: _durationUnit,
                 postingDeadline: _postingDeadline,
-                onTypeChanged: (t) => setState(() => _timelineType = t),
+                error: _timelineError,
+                onTypeChanged: (t) =>
+                    setState(() { _timelineType = t; _timelineError = null; }),
                 onPickSpecificDate: _pickSpecificDate,
                 onDurationValueChanged: (v) =>
                     setState(() => _durationValue = v),
@@ -433,6 +436,7 @@ class _TimelineSection extends StatelessWidget {
     required this.onPickPostingDeadline,
     required this.onClearPostingDeadline,
     required this.fmtDate,
+    this.error,
   });
 
   final _TimelineType type;
@@ -440,6 +444,7 @@ class _TimelineSection extends StatelessWidget {
   final int durationValue;
   final String durationUnit;
   final DateTime? postingDeadline;
+  final String? error;
   final ValueChanged<_TimelineType> onTypeChanged;
   final VoidCallback onPickSpecificDate;
   final ValueChanged<int> onDurationValueChanged;
@@ -451,11 +456,21 @@ class _TimelineSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final hasError = error != null;
     // Guard: clamp durationValue into [1, max] in case an old saved post
     // had a value larger than the current limit (e.g. "52 Weeks").
     final maxItems = _maxForUnit(durationUnit);
     final safeValue = durationValue.clamp(1, maxItems);
-    return Card(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+      Card(
+      shape: hasError
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: colors.error, width: 1.5),
+            )
+          : null,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -642,6 +657,28 @@ class _TimelineSection extends StatelessWidget {
           ],
         ),
       ),
+      ),
+      // ── Inline error message ─────────────────────────────────────────
+      if (hasError)
+        Padding(
+          padding: const EdgeInsets.only(left: 14, top: 6),
+          child: Row(
+            children: [
+              Icon(Icons.error_outline, size: 13, color: colors.error),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  error!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.error,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

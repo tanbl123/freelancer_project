@@ -36,10 +36,12 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
   final _priceController = TextEditingController();
   final _tagInput = TextEditingController();
 
-  String _category = 'other';
+  String? _category;          // null = not yet selected
   int _deliveryValue = 1;
   String _deliveryUnit = 'Days';
   bool _isLoading = false;
+  String? _tagsError;         // inline error for the tags section
+  String? _imagesError;       // inline error for the images section
 
   static const _deliveryUnits = ['Days', 'Weeks', 'Months'];
   static int _maxForUnit(String unit) => 7; // cap at 7 for all units
@@ -57,7 +59,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
     if (s != null) {
       _titleController.text = s.title;
       _descController.text = s.description;
-      _category = s.category;
+      _category = s.category; // pre-fill from existing
       _tags.addAll(s.tags);
       _portfolioImages.addAll(s.portfolioImageUrls);
       // Load single price — prefer priceMax, fall back to priceMin
@@ -121,7 +123,10 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
           )
         : null;
 
-    setState(() => _portfolioImages.add(remoteUrl ?? localPath!));
+    setState(() {
+      _portfolioImages.add(remoteUrl ?? localPath!);
+      _imagesError = null; // clear error once first image is added
+    });
   }
 
   void _removePortfolioImage(int index) {
@@ -145,25 +150,24 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
     setState(() {
       _tags.add(tag);
       _tagInput.clear();
+      _tagsError = null; // clear error once user adds a tag
     });
   }
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    // Validate non-form fields inline before running the form validator
+    setState(() {
+      _tagsError = _tags.isEmpty ? 'Add at least one skill or tag.' : null;
+      _imagesError = _portfolioImages.isEmpty
+          ? 'At least one service image is required.'
+          : null;
+    });
 
-    if (_tags.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Add at least one skill/tag.')));
-      return;
-    }
-
-    if (_portfolioImages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('At least one portfolio image is required.')));
-      return;
-    }
+    if (!_formKey.currentState!.validate() ||
+        _tags.isEmpty ||
+        _portfolioImages.isEmpty) return;
 
     final price = double.tryParse(_priceController.text.trim());
     final budgetErr = FreelancerServiceService.validatePrice(null, price);
@@ -188,7 +192,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       freelancerName: user.displayName,
       title: _titleController.text.trim(),
       description: _descController.text.trim(),
-      category: _category,
+      category: _category!,
       status: _isEdit
           ? widget.existing!.status
           : ServiceStatus.active,
@@ -247,6 +251,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                 maxImages: _maxPortfolioImages,
                 onAdd: _addPortfolioImage,
                 onRemove: _removePortfolioImage,
+                errorText: _imagesError,
               ),
               const SizedBox(height: 20),
 
@@ -291,6 +296,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.category_outlined),
                 ),
+                hint: const Text('Select a category'),
                 items: AppState.instance.categories
                     .map((c) => DropdownMenuItem(
                           value: c.id,
@@ -300,6 +306,8 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                 onChanged: (v) {
                   if (v != null) setState(() => _category = v);
                 },
+                validator: (v) =>
+                    v == null ? 'Please select a category' : null,
               ),
               const SizedBox(height: 16),
 
@@ -309,6 +317,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                 controller: _tagInput,
                 onAdd: _addTag,
                 onRemove: (t) => setState(() => _tags.remove(t)),
+                errorText: _tagsError,
               ),
               const SizedBox(height: 16),
 
@@ -327,14 +336,18 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                   FilteringTextInputFormatter.allow(
                       RegExp(r'^\d+\.?\d{0,2}')),
                 ],
-                validator: (v) =>
-                    FreelancerServiceService.validatePriceField(v,
-                        isMin: false),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return 'Price is required.';
+                  }
+                  return FreelancerServiceService.validatePriceField(
+                      v, isMin: false);
+                },
               ),
               const SizedBox(height: 16),
 
               // ── Delivery time (amount + unit dropdowns) ──────────────
-              const Text('Delivery Time — Optional',
+              const Text('Delivery Time *',
                   style: TextStyle(
                       fontWeight: FontWeight.w600, fontSize: 13)),
               const SizedBox(height: 8),
@@ -420,12 +433,14 @@ class _PortfolioSection extends StatelessWidget {
     required this.maxImages,
     required this.onAdd,
     required this.onRemove,
+    this.errorText,
   });
 
   final List<String> images;
   final int maxImages;
   final void Function(ImageSource) onAdd;
   final void Function(int) onRemove;
+  final String? errorText;
 
   @override
   Widget build(BuildContext context) {
@@ -475,6 +490,16 @@ class _PortfolioSection extends StatelessWidget {
             );
           },
         ),
+        if (errorText != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            errorText!,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -652,11 +677,13 @@ class _TagsInput extends StatelessWidget {
     required this.controller,
     required this.onAdd,
     required this.onRemove,
+    this.errorText,
   });
   final List<String> tags;
   final TextEditingController controller;
   final VoidCallback onAdd;
   final void Function(String) onRemove;
+  final String? errorText;
 
   @override
   Widget build(BuildContext context) {
@@ -713,6 +740,16 @@ class _TagsInput extends StatelessWidget {
                 ),
               ],
             ),
+            if (errorText != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                errorText!,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
+              ),
+            ],
           ],
         ),
       ),

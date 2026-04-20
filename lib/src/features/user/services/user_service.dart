@@ -63,10 +63,13 @@ class UserService {
       }
       // ────────────────────────────────────────────────────────────────────
 
-      final authResponse = await Supabase.instance.client.auth.signUp(
-        email: email.trim().toLowerCase(),
-        password: password,
-      );
+      final authResponse = await Supabase.instance.client.auth
+          .signUp(email: email.trim().toLowerCase(), password: password)
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw Exception(
+                'Connection timed out. Check your internet or try again.'),
+          );
       if (authResponse.user == null) {
         return 'Registration failed. Please try again.';
       }

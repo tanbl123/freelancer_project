@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -10,9 +12,8 @@ import '../widgets/job_badges.dart';
 
 /// Full detail view for a single [JobPost].
 ///
-/// - Freelancers see an "Apply Now" button (navigates to the Application Module).
-/// - "Message Client" appears if [JobPost.allowPreEngagementChat] is true.
-/// - Owners (clients) see Edit / Close / Cancel / Delete actions.
+/// - Freelancers see "Contact" + "Apply Now" buttons.
+/// - Owners (clients) and admins see Edit / Close / Cancel / Delete via overflow.
 class JobDetailScreen extends StatefulWidget {
   const JobDetailScreen({super.key, required this.post});
   final JobPost post;
@@ -34,13 +35,10 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     super.initState();
     _post = widget.post;
     AppState.instance.addListener(_onStateChanged);
-    // Fire-and-forget view count increment (non-critical).
-    // Only track views from non-owners; the RPC handles atomic increment.
     final user = AppState.instance.currentUser;
     if (user?.uid != _post.clientId) {
       AppState.instance.recordJobPostView(_post.id);
     }
-    // Ensure applications are loaded so the Applied/Apply Now button is correct.
     AppState.instance.reloadApplications();
   }
 
@@ -57,10 +55,10 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
 
   Future<void> _handleClose() async {
     final confirmed = await _confirm(
-        'Close Job Post',
+        'Stop Accepting Applications',
         'Close "${_post.title}"?\n\n'
-            'The post will no longer appear in the job feed and '
-            'will not accept new applications.');
+            'The posting will be hidden from the job feed and '
+            'no new applications will be accepted.');
     if (!confirmed || !mounted) return;
     setState(() => _actionLoading = true);
     final err =
@@ -70,14 +68,14 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       _actionLoading = false;
       if (err == null) _post = _post.copyWith(status: JobStatus.closed);
     });
-    _snack(err, 'Job post closed.');
+    _snack(err, 'Job posting closed.');
   }
 
   Future<void> _handleCancel() async {
     final confirmed = await _confirm(
-        'Cancel Job Post',
+        'Cancel Job Posting',
         'Cancel "${_post.title}"?\n\n'
-            'This action marks the post as cancelled. '
+            'This marks the posting as cancelled. '
             'You can delete it afterwards if needed.');
     if (!confirmed || !mounted) return;
     setState(() => _actionLoading = true);
@@ -88,12 +86,12 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       _actionLoading = false;
       if (err == null) _post = _post.copyWith(status: JobStatus.cancelled);
     });
-    _snack(err, 'Job post cancelled.');
+    _snack(err, 'Job posting cancelled.');
   }
 
   Future<void> _handleReopen() async {
-    final confirmed = await _confirm('Reopen Job Post',
-        'Reopen "${_post.title}"? It will be visible in the job feed again.');
+    final confirmed = await _confirm('Reopen Job Posting',
+        'Reopen "${_post.title}"? It will be visible in the job feed again and accept new applications.');
     if (!confirmed || !mounted) return;
     setState(() => _actionLoading = true);
     final err =
@@ -103,11 +101,11 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       _actionLoading = false;
       if (err == null) _post = _post.copyWith(status: JobStatus.open);
     });
-    _snack(err, 'Job post reopened.');
+    _snack(err, 'Job posting reopened.');
   }
 
   Future<void> _handleDelete() async {
-    final confirmed = await _confirm('Delete Job Post',
+    final confirmed = await _confirm('Delete Job Posting',
         'Permanently delete "${_post.title}"? This cannot be undone.');
     if (!confirmed || !mounted) return;
     setState(() => _actionLoading = true);
@@ -120,11 +118,6 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     } else {
       _snack(err, '');
     }
-  }
-
-  void _handleApply() {
-    Navigator.pushNamed(context, AppRoutes.applicationApply,
-        arguments: _post);
   }
 
   Future<void> _handleContact() async {
@@ -205,15 +198,15 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                     value: 'edit',
                     child: ListTile(
                         leading: Icon(Icons.edit_outlined),
-                        title: Text('Edit'),
+                        title: Text('Edit Posting'),
                         contentPadding: EdgeInsets.zero),
                   ),
                   const PopupMenuItem(
                     value: 'close',
                     child: ListTile(
-                        leading:
-                            Icon(Icons.lock_outline, color: Colors.orange),
-                        title: Text('Close Post',
+                        leading: Icon(Icons.lock_outline,
+                            color: Colors.orange),
+                        title: Text('Stop Accepting Applications',
                             style: TextStyle(color: Colors.orange)),
                         contentPadding: EdgeInsets.zero),
                   ),
@@ -222,38 +215,37 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                     child: ListTile(
                         leading: Icon(Icons.cancel_outlined,
                             color: Colors.red),
-                        title: Text('Cancel Post',
+                        title: Text('Cancel Posting',
                             style: TextStyle(color: Colors.red)),
                         contentPadding: EdgeInsets.zero),
                   ),
                 ],
-                // Closed + not expired → can Reopen
                 if (isClosed && !_post.isExpired)
                   const PopupMenuItem(
                     value: 'reopen',
                     child: ListTile(
                         leading: Icon(Icons.lock_open_outlined,
                             color: Colors.green),
-                        title: Text('Reopen',
+                        title: Text('Reopen Posting',
                             style: TextStyle(color: Colors.green)),
                         contentPadding: EdgeInsets.zero),
                   ),
-                // Closed + expired → can only Cancel (deadline passed, can't reopen)
                 if (isClosed && _post.isExpired)
                   const PopupMenuItem(
                     value: 'cancel',
                     child: ListTile(
                         leading: Icon(Icons.cancel_outlined,
                             color: Colors.red),
-                        title: Text('Cancel Post',
+                        title: Text('Cancel Posting',
                             style: TextStyle(color: Colors.red)),
                         contentPadding: EdgeInsets.zero),
                   ),
                 const PopupMenuItem(
                   value: 'delete',
                   child: ListTile(
-                      leading: Icon(Icons.delete_outline, color: Colors.red),
-                      title: Text('Delete',
+                      leading: Icon(Icons.delete_outline,
+                          color: Colors.red),
+                      title: Text('Delete Posting',
                           style: TextStyle(color: Colors.red)),
                       contentPadding: EdgeInsets.zero),
                 ),
@@ -264,155 +256,173 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       body: _actionLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Cover image ─────────────────────────────────────────
+                  // ── Cover image ─────────────────────────────────────
                   if (_post.coverImageUrl != null)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        _post.coverImageUrl!,
-                        width: double.infinity,
-                        height: 180,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                      ),
-                    ),
-                  if (_post.coverImageUrl != null) const SizedBox(height: 16),
+                    _buildCoverImage(_post.coverImageUrl!),
 
-                  // ── Badges row ──────────────────────────────────────────
-                  Row(
-                    children: [
-                      JobCategoryBadge(_post.category),
-                      const SizedBox(width: 6),
-                      JobStatusBadge(_post.status),
-                      if (_post.isExpired && _post.status == JobStatus.open) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
+                  // ── Status banner (for freelancers) ─────────────────
+                  if (isFreelancer) _JobStatusBanner(post: _post),
+
+                  Padding(
+                    padding:
+                        const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Badges row ──────────────────────────────
+                        Row(
+                          children: [
+                            JobCategoryBadge(_post.category),
+                            const SizedBox(width: 6),
+                            JobStatusBadge(_post.status),
+                            if (_post.isExpired &&
+                                _post.status == JobStatus.open) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.red
+                                      .withValues(alpha: 0.1),
+                                  borderRadius:
+                                      BorderRadius.circular(8),
+                                ),
+                                child: const Text('Deadline Passed',
+                                    style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.red,
+                                        fontWeight:
+                                            FontWeight.bold)),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        // ── Title ───────────────────────────────────
+                        Text(_post.title,
+                            style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+
+                        // ── Client info row ─────────────────────────
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundColor:
+                                  colors.secondaryContainer,
+                              child: Text(
+                                _post.clientName.isNotEmpty
+                                    ? _post.clientName[0].toUpperCase()
+                                    : '?',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: colors.secondary),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _post.clientName,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13),
+                                  ),
+                                  if (_post.createdAt != null)
+                                    Text(
+                                      'Posted on ${DateFormat('d MMM y').format(_post.createdAt!)}',
+                                      style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 11),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // ── Project details card ────────────────────
+                        _ProjectDetailsCard(post: _post),
+                        const SizedBox(height: 20),
+
+                        // ── Description ─────────────────────────────
+                        _SectionCard(
+                          title: 'About This Project',
+                          child: Text(_post.description,
+                              style: const TextStyle(
+                                  height: 1.65, fontSize: 14)),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // ── Required skills ─────────────────────────
+                        if (_post.requiredSkills.isNotEmpty) ...[
+                          _SectionCard(
+                            title: 'Skills Required',
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: _post.requiredSkills
+                                  .map((s) => Chip(
+                                        label: Text(s,
+                                            style: const TextStyle(
+                                                fontSize: 12)),
+                                        visualDensity:
+                                            VisualDensity.compact,
+                                        materialTapTargetSize:
+                                            MaterialTapTargetSize
+                                                .shrinkWrap,
+                                      ))
+                                  .toList(),
+                            ),
                           ),
-                          child: const Text('Deadline Passed',
-                              style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.red,
-                                  fontWeight: FontWeight.bold)),
-                        ),
+                          const SizedBox(height: 16),
+                        ],
+
+                        const SizedBox(height: 80),
                       ],
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ── Title ───────────────────────────────────────────────
-                  Text(_post.title,
-                      style: const TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-
-                  // ── Client info ─────────────────────────────────────────
-                  Row(
-                    children: [
-                      const Icon(Icons.person_outline,
-                          size: 14, color: Colors.grey),
-                      const SizedBox(width: 4),
-                      Text('Posted by ${_post.clientName}',
-                          style: const TextStyle(
-                              color: Colors.grey, fontSize: 13)),
-                      if (_post.createdAt != null) ...[
-                        const Text(' · ',
-                            style: TextStyle(color: Colors.grey)),
-                        Text(
-                          DateFormat('d MMM y').format(_post.createdAt!),
-                          style: const TextStyle(
-                              color: Colors.grey, fontSize: 13),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ── Key info cards ──────────────────────────────────────
-                  _InfoRow(
-                    children: [
-                      if (_post.budgetDisplay != null)
-                        _InfoTile(
-                          icon: Icons.attach_money,
-                          label: 'Budget',
-                          value: _post.budgetDisplay!,
-                          valueColor: Colors.green.shade700,
-                        ),
-                      if (_post.deadline != null)
-                        _InfoTile(
-                          icon: Icons.calendar_today_outlined,
-                          label: 'Deadline',
-                          value: _post.daysUntilDeadline != null &&
-                                  _post.daysUntilDeadline! > 0
-                              ? '${_post.daysUntilDeadline} days left'
-                              : DateFormat('d MMM y')
-                                  .format(_post.deadline!),
-                          valueColor: (_post.daysUntilDeadline ?? 99) <= 3
-                              ? Colors.red
-                              : null,
-                        ),
-                      _InfoTile(
-                        icon: Icons.people_outline,
-                        label: 'Applications',
-                        value: '${_post.applicationCount}',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  // ── Description ─────────────────────────────────────────
-                  const Text('Description',
-                      style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Text(_post.description,
-                      style: const TextStyle(height: 1.6, fontSize: 14)),
-                  const SizedBox(height: 20),
-
-                  // ── Required skills ─────────────────────────────────────
-                  if (_post.requiredSkills.isNotEmpty) ...[
-                    const Text('Required Skills',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      children: _post.requiredSkills
-                          .map((s) => Chip(
-                                label: Text(s),
-                                visualDensity: VisualDensity.compact,
-                              ))
-                          .toList(),
                     ),
-                    const SizedBox(height: 20),
-                  ],
-
-                  const SizedBox(height: 80), // bottom padding for FAB
+                  ),
                 ],
               ),
             ),
 
-      // ── Bottom action bar (freelancers only — clients just browse) ──────────
+      // ── Bottom action bar (freelancers only) ───────────────────────────────
       bottomNavigationBar: !_actionLoading && !_isOwner && isFreelancer
           ? SafeArea(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
                 child: Row(
                   children: [
                     OutlinedButton.icon(
-                      icon: const Icon(Icons.chat_bubble_outline),
-                      label: const Text('Contact'),
+                      icon: const Icon(Icons.chat_bubble_outline,
+                          size: 18),
+                      label: const Text('Message'),
                       onPressed: _handleContact,
+                      style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12)),
                     ),
                     const SizedBox(width: 12),
                     if (_post.isLive)
@@ -426,76 +436,268 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
           : null,
     );
   }
-}
 
-// ── Info tile widgets ──────────────────────────────────────────────────────
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.children});
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(spacing: 10, runSpacing: 10, children: children);
-  }
-}
-
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(10),
+  Widget _buildCoverImage(String url) {
+    final isRemote = url.startsWith('http');
+    final isLocal = url.isNotEmpty && !isRemote && File(url).existsSync();
+    return ClipRRect(
+      borderRadius: const BorderRadius.only(
+        bottomLeft: Radius.circular(0),
+        bottomRight: Radius.circular(0),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 13, color: Colors.grey),
-              const SizedBox(width: 4),
-              Text(label,
-                  style: const TextStyle(
-                      fontSize: 11, color: Colors.grey)),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                color: valueColor),
-          ),
-        ],
+      child: SizedBox(
+        width: double.infinity,
+        height: 200,
+        child: isRemote
+            ? Image.network(url,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink())
+            : isLocal
+                ? Image.file(File(url), fit: BoxFit.cover)
+                : const SizedBox.shrink(),
       ),
     );
   }
 }
 
+// ── Status banner ──────────────────────────────────────────────────────────
+
+class _JobStatusBanner extends StatelessWidget {
+  const _JobStatusBanner({required this.post});
+  final JobPost post;
+
+  @override
+  Widget build(BuildContext context) {
+    if (post.isLive) {
+      return Container(
+        width: double.infinity,
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: Colors.green.shade50,
+        child: Row(
+          children: [
+            Icon(Icons.how_to_reg_outlined,
+                size: 16, color: Colors.green.shade700),
+            const SizedBox(width: 8),
+            Text(
+              'This project is accepting applications',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.green.shade800,
+                  fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      );
+    }
+    if (post.status == JobStatus.closed) {
+      return Container(
+        width: double.infinity,
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: Colors.orange.shade50,
+        child: Row(
+          children: [
+            Icon(Icons.lock_outline, size: 16, color: Colors.orange.shade700),
+            const SizedBox(width: 8),
+            Text(
+              'This posting is no longer accepting applications',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.orange.shade800,
+                  fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      );
+    }
+    if (post.status == JobStatus.cancelled) {
+      return Container(
+        width: double.infinity,
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: Colors.red.shade50,
+        child: Row(
+          children: [
+            Icon(Icons.cancel_outlined,
+                size: 16, color: Colors.red.shade700),
+            const SizedBox(width: 8),
+            Text(
+              'This posting has been cancelled by the client',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.red.shade800,
+                  fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+}
+
+// ── Project details card ────────────────────────────────────────────────────
+
+class _ProjectDetailsCard extends StatelessWidget {
+  const _ProjectDetailsCard({required this.post});
+  final JobPost post;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final daysLeft = post.daysUntilDeadline;
+    final items = <_DetailItem>[];
+
+    if (post.budgetDisplay != null) {
+      items.add(_DetailItem(
+        icon: Icons.payments_outlined,
+        label: 'Budget',
+        value: post.budgetDisplay!,
+        valueColor: Colors.green.shade700,
+      ));
+    }
+
+    if (post.deadline != null) {
+      final deadlineStr = daysLeft != null && daysLeft > 0
+          ? '$daysLeft days left'
+          : DateFormat('d MMM y').format(post.deadline!);
+      items.add(_DetailItem(
+        icon: Icons.event_outlined,
+        label: 'Application Deadline',
+        value: deadlineStr,
+        valueColor: (daysLeft ?? 99) <= 3 ? Colors.red : null,
+      ));
+    }
+
+    if (post.projectDuration != null) {
+      items.add(_DetailItem(
+        icon: Icons.timelapse_outlined,
+        label: 'Project Duration',
+        value: post.projectDuration!,
+      ));
+    }
+
+    items.add(_DetailItem(
+      icon: Icons.people_outline,
+      label: 'Applications',
+      value: '${post.applicationCount} applied',
+    ));
+
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+            color: colors.outline.withValues(alpha: 0.2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Wrap(
+          spacing: 16,
+          runSpacing: 12,
+          children: items
+              .map((item) => SizedBox(
+                    width: 150,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: colors.secondaryContainer
+                                .withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(item.icon,
+                              size: 16, color: colors.secondary),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              Text(item.label,
+                                  style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey)),
+                              const SizedBox(height: 1),
+                              Text(
+                                item.value,
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: item.valueColor),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ))
+              .toList(),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailItem {
+  const _DetailItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color? valueColor;
+}
+
+// ── Section card ───────────────────────────────────────────────────────────
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({required this.title, required this.child});
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 4,
+              height: 18,
+              decoration: BoxDecoration(
+                color: colors.secondary,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        child,
+      ],
+    );
+  }
+}
+
 // ── Apply / Applied button ─────────────────────────────────────────────────
-// Checks the in-memory application list — no extra network call needed.
-// Shows "Apply Now" if the freelancer has no active application for this job,
-// or a disabled "Applied ✓" button if they already have one (pending/accepted/rejected).
-// Withdrawn applications are excluded so the freelancer can re-apply.
 
 class _AlreadyAppliedButton extends StatelessWidget {
   const _AlreadyAppliedButton({required this.jobId});
@@ -522,12 +724,12 @@ class _AlreadyAppliedButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final applied = _hasActiveApplication();
     return FilledButton.icon(
-      icon: Icon(applied ? Icons.check_circle_outline : Icons.send, size: 18),
-      label: Text(applied ? 'Applied' : 'Apply Now'),
+      icon: Icon(applied ? Icons.check_circle_outline : Icons.send,
+          size: 18),
+      label: Text(applied ? 'Already Applied' : 'Apply Now'),
       onPressed: applied ? null : () => _handleApply(context),
       style: FilledButton.styleFrom(
         padding: const EdgeInsets.symmetric(vertical: 14),
-        // Grey out when already applied
         disabledBackgroundColor: Colors.grey.shade300,
         disabledForegroundColor: Colors.grey.shade600,
       ),

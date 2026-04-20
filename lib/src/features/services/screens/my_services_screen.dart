@@ -65,8 +65,8 @@ class _MyServicesBodyState extends State<MyServicesBody>
         TabBar(
           controller: _tabs,
           tabs: const [
-            Tab(text: 'Active'),
-            Tab(text: 'Inactive'),
+            Tab(text: 'Available'),
+            Tab(text: 'Paused'),
           ],
         ),
         Expanded(
@@ -85,9 +85,9 @@ class _MyServicesBodyState extends State<MyServicesBody>
                 controller: _tabs,
                 children: [
                   _ServiceList(
-                      services: active, emptyLabel: 'No active services.'),
+                      services: active, emptyLabel: 'No available services yet.'),
                   _ServiceList(
-                      services: inactive, emptyLabel: 'No inactive services.'),
+                      services: inactive, emptyLabel: 'No paused services.'),
                 ],
               );
             },
@@ -286,34 +286,34 @@ class _MyServiceCardState extends State<_MyServiceCard> {
                       const Spacer(),
                       if (isActive)
                         IconButton(
-                          icon: const Icon(Icons.visibility_off_outlined,
+                          icon: const Icon(Icons.pause_circle_outline,
                               color: Colors.orange),
-                          tooltip: 'Deactivate',
+                          tooltip: 'Pause Service',
                           onPressed: () async {
                             final ok = await _confirm(
-                                'Deactivate',
-                                'Hide "${s.title}" from the feed?');
+                                'Pause Service',
+                                'Hide "${s.title}" from the listing? Clients will not see it until you make it available again.');
                             if (!ok) return;
                             _action(
                                 () => AppState.instance.deactivateService(
                                     s.id, s.freelancerId),
-                                'Service deactivated.');
+                                'Service paused.');
                           },
                         )
                       else
                         IconButton(
-                          icon: const Icon(Icons.visibility_outlined,
+                          icon: const Icon(Icons.play_circle_outline,
                               color: Colors.green),
-                          tooltip: 'Activate',
+                          tooltip: 'Make Available',
                           onPressed: () async {
                             final ok = await _confirm(
-                                'Activate',
-                                'Make "${s.title}" visible again?');
+                                'Make Available',
+                                'Make "${s.title}" visible to clients again?');
                             if (!ok) return;
                             _action(
                                 () => AppState.instance.activateService(
                                     s.id, s.freelancerId),
-                                'Service activated.');
+                                'Service is now available to clients.');
                           },
                         ),
                       IconButton(

@@ -22,12 +22,14 @@ class ProjectRepository {
     ProjectStatus status, {
     String? clientSignatureUrl,
     DateTime? startDate,
+    String? cancellationReason,
   }) =>
       _db.updateProjectStatusEnum(
         id,
         status,
         clientSignatureUrl: clientSignatureUrl,
         startDate: startDate,
+        cancellationReason: cancellationReason,
       );
 
   Future<void> update(ProjectItem project) =>

@@ -143,12 +143,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         title: const Text('Project Payment'),
         // Prevent back-navigation — payment is required to proceed.
         automaticallyImplyLeading: false,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Pay Later'),
-          ),
-        ],
+        actions: const [],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),

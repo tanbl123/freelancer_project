@@ -446,10 +446,35 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
                                     size: 18,
                                     color: Colors.red),
                                 tooltip: 'Remove',
-                                onPressed: () {
-                                  setState(() =>
-                                      _milestones.removeAt(i));
-                                  _reindex();
+                                onPressed: () async {
+                                  final confirmed = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Remove Milestone?'),
+                                      content: Text(
+                                        'Remove "${_milestones[i].title}"? '
+                                        'This cannot be undone.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        FilledButton(
+                                          style: FilledButton.styleFrom(
+                                              backgroundColor: Colors.red),
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
+                                          child: const Text('Remove'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirmed == true) {
+                                    setState(() => _milestones.removeAt(i));
+                                    _reindex();
+                                  }
                                 },
                               ),
                             ],

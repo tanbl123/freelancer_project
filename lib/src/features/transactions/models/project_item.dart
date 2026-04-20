@@ -18,6 +18,7 @@ class ProjectItem {
     this.endDate,
     this.description,
     this.clientSignatureUrl,
+    this.cancellationReason,
     this.createdAt,
     this.updatedAt,
   });
@@ -61,6 +62,9 @@ class ProjectItem {
   /// Client's final digital signature URL — set when project is completed.
   final String? clientSignatureUrl;
 
+  /// Reason provided when the project was cancelled.
+  final String? cancellationReason;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -94,6 +98,7 @@ class ProjectItem {
       'end_date': endDate?.toIso8601String(),
       'description': description,
       'client_signature_url': clientSignatureUrl,
+      'cancellation_reason': cancellationReason,
       'created_at': createdAt?.toIso8601String() ?? now,
       'updated_at': now,
     };
@@ -145,6 +150,7 @@ class ProjectItem {
       endDate: parseDate(map['end_date']),
       description: map['description'] as String?,
       clientSignatureUrl: map['client_signature_url'] as String?,
+      cancellationReason: map['cancellation_reason'] as String?,
       createdAt: parseDate(map['created_at']),
       updatedAt: parseDate(map['updated_at']),
     );
@@ -160,6 +166,7 @@ class ProjectItem {
     DateTime? endDate,
     String? description,
     String? clientSignatureUrl,
+    String? cancellationReason,
   }) {
     return ProjectItem(
       id: id,
@@ -178,6 +185,7 @@ class ProjectItem {
       endDate: endDate ?? this.endDate,
       description: description ?? this.description,
       clientSignatureUrl: clientSignatureUrl ?? this.clientSignatureUrl,
+      cancellationReason: cancellationReason ?? this.cancellationReason,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );

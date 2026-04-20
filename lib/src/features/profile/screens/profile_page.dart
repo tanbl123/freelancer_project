@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:open_file/open_file.dart';
 import '../../../routing/app_router.dart';
 import '../../../shared/enums/account_status.dart';
 import '../../../shared/enums/user_role.dart';
@@ -361,13 +362,13 @@ class ProfilePage extends StatelessWidget {
                 ],
                 SizedBox(
                   width: double.infinity,
-                  child: FilledButton.icon(
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Edit Profile'),
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.person_outline),
+                    label: const Text('Profile Details'),
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (_) => const EditProfilePage()),
+                          builder: (_) => const ProfileDetailsPage()),
                     ),
                   ),
                 ),
@@ -497,20 +498,6 @@ class ProfilePage extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                   color: cs.onSurface)),
         ),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            icon: const Icon(Icons.edit),
-            label: const Text('Edit Profile'),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const EditProfilePage()),
-            ),
-            style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14)),
-          ),
-        ),
-        const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
@@ -826,6 +813,274 @@ class _PortfolioThumb extends StatelessWidget {
         child: Icon(Icons.image_outlined,
             color: cs.onSurface.withValues(alpha: 0.3)),
       );
+}
+
+// ── Profile Details page (pushed from the Profile Details button) ─────────────
+
+class ProfileDetailsPage extends StatelessWidget {
+  const ProfileDetailsPage({super.key});
+
+  static Future<void> _openResume(BuildContext context, String path) async {
+    final result = await OpenFile.open(path);
+    if (result.type != ResultType.done && context.mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Cannot Open File'),
+          content: const Text(
+            'No PDF viewer found on this device.\n\n'
+            'Please install one of these free apps:\n'
+            '• Google Drive\n'
+            '• Adobe Acrobat Reader\n'
+            '• WPS Office',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AppState.instance,
+      builder: (context, _) {
+        final user = AppState.instance.currentUser;
+        if (user == null) return const Scaffold(body: SizedBox.shrink());
+        final isFreelancer = user.role == UserRole.freelancer;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Profile Details'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: 'Edit Profile',
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const EditProfilePage()),
+                ),
+              ),
+            ],
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Avatar + name card
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 40,
+                          backgroundColor:
+                              Theme.of(context).colorScheme.primaryContainer,
+                          backgroundImage: user.photoUrl != null &&
+                                  File(user.photoUrl!).existsSync()
+                              ? FileImage(File(user.photoUrl!))
+                              : null,
+                          child: user.photoUrl == null ||
+                                  !File(user.photoUrl!).existsSync()
+                              ? Text(
+                                  user.displayName[0].toUpperCase(),
+                                  style: const TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold),
+                                )
+                              : null,
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                user.displayName,
+                                style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  Icon(
+                                    user.role == UserRole.client
+                                        ? Icons.business
+                                        : Icons.code,
+                                    size: 14,
+                                    color: Colors.grey,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    user.role.displayName,
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 14),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _AccountStatusBadge(
+                                      status: user.accountStatus),
+                                ],
+                              ),
+                              if (user.email.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(user.email,
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 13)),
+                              ],
+                              if (user.phone.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(user.phone,
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 13)),
+                              ],
+                              if (isFreelancer &&
+                                  (user.averageRating ?? 0) > 0) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.star,
+                                        size: 16, color: Colors.amber),
+                                    Text(
+                                      ' ${user.averageRating!.toStringAsFixed(1)} (${user.totalReviews ?? 0} reviews)',
+                                      style: const TextStyle(
+                                          fontSize: 13, color: Colors.grey),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Bio
+                _SectionCard(
+                  title: 'Bio',
+                  icon: Icons.info_outline,
+                  child: Text(
+                    user.bio?.isNotEmpty == true
+                        ? user.bio!
+                        : 'No bio added yet. Tap edit to add one.',
+                    style: TextStyle(
+                      color: user.bio?.isNotEmpty == true
+                          ? Colors.black87
+                          : Colors.grey,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+
+                // Experience (freelancer only)
+                if (isFreelancer) ...[
+                  const SizedBox(height: 12),
+                  _SectionCard(
+                    title: 'Experience',
+                    icon: Icons.work_history_outlined,
+                    child: Text(
+                      user.experience?.isNotEmpty == true
+                          ? user.experience!
+                          : 'No experience added yet. Tap edit to add.',
+                      style: TextStyle(
+                        color: user.experience?.isNotEmpty == true
+                            ? Colors.black87
+                            : Colors.grey,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+
+                // Skills (freelancer only)
+                if (isFreelancer) ...[
+                  const SizedBox(height: 12),
+                  _SectionCard(
+                    title: 'Skills',
+                    icon: Icons.build_outlined,
+                    child: user.skills.isEmpty
+                        ? const Text('No skills listed yet.',
+                            style: TextStyle(color: Colors.grey))
+                        : Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: user.skills
+                                .map((s) => Chip(
+                                      label: Text(s),
+                                      visualDensity: VisualDensity.compact,
+                                    ))
+                                .toList(),
+                          ),
+                  ),
+                ],
+
+                // Resume (freelancer only)
+                if (isFreelancer) ...[
+                  const SizedBox(height: 12),
+                  _SectionCard(
+                    title: 'Resume / CV',
+                    icon: Icons.description_outlined,
+                    child: user.resumeUrl != null &&
+                            File(user.resumeUrl!).existsSync()
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.picture_as_pdf,
+                                      color: Colors.red, size: 28),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      user.resumeUrl!
+                                          .split('/')
+                                          .last
+                                          .split('\\')
+                                          .last,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w500),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              OutlinedButton.icon(
+                                icon: const Icon(Icons.visibility_outlined,
+                                    size: 16),
+                                label: const Text('Preview Resume'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.blue,
+                                  side: const BorderSide(color: Colors.blue),
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 8, horizontal: 12),
+                                ),
+                                onPressed: () =>
+                                    _openResume(context, user.resumeUrl!),
+                              ),
+                            ],
+                          )
+                        : const Text('No resume uploaded yet.',
+                            style: TextStyle(color: Colors.grey)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 // ── Freelancer request status banner ─────────────────────────────────────────

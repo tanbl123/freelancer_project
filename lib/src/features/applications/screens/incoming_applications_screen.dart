@@ -109,47 +109,20 @@ class _IncomingApplicationsScreenState
     }
   }
 
-  void _confirmAccept(BuildContext ctx, ApplicationItem app) {
-    showDialog<void>(
+  Future<void> _confirmAccept(BuildContext ctx, ApplicationItem app) async {
+    final confirmed = await showDialog<bool>(
       context: ctx,
-      builder: (_) => AlertDialog(
-        title: const Text('Accept Application'),
-        content: Text(
-          'Accept ${app.freelancerName}\'s proposal?\n\n'
-          'All other pending applications for this job will be '
-          'automatically rejected and a project will be created.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              final err = await AppState.instance.acceptApplication(app);
-              if (ctx.mounted) {
-                if (err != null) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                    SnackBar(
-                        content: Text(err),
-                        backgroundColor: Colors.red),
-                  );
-                } else {
-                  ScaffoldMessenger.of(ctx).showSnackBar(
-                    const SnackBar(
-                      content: Text('Application accepted — project created!'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text('Accept'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (_) => _AcceptDialog(app: app),
     );
+    if (confirmed == true && ctx.mounted) {
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        const SnackBar(
+          content: Text('Application accepted — project created!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -211,7 +184,7 @@ class _IncomingApplicationsScreenState
                 emptyIcon: Icons.inbox_outlined,
                 emptyMessage: 'No pending applications.',
                 onAccept: (a) => _confirmAccept(context, a),
-                onReject: _reject,
+                onReject: (a) => _reject(a),
                 showActions: true,
               ),
               // ── All tab ──────────────────────────────────────────────
@@ -221,7 +194,7 @@ class _IncomingApplicationsScreenState
                 emptyIcon: Icons.description_outlined,
                 emptyMessage: 'No applications received yet.',
                 onAccept: (a) => _confirmAccept(context, a),
-                onReject: _reject,
+                onReject: (a) => _reject(a),
                 showActions: false, // history view — no actions
               ),
             ],
@@ -249,7 +222,7 @@ class _ApplicationList extends StatelessWidget {
   final Set<String> newIds;
   final IconData emptyIcon;
   final String emptyMessage;
-  final void Function(ApplicationItem) onAccept;
+  final Future<void> Function(ApplicationItem) onAccept;
   final Future<void> Function(ApplicationItem) onReject;
   final bool showActions;
 
@@ -281,8 +254,8 @@ class _ApplicationList extends StatelessWidget {
           isNew: newIds.contains(apps[i].id),
           showActions: showActions &&
               apps[i].status == ApplicationStatus.pending,
-          onAccept: () => onAccept(apps[i]),
-          onReject: () => onReject(apps[i]),
+          onAccept: () async => onAccept(apps[i]),
+          onReject: () async => onReject(apps[i]),
         ),
       ),
     );
@@ -303,7 +276,7 @@ class _ApplicationCard extends StatefulWidget {
   final ApplicationItem app;
   final bool isNew;
   final bool showActions;
-  final VoidCallback onAccept;
+  final Future<void> Function() onAccept;
   final Future<void> Function() onReject;
 
   @override
@@ -478,7 +451,11 @@ class _ApplicationCardState extends State<_ApplicationCard> {
                           FilledButton.icon(
                             icon: const Icon(Icons.check, size: 16),
                             label: const Text('Accept'),
-                            onPressed: widget.onAccept,
+                            onPressed: _busy ? null : () async {
+                              setState(() => _busy = true);
+                              await widget.onAccept();
+                              if (mounted) setState(() => _busy = false);
+                            },
                           ),
                         ],
                       ),
@@ -534,6 +511,66 @@ class _Detail extends StatelessWidget {
         const SizedBox(width: 3),
         Text(label,
             style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      ],
+    );
+  }
+}
+
+// ── Accept confirmation dialog with loading state ─────────────────────────────
+
+class _AcceptDialog extends StatefulWidget {
+  const _AcceptDialog({required this.app});
+  final ApplicationItem app;
+
+  @override
+  State<_AcceptDialog> createState() => _AcceptDialogState();
+}
+
+class _AcceptDialogState extends State<_AcceptDialog> {
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Accept Application'),
+      content: Text(
+        'Accept ${widget.app.freelancerName}\'s proposal?\n\n'
+        'All other pending applications for this job will be '
+        'automatically rejected and a project will be created.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: _loading ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _loading
+              ? null
+              : () async {
+                  setState(() => _loading = true);
+                  final err =
+                      await AppState.instance.acceptApplication(widget.app);
+                  if (!mounted) return;
+                  if (err != null) {
+                    setState(() => _loading = false);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text(err),
+                          backgroundColor: Colors.red),
+                    );
+                  } else {
+                    Navigator.pop(context, true);
+                  }
+                },
+          child: _loading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Accept'),
+        ),
       ],
     );
   }
