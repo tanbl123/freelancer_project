@@ -561,8 +561,6 @@ class _JobCard extends StatelessWidget {
               Row(
                 children: [
                   if (post.budgetDisplay != null) ...[
-                    const Icon(Icons.attach_money,
-                        size: 14, color: Colors.green),
                     Text(post.budgetDisplay!,
                         style: const TextStyle(
                             fontSize: 12,

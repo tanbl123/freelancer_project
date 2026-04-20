@@ -183,6 +183,44 @@ class NotificationService {
         createdAt: DateTime.now(),
       );
 
+  /// Sent to the freelancer when the client approves the plan AND payment is held.
+  /// Signals "you can now start your work".
+  static InAppNotification makePlanApproved({
+    required String freelancerId,
+    required String projectTitle,
+    required double heldAmount,
+    required String projectId,
+  }) =>
+      InAppNotification(
+        id: _uuid.v4(),
+        userId: freelancerId,
+        title: '🎉 Plan approved — start your work!',
+        body: 'The client has approved your plan for "$projectTitle" and '
+            'secured RM ${heldAmount.toStringAsFixed(2)} in escrow. '
+            'You can now begin working on the first milestone.',
+        type: NotificationType.paymentHeld,
+        linkedProjectId: projectId,
+        createdAt: DateTime.now(),
+      );
+
+  /// Sent to the client when the freelancer proposes a milestone plan.
+  static InAppNotification makePlanProposed({
+    required String clientId,
+    required String projectTitle,
+    required int milestoneCount,
+    required String projectId,
+  }) =>
+      InAppNotification(
+        id: _uuid.v4(),
+        userId: clientId,
+        title: '📋 Milestone plan ready for review',
+        body: 'The freelancer has proposed a $milestoneCount-milestone plan '
+            'for "$projectTitle". Review and pay to get started.',
+        type: NotificationType.milestoneSubmitted,
+        linkedProjectId: projectId,
+        createdAt: DateTime.now(),
+      );
+
   /// Sent to the client when the freelancer submits a deliverable.
   static InAppNotification makeMilestoneSubmitted({
     required String clientId,
@@ -239,6 +277,81 @@ class NotificationService {
         type: NotificationType.milestoneRejected,
         linkedProjectId: projectId,
         linkedMilestoneId: milestoneId,
+        createdAt: DateTime.now(),
+      );
+
+  // ── Application & order factories ─────────────────────────────────────────
+
+  /// Sent to the CLIENT when a freelancer submits a new application on their job.
+  static InAppNotification makeNewApplicant({
+    required String clientId,
+    required String jobTitle,
+    required String freelancerName,
+    required String jobId,
+  }) =>
+      InAppNotification(
+        id: _uuid.v4(),
+        userId: clientId,
+        title: '📩 New applicant on "$jobTitle"',
+        body: '$freelancerName has applied to your job posting. '
+            'Review their application and proposal.',
+        type: NotificationType.applicationAccepted, // closest semantic match
+        linkedProjectId: jobId,
+        createdAt: DateTime.now(),
+      );
+
+  /// Sent to the FREELANCER when a client places a new service order.
+  static InAppNotification makeNewServiceOrder({
+    required String freelancerId,
+    required String serviceTitle,
+    required String clientName,
+    required String orderId,
+  }) =>
+      InAppNotification(
+        id: _uuid.v4(),
+        userId: freelancerId,
+        title: '🛒 New order: "$serviceTitle"',
+        body: '$clientName has placed an order for your service. '
+            'Accept to create a project, or reject if you cannot take it.',
+        type: NotificationType.orderPlaced,
+        linkedProjectId: orderId, // links to order detail via notification tap
+        createdAt: DateTime.now(),
+      );
+
+  /// Sent to the CLIENT when a freelancer accepts their service order.
+  static InAppNotification makeOrderAccepted({
+    required String clientId,
+    required String serviceTitle,
+    required String freelancerName,
+    required String projectId,
+  }) =>
+      InAppNotification(
+        id: _uuid.v4(),
+        userId: clientId,
+        title: '✅ Order accepted — "$serviceTitle"',
+        body: '$freelancerName has accepted your order and created a project. '
+            'Wait for the milestone plan, then review and pay to get started.',
+        type: NotificationType.orderAccepted,
+        linkedProjectId: projectId,
+        createdAt: DateTime.now(),
+      );
+
+  /// Sent to the CLIENT when a freelancer rejects their service order.
+  static InAppNotification makeOrderRejected({
+    required String clientId,
+    required String serviceTitle,
+    required String freelancerName,
+    required String reason,
+    required String orderId,
+  }) =>
+      InAppNotification(
+        id: _uuid.v4(),
+        userId: clientId,
+        title: '❌ Order rejected — "$serviceTitle"',
+        body: '$freelancerName could not accept your order. '
+            'Reason: $reason. You may order from another freelancer.',
+        type: NotificationType.orderRejected,
+        linkedProjectId: orderId,
         createdAt: DateTime.now(),
       );
 

@@ -57,6 +57,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // ── Payment flow ───────────────────────────────────────────────────────────
 
   Future<void> _pay() async {
+    if (_total <= 0) {
+      setState(() => _errorMessage =
+          'Contract value is RM 0. Please ensure the project has a valid budget before proceeding.');
+      return;
+    }
     if (_cardDetails?.complete != true) {
       setState(
           () => _errorMessage = 'Please enter complete card details.');
@@ -140,10 +145,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Project Payment'),
-        // Prevent back-navigation — payment is required to proceed.
-        automaticallyImplyLeading: false,
-        actions: const [],
+        title: const Text('Secure Payment'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -159,97 +161,102 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
             const SizedBox(height: 16),
 
-            // ── Milestone breakdown ───────────────────────────────────
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Milestone Breakdown',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
-                    const SizedBox(height: 10),
-                    ..._sorted.map((m) {
-                      final calc = PaymentService.calculatePayout(
-                          m.paymentAmount);
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            CircleAvatar(
-                              radius: 13,
-                              backgroundColor: Theme.of(context)
-                                  .colorScheme
-                                  .primaryContainer,
-                              child: Text(
-                                '${m.orderIndex}',
-                                style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .primary),
+            // ── Breakdown card ────────────────────────────────────────
+            // Single Delivery: show a simple one-line summary.
+            // Milestone plan: show full per-milestone breakdown.
+            if (widget.project.isSingleDelivery || _sorted.isEmpty)
+              _SingleDeliveryBreakdown(total: _total)
+            else
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Milestone Breakdown',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                      const SizedBox(height: 10),
+                      ..._sorted.map((m) {
+                        final calc = PaymentService.calculatePayout(
+                            m.paymentAmount);
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Row(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                radius: 13,
+                                backgroundColor: Theme.of(context)
+                                    .colorScheme
+                                    .primaryContainer,
+                                child: Text(
+                                  '${m.orderIndex}',
+                                  style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary),
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    m.title,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w600),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '${m.percentage.toStringAsFixed(0)}%  ·  '
-                                    'Gross RM ${calc.grossAmount.toStringAsFixed(2)}  '
-                                    '− Fee RM ${calc.platformFee.toStringAsFixed(2)}  '
-                                    '= Net RM ${calc.netAmount.toStringAsFixed(2)}',
-                                    style: const TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey),
-                                  ),
-                                ],
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      m.title,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${m.percentage.toStringAsFixed(0)}%  ·  '
+                                      'Gross RM ${calc.grossAmount.toStringAsFixed(2)}  '
+                                      '− Fee RM ${calc.platformFee.toStringAsFixed(2)}  '
+                                      '= Net RM ${calc.netAmount.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                    const Divider(),
-                    Row(
-                      mainAxisAlignment:
-                          MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Total charged now:',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          'RM ${_total.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 17,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary,
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                        );
+                      }),
+                      const Divider(),
+                      Row(
+                        mainAxisAlignment:
+                            MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Total charged now:',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            'RM ${_total.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 17,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
             const SizedBox(height: 16),
 
             // ── Stripe card input ─────────────────────────────────────
@@ -386,7 +393,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
             // ── Pay button ────────────────────────────────────────────
             FilledButton.icon(
-              onPressed: _processing ? null : _pay,
+              onPressed: (_processing || _total <= 0) ? null : _pay,
               style: FilledButton.styleFrom(
                   padding:
                       const EdgeInsets.symmetric(vertical: 16)),
@@ -400,15 +407,32 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               label: Text(
                 _processing
                     ? 'Processing…'
-                    : 'Hold RM ${_total.toStringAsFixed(2)} in Escrow',
+                    : _total <= 0
+                        ? 'Invalid Budget (RM 0)'
+                        : 'Hold RM ${_total.toStringAsFixed(2)} in Escrow',
                 style: const TextStyle(fontSize: 16),
               ),
             ),
+            if (_total <= 0) ...[
+              const SizedBox(height: 8),
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      size: 14, color: Colors.red),
+                  SizedBox(width: 4),
+                  Text(
+                    'Project has no budget set. Contact the client.',
+                    style: TextStyle(fontSize: 11, color: Colors.red),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             Center(
               child: Text(
-                'Funds are released to the freelancer only after '
-                'you approve each milestone.',
+                'Payment is required before work begins. '
+                'Funds are released per milestone after your approval.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     fontSize: 11, color: Colors.grey.shade600),
@@ -466,6 +490,65 @@ class _PaymentSummaryCard extends StatelessWidget {
               'Freelancer receives (total)',
               'RM ${freelancerNet.toStringAsFixed(2)}',
               subtle: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Simplified breakdown shown for Single Delivery projects (no milestone list).
+class _SingleDeliveryBreakdown extends StatelessWidget {
+  const _SingleDeliveryBreakdown({required this.total});
+  final double total;
+
+  @override
+  Widget build(BuildContext context) {
+    final calc = PaymentService.calculatePayout(total);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(children: [
+              Icon(Icons.bolt, size: 16, color: Colors.orange),
+              SizedBox(width: 6),
+              Text('Single Delivery',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 15)),
+            ]),
+            const SizedBox(height: 10),
+            const Text(
+              'Full payment is held in escrow now and released to the '
+              'freelancer only after you approve their final submission.',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            const SizedBox(height: 10),
+            const Divider(),
+            _InfoRow('Gross amount',
+                'RM ${calc.grossAmount.toStringAsFixed(2)}'),
+            _InfoRow('Platform fee (10%)',
+                '− RM ${calc.platformFee.toStringAsFixed(2)}',
+                subtle: true),
+            _InfoRow('Freelancer receives',
+                'RM ${calc.netAmount.toStringAsFixed(2)}',
+                subtle: true),
+            const Divider(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Total charged now:',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  'RM ${total.toStringAsFixed(2)}',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 17,
+                      color: Theme.of(context).colorScheme.primary),
+                ),
+              ],
             ),
           ],
         ),

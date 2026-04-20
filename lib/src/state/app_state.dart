@@ -1283,6 +1283,15 @@ class AppState extends ChangeNotifier {
     final error = await _orderService.submitOrder(_currentUser!, order);
     if (error == null) {
       _serviceOrders.insert(0, order);
+      // Notify the freelancer they have a new order to accept or reject.
+      try {
+        await _notifSvc.send(NotificationService.makeNewServiceOrder(
+          freelancerId: order.freelancerId,
+          serviceTitle: order.serviceTitle,
+          clientName: _currentUser!.displayName ?? 'A client',
+          orderId: order.id,
+        ));
+      } catch (_) {}
       notifyListeners();
     }
     return error;
@@ -1310,6 +1319,22 @@ class AppState extends ChangeNotifier {
     // Create a project from the accepted order.
     final projectId = _uuid.v4();
     final client = await _db.getUserById(order.clientId);
+
+    // ── Resolve total budget ─────────────────────────────────────────────
+    // Priority: client's proposed budget → service listed price → null.
+    double? resolvedBudget = order.proposedBudget;
+    if (resolvedBudget == null) {
+      final svc = await _serviceRepo.getById(order.serviceId);
+      resolvedBudget = svc?.priceMax ?? svc?.priceMin;
+    }
+
+    // ── Resolve end date ─────────────────────────────────────────────────
+    // Use timelineDays from the order as a tentative project deadline.
+    // This ensures milestone date pickers are correctly constrained.
+    final DateTime? resolvedEndDate = order.timelineDays != null
+        ? DateTime.now().add(Duration(days: order.timelineDays!))
+        : null;
+
     final project = ProjectItem(
       id: projectId,
       jobId: '',
@@ -1322,7 +1347,8 @@ class AppState extends ChangeNotifier {
       freelancerName: _currentUser!.displayName,
       sourceType: 'service',
       serviceOrderId: order.id,
-      totalBudget: order.proposedBudget,
+      totalBudget: resolvedBudget,
+      endDate: resolvedEndDate,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
@@ -1334,6 +1360,17 @@ class AppState extends ChangeNotifier {
     _replaceOrderInList(
         order.copyWith(status: ServiceOrderStatus.convertedToProject));
     _projects.insert(0, project);
+
+    // Notify the client their order was accepted and a project has been created.
+    try {
+      await _notifSvc.send(NotificationService.makeOrderAccepted(
+        clientId: order.clientId,
+        serviceTitle: order.serviceTitle,
+        freelancerName: _currentUser!.displayName ?? 'The freelancer',
+        projectId: projectId,
+      ));
+    } catch (_) {}
+
     notifyListeners();
     return null;
   }
@@ -1347,6 +1384,16 @@ class AppState extends ChangeNotifier {
     if (error == null) {
       _replaceOrderInList(
           order.copyWith(status: ServiceOrderStatus.rejected));
+      // Notify the client their order was rejected.
+      try {
+        await _notifSvc.send(NotificationService.makeOrderRejected(
+          clientId: order.clientId,
+          serviceTitle: order.serviceTitle,
+          freelancerName: _currentUser!.displayName ?? 'The freelancer',
+          reason: reason,
+          orderId: order.id,
+        ));
+      } catch (_) {}
       notifyListeners();
     }
     return error;
@@ -1396,7 +1443,7 @@ class AppState extends ChangeNotifier {
     if (duplicate) return 'You already applied to this job.';
 
     // Try the new JobPost system first, then fall back to legacy MarketplacePost.
-    final jobPost = await _db.getJobPostById(app.jobId);
+    JobPost? jobPost = await _db.getJobPostById(app.jobId);
     if (jobPost != null) {
       if (!jobPost.isLive) {
         return 'This job is no longer accepting applications.';
@@ -1412,6 +1459,20 @@ class AppState extends ChangeNotifier {
 
     await _db.insertApplication(app);
     _applications.insert(0, app);
+
+    // Notify the client that a new freelancer has applied to their job.
+    try {
+      final clientId = app.clientId.isNotEmpty ? app.clientId : jobPost?.clientId ?? '';
+      if (clientId.isNotEmpty) {
+        await _notifSvc.send(NotificationService.makeNewApplicant(
+          clientId: clientId,
+          jobTitle: jobPost?.title ?? 'your job',
+          freelancerName: _currentUser?.displayName ?? 'A freelancer',
+          jobId: app.jobId,
+        ));
+      }
+    } catch (_) {}
+
     notifyListeners();
     return null;
   }
@@ -1529,7 +1590,7 @@ class AppState extends ChangeNotifier {
   }
 
   /// Freelancer proposes the milestone plan. Project stays pendingStart until
-  /// the client approves the plan.
+  /// the client approves the plan and pays.
   Future<String?> proposeMilestonePlan(
     ProjectItem project,
     List<MilestoneItem> milestones,
@@ -1537,7 +1598,18 @@ class AppState extends ChangeNotifier {
     if (_currentUser == null) return 'Not logged in.';
     final error =
         await _milestoneSvc.proposePlan(_currentUser!, project, milestones);
-    notifyListeners();
+    if (error == null) {
+      // Notify the client that the plan is ready for review and payment
+      try {
+        await _notifSvc.send(NotificationService.makePlanProposed(
+          clientId: project.clientId,
+          projectTitle: project.jobTitle ?? 'a project',
+          milestoneCount: milestones.length,
+          projectId: project.id,
+        ));
+      } catch (_) {}
+      notifyListeners();
+    }
     return error;
   }
 
@@ -1552,6 +1624,15 @@ class AppState extends ChangeNotifier {
     if (error == null) {
       _updateProjectInList(project.id,
           (p) => p.copyWith(status: ProjectStatus.inProgress));
+      // Notify freelancer: payment secured, start working
+      try {
+        await _notifSvc.send(NotificationService.makePlanApproved(
+          freelancerId: project.freelancerId,
+          projectTitle: project.jobTitle ?? 'your project',
+          heldAmount: project.totalBudget ?? 0,
+          projectId: project.id,
+        ));
+      } catch (_) {}
       notifyListeners();
     }
     return error;
@@ -2239,6 +2320,211 @@ class AppState extends ChangeNotifier {
     await _db.deleteMilestone(milestoneId);
     _milestones.removeWhere((m) => m.id == milestoneId);
     notifyListeners();
+  }
+
+  // ── Single Delivery ────────────────────────────────────────────────────────
+
+  /// Freelancer selects "Single Delivery" mode.
+  /// Project stays [ProjectStatus.pendingStart] — it only moves to
+  /// [ProjectStatus.inProgress] after the client pays (see [approveSingleDeliveryStart]).
+  Future<String?> chooseSingleDelivery(ProjectItem project) async {
+    if (_currentUser == null) return 'Not logged in.';
+    if (_currentUser!.uid != project.freelancerId) return 'Access denied.';
+    if (!project.isPendingStart) return 'Project is not in pending-start state.';
+
+    try {
+      await _db.markSingleDeliveryMode(project.id);
+      _updateProjectInCache(project.copyWith(
+        deliveryMode: ProjectDeliveryMode.single,
+        // status stays pendingStart — client must pay first
+      ));
+      // Notify the client that the freelancer chose single delivery
+      // and they need to pay to get work started.
+      try {
+        await _notifSvc.send(NotificationService.makePlanProposed(
+          clientId: project.clientId,
+          projectTitle: project.jobTitle ?? 'a project',
+          milestoneCount: 1, // single delivery = 1 submission
+          projectId: project.id,
+        ));
+      } catch (_) {}
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to choose single delivery: $e';
+    }
+  }
+
+  /// Client pays for a Single Delivery project → project moves to inProgress.
+  /// Freelancer is notified to start their work.
+  Future<String?> approveSingleDeliveryStart(ProjectItem project) async {
+    if (_currentUser == null) return 'Not logged in.';
+    if (_currentUser!.uid != project.clientId) return 'Access denied.';
+    if (!project.isPendingStart || !project.isSingleDelivery) {
+      return 'Project is not awaiting single delivery payment.';
+    }
+
+    try {
+      await _db.updateProjectStatusEnum(
+        project.id,
+        ProjectStatus.inProgress,
+        startDate: DateTime.now(),
+      );
+      _updateProjectInCache(project.copyWith(
+        status: ProjectStatus.inProgress,
+        startDate: DateTime.now(),
+      ));
+      // Notify freelancer they can start working
+      try {
+        await _notifSvc.send(NotificationService.makePlanApproved(
+          freelancerId: project.freelancerId,
+          projectTitle: project.jobTitle ?? 'your project',
+          heldAmount: project.totalBudget ?? 0,
+          projectId: project.id,
+        ));
+      } catch (_) {}
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to start single delivery project: $e';
+    }
+  }
+
+  /// Freelancer submits their single deliverable URL.
+  Future<String?> submitSingleDelivery(
+      ProjectItem project, String deliverableUrl) async {
+    if (_currentUser == null) return 'Not logged in.';
+    if (_currentUser!.uid != project.freelancerId) return 'Access denied.';
+    if (!project.isSingleDelivery) return 'Project is not in single-delivery mode.';
+    if (deliverableUrl.trim().isEmpty) {
+      return 'Please provide a deliverable link or description.';
+    }
+
+    try {
+      await _db.submitSingleDelivery(project.id, deliverableUrl.trim());
+      _updateProjectInCache(project.copyWith(
+        singleDeliverableUrl: deliverableUrl.trim(),
+        singleRejectionNote: null,
+      ));
+      // Notify client
+      try {
+        await _notifSvc.send(
+          NotificationService.makeMilestoneSubmitted(
+            clientId: project.clientId,
+            milestoneTitle: project.jobTitle ?? 'your project',
+            projectId: project.id,
+            milestoneId: project.id, // no milestone id in single mode
+          ),
+        );
+      } catch (_) {}
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to submit deliverable: $e';
+    }
+  }
+
+  /// Client approves the single-delivery submission: sign + pay → completed.
+  Future<String?> approveSingleDelivery(
+      ProjectItem project, String signaturePath) async {
+    if (_currentUser == null) return 'Not logged in.';
+    if (_currentUser!.uid != project.clientId) return 'Access denied.';
+    if (!project.isSingleDeliverySubmitted) {
+      return 'No deliverable has been submitted yet.';
+    }
+
+    try {
+      // Resolve / simulate payment token
+      _currentPaymentRecord ??=
+          await _paymentRepo.getForProject(project.id);
+
+      String payoutToken;
+      if (_currentPaymentRecord != null && _currentPaymentRecord!.isHeld) {
+        try {
+          // Release full budget from escrow (single milestone = 100%)
+          payoutToken = StripeService.generateSimulatedToken();
+        } catch (_) {
+          payoutToken = StripeService.generateSimulatedToken();
+        }
+      } else {
+        payoutToken = StripeService.generateSimulatedToken();
+      }
+
+      // Mark project completed
+      await _db.updateProjectStatusEnum(
+        project.id,
+        ProjectStatus.completed,
+        clientSignatureUrl: signaturePath,
+      );
+
+      _updateProjectInCache(project.copyWith(
+        status: ProjectStatus.completed,
+        clientSignatureUrl: signaturePath,
+      ));
+
+      // Notify freelancer
+      try {
+        await _notifSvc.send(
+          NotificationService.makeMilestoneApproved(
+            freelancerId: project.freelancerId,
+            milestoneTitle: project.jobTitle ?? 'the project',
+            netAmount: (project.totalBudget ?? 0) * 0.9,
+            projectId: project.id,
+            milestoneId: project.id,
+          ),
+        );
+      } catch (_) {}
+
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to approve delivery: $e';
+    }
+  }
+
+  /// Client rejects the single-delivery submission — freelancer must re-submit.
+  Future<String?> rejectSingleDelivery(
+      ProjectItem project, String reason) async {
+    if (_currentUser == null) return 'Not logged in.';
+    if (_currentUser!.uid != project.clientId) return 'Access denied.';
+    if (!project.isSingleDeliverySubmitted) {
+      return 'No deliverable has been submitted yet.';
+    }
+    if (reason.trim().isEmpty) return 'Please provide a rejection reason.';
+
+    try {
+      await _db.rejectSingleDelivery(project.id, reason.trim());
+      _updateProjectInCache(project.copyWith(
+        singleDeliverableUrl: null,
+        singleRejectionNote: reason.trim(),
+      ));
+      // Notify freelancer
+      try {
+        await _notifSvc.send(
+          NotificationService.makeMilestoneRejected(
+            freelancerId: project.freelancerId,
+            milestoneTitle: project.jobTitle ?? 'the project',
+            reason: reason.trim(),
+            projectId: project.id,
+            milestoneId: project.id,
+          ),
+        );
+      } catch (_) {}
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to reject delivery: $e';
+    }
+  }
+
+  /// Updates or inserts [project] in the in-memory [_projects] cache.
+  void _updateProjectInCache(ProjectItem project) {
+    final idx = _projects.indexWhere((p) => p.id == project.id);
+    if (idx >= 0) {
+      _projects[idx] = project;
+    } else {
+      _projects.add(project);
+    }
   }
 
   // ── Reviews ────────────────────────────────────────────────────────────────

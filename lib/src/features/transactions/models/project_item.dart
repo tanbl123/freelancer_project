@@ -19,6 +19,9 @@ class ProjectItem {
     this.description,
     this.clientSignatureUrl,
     this.cancellationReason,
+    this.deliveryMode = ProjectDeliveryMode.milestone,
+    this.singleDeliverableUrl,
+    this.singleRejectionNote,
     this.createdAt,
     this.updatedAt,
   });
@@ -65,6 +68,17 @@ class ProjectItem {
   /// Reason provided when the project was cancelled.
   final String? cancellationReason;
 
+  /// How the freelancer delivers work — [ProjectDeliveryMode.milestone] (default)
+  /// or [ProjectDeliveryMode.single].
+  final ProjectDeliveryMode deliveryMode;
+
+  /// Non-null when [deliveryMode] == [ProjectDeliveryMode.single] and the
+  /// freelancer has submitted their deliverable (awaiting client review).
+  final String? singleDeliverableUrl;
+
+  /// Set by the client when they reject a single-delivery submission.
+  final String? singleRejectionNote;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -77,6 +91,15 @@ class ProjectItem {
   bool get isDisputed => status == ProjectStatus.disputed;
   bool get isActive =>
       status == ProjectStatus.inProgress || status == ProjectStatus.pendingStart;
+
+  // Single-delivery helpers
+  bool get isSingleDelivery => deliveryMode == ProjectDeliveryMode.single;
+  /// Freelancer has submitted; awaiting client review.
+  bool get isSingleDeliverySubmitted =>
+      isSingleDelivery && singleDeliverableUrl != null && !isCompleted;
+  /// Client rejected the single-delivery submission.
+  bool get isSingleDeliveryRejected =>
+      isSingleDelivery && singleRejectionNote != null && singleDeliverableUrl == null;
 
   // ── Supabase map (ISO 8601) ──────────────────────────────────────────────────
   Map<String, dynamic> toSupabaseMap() {
@@ -99,6 +122,9 @@ class ProjectItem {
       'description': description,
       'client_signature_url': clientSignatureUrl,
       'cancellation_reason': cancellationReason,
+      'delivery_mode': deliveryMode == ProjectDeliveryMode.single ? 'single' : null,
+      'single_deliverable_url': singleDeliverableUrl,
+      'single_rejection_note': singleRejectionNote,
       'created_at': createdAt?.toIso8601String() ?? now,
       'updated_at': now,
     };
@@ -151,6 +177,9 @@ class ProjectItem {
       description: map['description'] as String?,
       clientSignatureUrl: map['client_signature_url'] as String?,
       cancellationReason: map['cancellation_reason'] as String?,
+      deliveryMode: ProjectDeliveryMode.fromString(map['delivery_mode'] as String?),
+      singleDeliverableUrl: map['single_deliverable_url'] as String?,
+      singleRejectionNote: map['single_rejection_note'] as String?,
       createdAt: parseDate(map['created_at']),
       updatedAt: parseDate(map['updated_at']),
     );
@@ -167,6 +196,9 @@ class ProjectItem {
     String? description,
     String? clientSignatureUrl,
     String? cancellationReason,
+    ProjectDeliveryMode? deliveryMode,
+    Object? singleDeliverableUrl = _sentinel,
+    Object? singleRejectionNote = _sentinel,
   }) {
     return ProjectItem(
       id: id,
@@ -186,8 +218,17 @@ class ProjectItem {
       description: description ?? this.description,
       clientSignatureUrl: clientSignatureUrl ?? this.clientSignatureUrl,
       cancellationReason: cancellationReason ?? this.cancellationReason,
+      deliveryMode: deliveryMode ?? this.deliveryMode,
+      singleDeliverableUrl: singleDeliverableUrl == _sentinel
+          ? this.singleDeliverableUrl
+          : singleDeliverableUrl as String?,
+      singleRejectionNote: singleRejectionNote == _sentinel
+          ? this.singleRejectionNote
+          : singleRejectionNote as String?,
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
   }
+
+  static const Object _sentinel = Object();
 }

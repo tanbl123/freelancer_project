@@ -394,10 +394,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             const SizedBox(height: 10),
             // ── Payment status banner ─────────────────────────────────
             if (paymentRecord != null)
-              _PaymentStatusBanner(payment: paymentRecord)
-            else if (_project!.isInProgress && isClient)
-              _PaymentNudgeBanner(project: _project!,
-                  milestones: _milestones),
+              _PaymentStatusBanner(payment: paymentRecord),
             // ── Overdue warning banner ────────────────────────────────
             ..._milestones
                 .where((m) => m.isInProgress)
@@ -456,22 +453,45 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
 
   List<Widget> _buildPendingStartSection(
       BuildContext context, bool isClient) {
+    final project = _project!;
     final hasMilestones = _milestones.isNotEmpty;
     final allPending = hasMilestones &&
         _milestones.every((m) => m.isPendingApproval);
 
+    // ── Single Delivery: chosen but awaiting client payment ──────────────────
+    if (project.isSingleDelivery) {
+      if (isClient) {
+        return [_SingleDeliveryPayCard(
+          project: project,
+          onPayAndStart: () => _payAndStartSingleDelivery(project),
+        )];
+      } else {
+        return [
+          _StatusBanner(
+            icon: Icons.hourglass_top,
+            color: Colors.orange,
+            title: 'Waiting for Client Payment',
+            subtitle: 'You chose Single Delivery. The client needs to '
+                'secure payment before you can start working.',
+          ),
+        ];
+      }
+    }
+
     if (isClient) {
+      // ── Client: no plan yet ────────────────────────────────────────────────
       if (!hasMilestones) {
         return [
           _StatusBanner(
             icon: Icons.hourglass_empty,
             color: Colors.blue,
-            title: 'Awaiting Milestone Plan',
+            title: 'Awaiting Delivery Plan',
             subtitle:
-                'The freelancer is preparing the milestone plan for your review.',
+                'The freelancer is preparing their delivery plan for your review.',
           ),
         ];
       }
+      // ── Client: milestone plan ready ───────────────────────────────────────
       if (allPending) {
         return [
           Card(
@@ -497,19 +517,19 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                   const SizedBox(height: 8),
                   Text(
                     'The freelancer has proposed ${_milestones.length} milestone(s). '
-                    'Review, then approve or reject the plan.',
+                    'Review, pay, and approve to get started.',
                   ),
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
                       icon: const Icon(Icons.rate_review),
-                      label: const Text('Review Milestone Plan'),
+                      label: const Text('Review & Pay'),
                       onPressed: () => Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (_) => MilestonePlanReviewPage(
-                            project: _project!,
+                            project: project,
                             milestones: _milestones,
                           ),
                         ),
@@ -523,61 +543,42 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         ];
       }
     } else {
-      // Freelancer
+      // ── Freelancer: no plan chosen yet → show choice card ─────────────────
       if (!hasMilestones) {
-        return [
-          Card(
-            color: Colors.orange.shade50,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(children: [
-                    Icon(Icons.assignment, color: Colors.orange),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Action Required: Propose Milestone Plan',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.orange,
-                            fontSize: 15),
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Define at least 2 milestones. Percentages must total 100%.',
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      icon: const Icon(Icons.add_task),
-                      label: const Text('Propose Milestone Plan'),
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              MilestonePlanPage(project: _project!),
-                        ),
-                      ).then((_) => _load()),
-                    ),
-                  ),
-                ],
-              ),
+        return [_DeliveryModeChoiceCard(
+          project: project,
+          onSingleDelivery: () async {
+            final messenger = ScaffoldMessenger.of(context);
+            final err = await AppState.instance.chooseSingleDelivery(project);
+            if (!mounted) return;
+            await _load();
+            if (err != null) {
+              messenger.showSnackBar(
+                SnackBar(content: Text(err), backgroundColor: Colors.red),
+              );
+            } else {
+              messenger.showSnackBar(const SnackBar(
+                content: Text(
+                    'Single Delivery selected. Waiting for client to pay and confirm.'),
+              ));
+            }
+          },
+          onMilestonePlan: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MilestonePlanPage(project: project),
             ),
-          ),
-        ];
+          ).then((_) => _load()),
+        )];
       }
+      // ── Freelancer: milestone plan submitted, waiting for client ───────────
       if (allPending) {
         return [
           _StatusBanner(
             icon: Icons.hourglass_top,
             color: Colors.blue,
             title: 'Plan Submitted',
-            subtitle: 'Awaiting client approval.',
+            subtitle: 'Awaiting client review and payment.',
           ),
         ];
       }
@@ -585,9 +586,44 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     return [];
   }
 
+  Future<void> _payAndStartSingleDelivery(ProjectItem project) async {
+    // Client must pay first — same checkout screen used for milestone plans.
+    // Milestones list is empty, so we pass [] and the checkout uses totalBudget.
+    final paymentDone = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CheckoutScreen(
+          project: project,
+          milestones: const [],
+        ),
+      ),
+    );
+    if (paymentDone != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final err = await AppState.instance.approveSingleDeliveryStart(project);
+    if (!mounted) return;
+    await _load();
+    if (err != null) {
+      messenger.showSnackBar(
+          SnackBar(content: Text(err), backgroundColor: Colors.red));
+    } else {
+      messenger.showSnackBar(const SnackBar(
+        content: Text(
+            'Payment secured! Freelancer has been notified to start working.'),
+        backgroundColor: Colors.green,
+      ));
+    }
+  }
+
   // ── In progress ────────────────────────────────────────────────────────────
 
   List<Widget> _buildInProgressSection(BuildContext context, bool isClient) {
+    // ── Single Delivery mode ───────────────────────────────────────────────
+    if (_project!.isSingleDelivery) {
+      return _buildSingleDeliverySection(context, isClient);
+    }
+
     if (_milestones.isEmpty) {
       return [
         _StatusBanner(
@@ -713,6 +749,310 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     ];
   }
 
+  // ── Single delivery in-progress ───────────────────────────────────────────
+
+  List<Widget> _buildSingleDeliverySection(
+      BuildContext context, bool isClient) {
+    final project = _project!;
+    final isSubmitted = project.isSingleDeliverySubmitted;
+    final wasRejected = project.isSingleDeliveryRejected;
+
+    if (isClient) {
+      if (!isSubmitted) {
+        return [
+          _StatusBanner(
+            icon: Icons.hourglass_empty,
+            color: Colors.blue,
+            title: 'Awaiting Deliverable',
+            subtitle: 'The freelancer is working on the deliverable. '
+                'You will be notified when it is ready for review.',
+          ),
+        ];
+      }
+      // Client has a deliverable to review
+      return [
+        Card(
+          color: Colors.blue.shade50,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(children: [
+                  Icon(Icons.assignment_turned_in, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Deliverable Submitted — Review Required',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                          fontSize: 15),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 10),
+                const Text('Freelancer has submitted their work:'),
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: () async {
+                    final uri =
+                        Uri.tryParse(project.singleDeliverableUrl ?? '');
+                    if (uri != null && await canLaunchUrl(uri)) {
+                      await launchUrl(uri,
+                          mode: LaunchMode.externalApplication);
+                    }
+                  },
+                  child: Text(
+                    project.singleDeliverableUrl ?? '',
+                    style: const TextStyle(
+                        color: Colors.blue,
+                        decoration: TextDecoration.underline),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red),
+                        icon: const Icon(Icons.thumb_down_outlined),
+                        label: const Text('Reject'),
+                        onPressed: () => _rejectSingleDelivery(project),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                            backgroundColor: Colors.green),
+                        icon: const Icon(Icons.thumb_up),
+                        label: const Text('Approve & Pay'),
+                        onPressed: () => _approveSingleDeliveryFlow(project),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ];
+    } else {
+      // Freelancer view
+      if (isSubmitted) {
+        return [
+          _StatusBanner(
+            icon: Icons.hourglass_top,
+            color: Colors.blue,
+            title: 'Deliverable Submitted',
+            subtitle: 'Awaiting client review and approval.',
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.link, color: Colors.blue),
+              title: const Text('Submitted Link'),
+              subtitle: Text(
+                project.singleDeliverableUrl ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ];
+      }
+      if (wasRejected) {
+        return [
+          Card(
+            color: Colors.red.shade50,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(children: [
+                    Icon(Icons.cancel, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Deliverable Rejected',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red,
+                            fontSize: 15)),
+                  ]),
+                  const SizedBox(height: 8),
+                  Text('Reason: ${project.singleRejectionNote ?? "—"}'),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      icon: const Icon(Icons.upload),
+                      label: const Text('Re-submit Deliverable'),
+                      onPressed: () =>
+                          _submitSingleDeliverableFlow(project),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ];
+      }
+      // Not yet submitted
+      return [
+        Card(
+          color: Colors.orange.shade50,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(children: [
+                  Icon(Icons.upload_file, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Action Required: Submit Your Deliverable',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange,
+                          fontSize: 15),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                const Text(
+                  'Complete the work, then submit a link or description. '
+                  'The client will review and release full payment upon approval.',
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.send),
+                    label: const Text('Submit Deliverable'),
+                    onPressed: () =>
+                        _submitSingleDeliverableFlow(project),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ];
+    }
+  }
+
+  Future<void> _submitSingleDeliverableFlow(ProjectItem project) async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => _SingleDeliverableDialog(project: project),
+    );
+    if (result == null || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final err =
+        await AppState.instance.submitSingleDelivery(project, result);
+    if (!mounted) return;
+    await _load();
+    if (err != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(err), backgroundColor: Colors.red),
+      );
+    } else {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Deliverable submitted for review.')));
+    }
+  }
+
+  Future<void> _approveSingleDeliveryFlow(ProjectItem project) async {
+    // Collect digital signature
+    final signaturePath = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SignaturePadPage(
+          contextId: project.id,
+          promptText:
+              'Sign to approve and release full payment for this project.',
+        ),
+      ),
+    );
+    if (signaturePath == null || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final err = await AppState.instance
+        .approveSingleDelivery(project, signaturePath);
+    if (!mounted) return;
+    await AppState.instance.reloadProjects();
+    await _load();
+    if (err != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(err), backgroundColor: Colors.red),
+      );
+    } else {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Delivery approved! Payment released. Project completed.'),
+        backgroundColor: Colors.green,
+      ));
+    }
+  }
+
+  Future<void> _rejectSingleDelivery(ProjectItem project) async {
+    final reasonController = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject Deliverable'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+                'Provide a clear reason so the freelancer can revise:'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                labelText: 'Rejection Reason *',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              if (reasonController.text.trim().isEmpty) return;
+              Navigator.pop(ctx, reasonController.text.trim());
+            },
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final err = await AppState.instance.rejectSingleDelivery(project, result);
+    if (!mounted) return;
+    await _load();
+    if (err != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(err), backgroundColor: Colors.red),
+      );
+    } else {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Deliverable rejected. Freelancer will be notified.')));
+    }
+  }
+
   // ── Completed ──────────────────────────────────────────────────────────────
 
   List<Widget> _buildCompletedSection() {
@@ -743,11 +1083,41 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                           TextStyle(color: Colors.grey, fontSize: 13)),
                 ]),
               ],
+              if (_project!.isSingleDelivery) ...[
+                const SizedBox(height: 6),
+                const Row(children: [
+                  Icon(Icons.bolt, size: 14, color: Colors.grey),
+                  SizedBox(width: 4),
+                  Text('Single Delivery',
+                      style:
+                          TextStyle(color: Colors.grey, fontSize: 13)),
+                ]),
+              ],
             ],
           ),
         ),
       ),
-      if (_milestones.isNotEmpty) ...[
+      // Show deliverable link for single-delivery completed projects
+      if (_project!.isSingleDelivery &&
+          _project!.singleDeliverableUrl != null) ...[
+        const SizedBox(height: 12),
+        Card(
+          child: ListTile(
+            leading:
+                const Icon(Icons.link, color: Colors.green),
+            title: const Text('Submitted Deliverable'),
+            subtitle: Text(
+              _project!.singleDeliverableUrl!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.check_circle,
+                color: Colors.green, size: 20),
+          ),
+        ),
+      ],
+      // Show milestone list for milestone-mode completed projects
+      if (!_project!.isSingleDelivery && _milestones.isNotEmpty) ...[
         const SizedBox(height: 12),
         const Text('Milestones',
             style:
@@ -837,6 +1207,8 @@ class _ProjectInfoCard extends StatelessWidget {
                   Icons.play_arrow, 'Started', _fmt(project.startDate!)),
             if (project.endDate != null)
               _InfoRow(Icons.flag, 'Deadline', _fmt(project.endDate!)),
+            if (project.isSingleDelivery || project.isInProgress || project.isCompleted)
+              _InfoRow(Icons.bolt, 'Delivery', project.deliveryMode.displayName),
             if (project.description != null &&
                 project.description!.isNotEmpty) ...[
               const SizedBox(height: 6),
@@ -862,12 +1234,26 @@ class _BudgetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final budget = project.totalBudget ?? 0;
+    final isSingle = project.isSingleDelivery;
     final milestoneTotal =
         milestones.fold(0.0, (s, m) => s + m.paymentAmount);
     final displayTotal = milestoneTotal > 0 ? milestoneTotal : budget;
-    final paid = milestones
-        .where((m) => m.isCompleted)
-        .fold(0.0, (s, m) => s + m.paymentAmount);
+    // For single delivery, "paid" = full budget once project is completed.
+    final paid = isSingle
+        ? (project.isCompleted ? displayTotal : 0.0)
+        : milestones
+            .where((m) => m.isCompleted)
+            .fold(0.0, (s, m) => s + m.paymentAmount);
+
+    String progressLabel;
+    if (displayTotal == 0) {
+      progressLabel = 'No budget set';
+    } else if (isSingle) {
+      progressLabel = project.isCompleted ? 'Fully paid' : 'Pending approval';
+    } else {
+      progressLabel =
+          '${(paid / displayTotal * 100).toStringAsFixed(0)}% paid';
+    }
 
     return Card(
       color: Theme.of(context).colorScheme.primaryContainer,
@@ -896,12 +1282,7 @@ class _BudgetCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              displayTotal > 0
-                  ? '${(paid / displayTotal * 100).toStringAsFixed(0)}% paid'
-                  : 'No milestones yet',
-              style: const TextStyle(fontSize: 12),
-            ),
+            Text(progressLabel, style: const TextStyle(fontSize: 12)),
           ],
         ),
       ),
@@ -1556,53 +1937,6 @@ class _PaymentStatusBanner extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Nudge banner — shown when project is inProgress but no payment record exists
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _PaymentNudgeBanner extends StatelessWidget {
-  const _PaymentNudgeBanner(
-      {required this.project, required this.milestones});
-  final ProjectItem project;
-  final List<MilestoneItem> milestones;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: Colors.orange.shade50,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: [
-            const Icon(Icons.warning_amber_rounded,
-                color: Colors.orange, size: 22),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text(
-                'Payment not yet processed. Complete checkout to hold '
-                'funds in escrow.',
-                style: TextStyle(color: Colors.orange, fontSize: 12),
-              ),
-            ),
-            TextButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CheckoutScreen(
-                    project: project,
-                    milestones: milestones,
-                  ),
-                ),
-              ),
-              child: const Text('Pay Now'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Overdue warning banner — shown in-line above milestone cards
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2188,6 +2522,314 @@ class _CancelProjectDialogState extends State<_CancelProjectDialog> {
           style: FilledButton.styleFrom(backgroundColor: Colors.red),
           onPressed: _confirm,
           child: const Text('Cancel Project'),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delivery Mode Choice Card
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Single Delivery — client pay-and-start card (shown while pendingStart)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SingleDeliveryPayCard extends StatelessWidget {
+  const _SingleDeliveryPayCard({
+    required this.project,
+    required this.onPayAndStart,
+  });
+
+  final ProjectItem project;
+  final VoidCallback onPayAndStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final budget = project.totalBudget;
+    return Card(
+      color: Colors.green.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(children: [
+              Icon(Icons.bolt, color: Colors.green),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Single Delivery — Payment Required',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                      fontSize: 15),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            const Text(
+              'The freelancer will do everything in one submission. '
+              'Secure the full payment in escrow now so they can start working.',
+              style: TextStyle(fontSize: 13, color: Colors.black87),
+            ),
+            if (budget != null && budget > 0) ...[
+              const SizedBox(height: 10),
+              Row(children: [
+                const Icon(Icons.lock, size: 14, color: Colors.grey),
+                const SizedBox(width: 4),
+                Text(
+                  'RM ${budget.toStringAsFixed(2)} will be held in escrow',
+                  style: const TextStyle(fontSize: 13, color: Colors.black54),
+                ),
+              ]),
+            ],
+            const SizedBox(height: 14),
+            // Payment-required notice
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.amber.shade200),
+              ),
+              child: Row(children: [
+                Icon(Icons.lock_outline,
+                    size: 14, color: Colors.amber.shade800),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Payment is required before the freelancer can start. '
+                    'Funds release only after you approve their submission.',
+                    style: TextStyle(
+                        fontSize: 11, color: Colors.amber.shade900),
+                  ),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    padding: const EdgeInsets.symmetric(vertical: 13)),
+                icon: const Icon(Icons.payment),
+                label: Text(
+                  budget != null && budget > 0
+                      ? 'Pay RM ${budget.toStringAsFixed(2)} & Start'
+                      : 'Pay & Start',
+                ),
+                onPressed: onPayAndStart,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delivery Mode Choice Card
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _DeliveryModeChoiceCard extends StatelessWidget {
+  const _DeliveryModeChoiceCard({
+    required this.project,
+    required this.onSingleDelivery,
+    required this.onMilestonePlan,
+  });
+
+  final ProjectItem project;
+  final VoidCallback onSingleDelivery;
+  final VoidCallback onMilestonePlan;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(children: [
+              Icon(Icons.rule, color: Colors.deepPurple),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Choose Your Delivery Method',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: Colors.deepPurple),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            const Text(
+              'How would you like to deliver the work for this project?',
+              style: TextStyle(color: Colors.black54, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Single Delivery option ─────────────────────────────────────
+            _DeliveryOptionTile(
+              icon: Icons.bolt,
+              color: Colors.orange,
+              title: 'Single Delivery',
+              description:
+                  'Do all the work, submit one deliverable, get fully paid. '
+                  'Best for small or simple projects.',
+              buttonLabel: 'Choose Single Delivery',
+              onTap: onSingleDelivery,
+            ),
+
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 12),
+
+            // ── Milestone Plan option ──────────────────────────────────────
+            _DeliveryOptionTile(
+              icon: Icons.account_tree_outlined,
+              color: Colors.blue,
+              title: 'Milestone Plan',
+              description:
+                  'Break the project into stages. Get paid after each '
+                  'milestone is approved. Best for long or complex projects.',
+              buttonLabel: 'Create Milestone Plan',
+              onTap: onMilestonePlan,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DeliveryOptionTile extends StatelessWidget {
+  const _DeliveryOptionTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.description,
+    required this.buttonLabel,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String description;
+  final String buttonLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Text(title,
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                  fontSize: 14)),
+        ]),
+        const SizedBox(height: 4),
+        Text(description,
+            style:
+                const TextStyle(fontSize: 13, color: Colors.black54)),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            style: OutlinedButton.styleFrom(foregroundColor: color),
+            onPressed: onTap,
+            child: Text(buttonLabel),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Single Deliverable Submit Dialog
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SingleDeliverableDialog extends StatefulWidget {
+  const _SingleDeliverableDialog({required this.project});
+  final ProjectItem project;
+
+  @override
+  State<_SingleDeliverableDialog> createState() =>
+      _SingleDeliverableDialogState();
+}
+
+class _SingleDeliverableDialogState
+    extends State<_SingleDeliverableDialog> {
+  final _ctrl = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final val = _ctrl.text.trim();
+    if (val.isEmpty) {
+      setState(() => _error = 'Please enter a link or description.');
+      return;
+    }
+    Navigator.pop(context, val);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Submit Deliverable'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Provide a link (Google Drive, GitHub, etc.) or a brief '
+            'description of the completed work:',
+            style: TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            maxLines: 3,
+            decoration: InputDecoration(
+              labelText: 'Deliverable Link / Description *',
+              hintText: 'https://drive.google.com/...',
+              border: const OutlineInputBorder(),
+              errorText: _error,
+            ),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          icon: const Icon(Icons.send),
+          label: const Text('Submit'),
+          onPressed: _submit,
         ),
       ],
     );

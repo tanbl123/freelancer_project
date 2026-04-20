@@ -559,6 +559,35 @@ class SupabaseService {
     }).eq('id', projectId);
   }
 
+  /// Marks delivery mode as 'single'. Project stays pendingStart —
+  /// status moves to inProgress only after the client pays (via [updateProjectStatusEnum]).
+  Future<void> markSingleDeliveryMode(String projectId) async {
+    await _client.from('projects').update({
+      'delivery_mode': 'single',
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', projectId);
+  }
+
+  /// Stores the freelancer's single-delivery URL (status stays inProgress).
+  Future<void> submitSingleDelivery(
+      String projectId, String deliverableUrl) async {
+    await _client.from('projects').update({
+      'single_deliverable_url': deliverableUrl,
+      'single_rejection_note': null,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', projectId);
+  }
+
+  /// Client rejects single delivery — clears URL so freelancer can re-submit.
+  Future<void> rejectSingleDelivery(
+      String projectId, String reason) async {
+    await _client.from('projects').update({
+      'single_deliverable_url': null,
+      'single_rejection_note': reason,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', projectId);
+  }
+
   /// Legacy string-based update kept for any remaining call sites.
   Future<void> updateProjectStatus(String projectId, String status) async {
     await _client.from('projects').update({

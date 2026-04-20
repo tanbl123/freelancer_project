@@ -21,6 +21,10 @@ class MilestonePlanPage extends StatefulWidget {
 
 class _MilestonePlanPageState extends State<MilestonePlanPage> {
   static const _uuid = Uuid();
+
+  /// Maximum milestones allowed per plan (prevents absurd 50-milestone plans).
+  static const int _maxMilestones = 10;
+
   final List<MilestoneItem> _milestones = [];
   bool _submitting = false;
 
@@ -31,6 +35,8 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
 
   bool get _canSubmit =>
       _milestones.length >= 2 && (_totalPct - 100.0).abs() < 0.01;
+
+  bool get _atMaxMilestones => _milestones.length >= _maxMilestones;
 
   double _calcAmount(double pct) =>
       (widget.project.totalBudget ?? 0) * pct / 100;
@@ -49,20 +55,72 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
     });
   }
 
-  // ── Milestone dialog ───────────────────────────────────────────────────────
+  // ── Deadline helpers ───────────────────────────────────────────────────────
+
+  /// Hard upper bound — project end date if set, otherwise 2 years out.
+  DateTime get _projectDeadline =>
+      widget.project.endDate ?? DateTime.now().add(const Duration(days: 730));
+
+  /// How many calendar days are left in the project from today.
+  int get _totalDaysRemaining =>
+      _projectDeadline.difference(DateTime.now()).inDays.clamp(0, 9999);
+
+  /// Clamp [d] so it never exceeds [_projectDeadline].
+  DateTime _clamp(DateTime d) =>
+      d.isAfter(_projectDeadline) ? _projectDeadline : d;
+
+  /// The earliest date a NEW milestone (appended after all existing ones)
+  /// can have — the day after the last milestone's deadline, or today.
+  DateTime get _earliestNewDeadline {
+    if (_milestones.isEmpty) return DateTime.now();
+    final last = _milestones
+        .reduce((a, b) => a.deadline.isAfter(b.deadline) ? a : b);
+    return last.deadline.add(const Duration(days: 1));
+  }
+
+  /// The earliest date for a milestone being EDITED at [editIndex].
+  /// Must be after the previous milestone's deadline (if any).
+  DateTime _earliestForEdit(int editIndex) {
+    if (editIndex == 0) return DateTime.now();
+    // Find the milestone just before this one in order
+    final sorted = List<MilestoneItem>.from(_milestones)
+      ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+    final thisOrder = _milestones[editIndex].orderIndex;
+    final prev = sorted.lastWhere(
+      (m) => m.orderIndex < thisOrder,
+      orElse: () => sorted.first,
+    );
+    if (prev.orderIndex >= thisOrder) return DateTime.now();
+    return prev.deadline.add(const Duration(days: 1));
+  }
 
   Future<void> _showMilestoneDialog(int? editIndex) async {
-    final existing = editIndex != null ? _milestones[editIndex] : null;
-    final titleC =
-        TextEditingController(text: existing?.title ?? '');
-    final descC =
-        TextEditingController(text: existing?.description ?? '');
-    final pctC = TextEditingController(
-        text: existing != null
-            ? existing.percentage.toStringAsFixed(0)
-            : '');
-    DateTime deadline = existing?.deadline ??
-        DateTime.now().add(const Duration(days: 14));
+    final isNew = editIndex == null;
+    final existing = isNew ? null : _milestones[editIndex];
+    final titleC = TextEditingController(text: existing?.title ?? '');
+    final descC  = TextEditingController(text: existing?.description ?? '');
+    final pctC   = TextEditingController(
+        text: existing != null ? existing.percentage.toStringAsFixed(0) : '');
+
+    // ── Deadline bounds for this milestone ───────────────────────────────
+    final DateTime firstDate =
+        isNew ? _earliestNewDeadline : _earliestForEdit(editIndex!);
+    final DateTime lastDate = _projectDeadline;
+
+    // Default deadline: midpoint between firstDate and lastDate, clamped.
+    DateTime deadline = _clamp(
+      existing?.deadline ??
+          firstDate.add(
+            Duration(
+              days: ((lastDate.difference(firstDate).inDays) / 2)
+                  .floor()
+                  .clamp(0, 14),
+            ),
+          ),
+    );
+    // If editing and existing deadline is before firstDate, push it forward.
+    if (deadline.isBefore(firstDate)) deadline = firstDate;
+
     final formKey = GlobalKey<FormState>();
 
     await showDialog<void>(
@@ -130,15 +188,52 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
                       },
                     ),
                     const SizedBox(height: 10),
+                    // Deadline bounds info
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.info_outline,
+                                  size: 13, color: Colors.orange),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Project deadline: ${_fmt(lastDate)}'
+                                  ' ($_totalDaysRemaining days remaining)',
+                                  style: const TextStyle(
+                                      fontSize: 11, color: Colors.orange),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (!isNew) ...[
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                const Icon(Icons.arrow_forward,
+                                    size: 13, color: Colors.blue),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Earliest allowed: ${_fmt(firstDate)}',
+                                  style: const TextStyle(
+                                      fontSize: 11, color: Colors.blue),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                     OutlinedButton.icon(
                       onPressed: () async {
                         final picked = await showDatePicker(
                           context: ctx,
                           initialDate: deadline,
-                          firstDate: DateTime.now(),
-                          lastDate: widget.project.endDate ??
-                              DateTime.now()
-                                  .add(const Duration(days: 730)),
+                          firstDate: firstDate,
+                          lastDate: lastDate,
                         );
                         if (picked != null) setDlg(() => deadline = picked);
                       },
@@ -255,12 +350,14 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'plan_add_milestone_fab',
-        onPressed: () => _showMilestoneDialog(null),
-        icon: const Icon(Icons.add),
-        label: const Text('Add Milestone'),
-      ),
+      floatingActionButton: _atMaxMilestones
+          ? null
+          : FloatingActionButton.extended(
+              heroTag: 'plan_add_milestone_fab',
+              onPressed: () => _showMilestoneDialog(null),
+              icon: const Icon(Icons.add),
+              label: const Text('Add Milestone'),
+            ),
       body: Column(
         children: [
           // ── Summary bar ──────────────────────────────────────────────────
@@ -298,11 +395,32 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
                   ),
                 ),
                 const SizedBox(height: 4),
+                // Project deadline reminder
+                if (widget.project.endDate != null)
+                  Row(
+                    children: [
+                      const Icon(Icons.event, size: 13, color: Colors.white70),
+                      const SizedBox(width: 4),
+                      Text(
+                        'All milestones must be on or before '
+                        '${_fmt(widget.project.endDate!)}',
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                const SizedBox(height: 4),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('${_milestones.length} milestone(s)',
-                        style: const TextStyle(fontSize: 12)),
+                    Text(
+                      '${_milestones.length}/$_maxMilestones milestones',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: _atMaxMilestones
+                              ? Colors.red
+                              : null),
+                    ),
                     if (remaining > 0.01)
                       Text(
                         '${remaining.toStringAsFixed(1)}% unassigned',
@@ -324,6 +442,20 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
               ],
             ),
           ),
+
+          // Hint: at max cap
+          if (_atMaxMilestones)
+            Container(
+              width: double.infinity,
+              color: Colors.red.shade50,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'Maximum $_maxMilestones milestones reached.',
+                style:
+                    const TextStyle(color: Colors.red, fontSize: 13),
+              ),
+            ),
 
           // Hint: need ≥ 2 milestones
           if (_milestones.length == 1)

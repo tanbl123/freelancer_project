@@ -19,6 +19,7 @@ export '../../shared/enums/dispute_resolution.dart';
 export '../../shared/enums/chat_room_type.dart';
 export '../../shared/enums/message_type.dart';
 export '../../shared/enums/review_status.dart';
+export '../../shared/enums/project_delivery_mode.dart';
 
 // ── Legacy enums kept here (other modules depend on these) ────────────────────
 //

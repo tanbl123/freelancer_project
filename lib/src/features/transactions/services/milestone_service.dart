@@ -304,12 +304,17 @@ class MilestoneService {
   // ── Plan validation (static) ───────────────────────────────────────────────
 
   /// Returns an error string or null if the plan is valid.
+  static const int maxMilestones = 10;
+
   static String? validatePlan(
     List<MilestoneItem> milestones,
     ProjectItem project,
   ) {
     if (milestones.length < 2) {
       return 'A minimum of 2 milestones is required.';
+    }
+    if (milestones.length > maxMilestones) {
+      return 'A plan cannot have more than $maxMilestones milestones.';
     }
 
     final totalPct =

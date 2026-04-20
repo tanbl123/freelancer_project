@@ -30,9 +30,23 @@ class _MilestonePlanReviewPageState extends State<MilestonePlanReviewPage> {
       '${d.day.toString().padLeft(2, '0')}/'
       '${d.month.toString().padLeft(2, '0')}/${d.year}';
 
-  // ── Approve ────────────────────────────────────────────────────────────────
+  // ── Approve (pay first, then approve) ─────────────────────────────────────
 
   Future<void> _approve() async {
+    // Step 1 — Client must pay (hold in escrow) BEFORE the plan is approved.
+    // If they go back without paying, nothing is approved.
+    final paymentDone = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CheckoutScreen(
+          project: widget.project,
+          milestones: widget.milestones,
+        ),
+      ),
+    );
+    if (paymentDone != true || !mounted) return; // user cancelled — do nothing
+
+    // Step 2 — Payment succeeded → now approve the plan.
     setState(() => _loading = true);
     final err = await AppState.instance.approveMilestonePlan(
       widget.project,
@@ -48,33 +62,14 @@ class _MilestonePlanReviewPageState extends State<MilestonePlanReviewPage> {
       return;
     }
 
-    // Navigate to checkout so the client pays before work begins.
-    // CheckoutScreen can be dismissed with "Pay Later" in sandbox mode.
-    final paymentDone = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CheckoutScreen(
-          project: widget.project,
-          milestones: widget.milestones,
-        ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+            'Payment secured & plan approved! Freelancer has been notified to start.'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 4),
       ),
     );
-    if (!mounted) return;
-
-    if (paymentDone == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Plan approved & payment held in escrow!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Plan approved. Payment can be completed later.'),
-        ),
-      );
-    }
     Navigator.pop(context, 'approved');
   }
 
@@ -137,6 +132,29 @@ class _MilestonePlanReviewPageState extends State<MilestonePlanReviewPage> {
       appBar: AppBar(title: const Text('Review Milestone Plan')),
       body: Column(
         children: [
+          // ── Payment-required notice ──────────────────────────────────────
+          Container(
+            width: double.infinity,
+            color: Colors.amber.shade50,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.lock_outline,
+                    size: 16, color: Colors.amber.shade800),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Payment is required to approve this plan. '
+                    'Funds are held in escrow until each milestone is completed.',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.amber.shade900),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           // ── Summary header ───────────────────────────────────────────────
           Container(
             width: double.infinity,
@@ -277,15 +295,15 @@ class _MilestonePlanReviewPageState extends State<MilestonePlanReviewPage> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
+                              color: Colors.green.shade50,
                               borderRadius: BorderRadius.circular(8),
                               border:
-                                  Border.all(color: Colors.blue.shade200),
+                                  Border.all(color: Colors.green.shade200),
                             ),
                             child: const Text(
-                              'Starts immediately on plan approval',
+                              'Freelancer starts after payment is secured',
                               style: TextStyle(
-                                  color: Colors.blue, fontSize: 11),
+                                  color: Colors.green, fontSize: 11),
                             ),
                           ),
                         ],
@@ -327,8 +345,8 @@ class _MilestonePlanReviewPageState extends State<MilestonePlanReviewPage> {
                           backgroundColor: Colors.green,
                           padding: const EdgeInsets.symmetric(
                               vertical: 14)),
-                      icon: const Icon(Icons.check),
-                      label: const Text('Approve Plan'),
+                      icon: const Icon(Icons.payment),
+                      label: const Text('Pay & Approve'),
                       onPressed: _approve,
                     ),
                   ),

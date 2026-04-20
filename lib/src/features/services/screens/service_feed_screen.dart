@@ -572,8 +572,6 @@ class _ServiceCard extends StatelessWidget {
                     Row(
                       children: [
                         if (service.priceDisplay != null) ...[
-                          Icon(Icons.attach_money,
-                              size: 12, color: colors.primary),
                           Expanded(
                             child: Text(
                               service.priceDisplay!,
