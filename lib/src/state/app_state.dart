@@ -210,6 +210,16 @@ class AppState extends ChangeNotifier {
   // ── Public getters ─────────────────────────────────────────────────────────
   ProfileUser? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
+
+  /// Reloads the current user's profile from the DB and notifies listeners.
+  Future<void> reloadCurrentUser() async {
+    if (_currentUser == null) return;
+    final updated = await _db.getUserById(_currentUser!.uid);
+    if (updated != null) {
+      _currentUser = updated;
+      notifyListeners();
+    }
+  }
   bool get isAdmin => _currentUser?.role == UserRole.admin;
   bool get isFreelancer => _currentUser?.role == UserRole.freelancer;
   bool get needsEmailVerification =>
@@ -2031,9 +2041,37 @@ class AppState extends ChangeNotifier {
   Future<PaymentRecord?> loadPaymentForProject(String projectId) async {
     try {
       final record = await _paymentRepo.getForProject(projectId);
-      _currentPaymentRecord = record;
+      if (record == null) {
+        _currentPaymentRecord = null;
+        notifyListeners();
+        return null;
+      }
+
+      // Self-heal: cross-check releasedAmount against actual payout records.
+      // If the payment record is stale (e.g. updated before payout tracking
+      // was added), recalculate and persist the correct value.
+      final payouts = await _paymentRepo.getPayoutsForProject(projectId);
+      final actualReleased =
+          payouts.fold(0.0, (sum, p) => sum + p.grossAmount);
+
+      if (actualReleased > 0 &&
+          (actualReleased - record.releasedAmount).abs() > 0.01) {
+        final allReleased =
+            (actualReleased - record.totalAmount).abs() < 0.01;
+        final corrected = record.copyWith(
+          releasedAmount: actualReleased,
+          status: allReleased
+              ? PaymentStatus.fullyReleased
+              : PaymentStatus.partiallyReleased,
+        );
+        await _paymentRepo.update(corrected);
+        _currentPaymentRecord = corrected;
+      } else {
+        _currentPaymentRecord = record;
+      }
+
       notifyListeners();
-      return record;
+      return _currentPaymentRecord;
     } catch (_) {
       return null;
     }

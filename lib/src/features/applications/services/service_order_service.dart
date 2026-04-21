@@ -32,7 +32,7 @@ class ServiceOrderService {
     if (msgErr != null) return msgErr;
 
     if (order.proposedBudget != null && order.proposedBudget! <= 0) {
-      return 'Proposed budget must be greater than zero.';
+      return 'Proposed price must be greater than zero.';
     }
     if (order.timelineDays != null &&
         (order.timelineDays! < 1 || order.timelineDays! > 365)) {
@@ -146,7 +146,7 @@ class ServiceOrderService {
     if (v == null || v.trim().isEmpty) return null; // optional
     final d = double.tryParse(v.trim());
     if (d == null) return 'Enter a valid amount.';
-    if (d <= 0) return 'Budget must be greater than zero.';
+    if (d <= 0) return 'Price must be greater than zero.';
     return null;
   }
 

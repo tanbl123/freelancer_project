@@ -74,14 +74,21 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
 
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
+
     final milestones =
         await AppState.instance.getMilestonesForProject(widget.projectId);
+
     // Always fetch directly from DB so status is always up-to-date
     // (avoids stale in-memory cache after cancel / dispute / completion)
     final project = await AppState.instance.getProjectById(widget.projectId)
         ?? AppState.instance.projects
             .where((p) => p.id == widget.projectId)
             .firstOrNull;
+
+    // Always reload payment record from DB — the cached value goes stale
+    // after milestone approvals (escrow banner would show wrong released %).
+    await AppState.instance.loadPaymentForProject(widget.projectId);
+
     // Load active dispute if project is disputed
     DisputeRecord? dispute;
     if (project != null && project.isDisputed) {
@@ -139,57 +146,37 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   // ── Claim pending payouts (freelancer has account now, retry transfers) ──────
 
   Future<void> _claimPendingPayouts() async {
-    // Milestones paid but not yet transferred to Stripe (token = our po_ ref)
+    // Mark all pending-payout milestones as "bank transfer initiated".
+    // Stripe Connect is not available for MY-based platforms, so payouts are
+    // processed manually via bank transfer to the freelancer's registered account.
     final pending = _milestones
         .where((m) =>
-            m.isPaid && !(m.paymentToken?.startsWith('tr_') ?? false))
+            m.isPaid && !(m.paymentToken?.startsWith('bt_') ?? false))
         .toList();
     if (pending.isEmpty || !mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
-    final intentId =
-        AppState.instance.currentPaymentRecord?.stripePaymentIntentId ?? '';
-    int successCount = 0;
 
     for (final m in pending) {
-      try {
-        final transferId = await StripeService.transferMilestonePayout(
-          freelancerId: _project!.freelancerId,
-          grossAmountMyr: m.paymentAmount,
-          paymentIntentId: intentId,
-          milestoneId: m.id,
-        );
-        // Persist the real Stripe transfer ID so we don't re-attempt next time
-        await Supabase.instance.client.from('milestones').update({
-          'payment_token': transferId,
-          'updated_at': DateTime.now().toIso8601String(),
-        }).eq('id', m.id);
-        successCount++;
-      } catch (e) {
-        print('[Claim] Transfer failed for ${m.id}: $e');
-      }
+      // Mark as bank-transfer-initiated with a bt_ prefix token
+      final btToken =
+          'bt_${m.id.replaceAll('-', '').substring(0, 16)}';
+      await Supabase.instance.client.from('milestones').update({
+        'payment_token': btToken,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', m.id);
     }
 
     if (!mounted) return;
-    await _load(); // Refresh milestone list so tokens are up to date
+    await _load();
 
-    if (successCount > 0) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-              '$successCount payout${successCount > 1 ? 's' : ''} sent to your bank!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } else {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Transfer failed. Please check your payout account and try again.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+            '${pending.length} payout${pending.length > 1 ? 's' : ''} queued for bank transfer within 3–5 business days.'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
   // ── Submit deliverable ─────────────────────────────────────────────────────
@@ -407,12 +394,13 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         _project!.isInProgress || _project!.isPendingStart;
     final paymentRecord = AppState.instance.currentPaymentRecord;
 
-    // Milestones approved but Stripe transfer not yet completed (token = po_ ref)
+    // Milestones approved but payout not yet initiated (token = po_ ref, not bt_/tr_)
     final pendingEarnings = !isClient
         ? _milestones
             .where((m) =>
                 m.isPaid &&
-                !(m.paymentToken?.startsWith('tr_') ?? false))
+                !(m.paymentToken?.startsWith('tr_') ?? false) &&
+                !(m.paymentToken?.startsWith('bt_') ?? false))
             .fold(0.0, (sum, m) => sum + m.paymentAmount * 0.9)
         : 0.0;
 
@@ -420,18 +408,19 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
       appBar: AppBar(
         title: Text(_project!.jobTitle ?? 'Project Details'),
         actions: [
-          // Payment status shortcut
-          IconButton(
-            icon: const Icon(Icons.account_balance_wallet_outlined),
-            tooltip: 'Payment Status',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    PaymentStatusScreen(project: _project!),
+          // Payment status shortcut — freelancers only
+          if (!isClient)
+            IconButton(
+              icon: const Icon(Icons.account_balance_wallet_outlined),
+              tooltip: 'Payment Status',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      PaymentStatusScreen(project: _project!),
+                ),
               ),
             ),
-          ),
           if (canModify)
             PopupMenuButton<String>(
               onSelected: (v) {
@@ -469,18 +458,18 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             const SizedBox(height: 10),
             _BudgetCard(project: _project!, milestones: _milestones),
             const SizedBox(height: 10),
-            // ── Payment status banner ─────────────────────────────────
-            if (paymentRecord != null)
+            // ── Payment status banner — freelancers only ──────────────
+            if (paymentRecord != null && !isClient)
               _PaymentStatusBanner(payment: paymentRecord),
             // ── Payout banners (freelancer only) ──────────────────────
             // Case A: no Stripe account — prompt setup, show any waiting $
-            if (!isClient && !user.hasStripeAccount)
+            if (!isClient && !user.hasPayoutAccount)
               _PayoutSetupBanner(
                 hasAccount: false,
                 pendingEarningsMyr: pendingEarnings,
               ),
-            // Case B: has account but transfers still pending — claim now
-            if (!isClient && user.hasStripeAccount && pendingEarnings > 0)
+            // Case B: has account but transfers still pending — show balance
+            if (!isClient && user.hasPayoutAccount && pendingEarnings > 0)
               _PayoutSetupBanner(
                 hasAccount: true,
                 pendingEarningsMyr: pendingEarnings,
@@ -1364,7 +1353,7 @@ class _BudgetCard extends StatelessWidget {
 
     String progressLabel;
     if (displayTotal == 0) {
-      progressLabel = 'No budget set';
+      progressLabel = 'No price set';
     } else if (isSingle) {
       progressLabel = project.isCompleted ? 'Fully paid' : 'Pending approval';
     } else {
@@ -2186,8 +2175,8 @@ class _PayoutSetupBannerState extends State<_PayoutSetupBanner> {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      'Your bank account is connected. Transfer your '
-                      'pending earnings to your bank now.',
+                      'Your bank account is registered. Tap below to '
+                      'initiate a bank transfer for your pending earnings.',
                       style: TextStyle(
                           color: Colors.blue.shade700, fontSize: 12),
                     ),
@@ -2256,8 +2245,8 @@ class _PayoutSetupBannerState extends State<_PayoutSetupBanner> {
                   Text(
                     hasPending
                         ? 'Your earnings are safely held on the platform. '
-                          'Connect your bank account to receive them.'
-                        : 'Connect your bank account so you can receive '
+                          'Add your bank account details to receive them.'
+                        : 'Add your bank account so earnings can be transferred '
                           'payments when a milestone is approved.',
                     style: TextStyle(
                         color: Colors.orange.shade700, fontSize: 12),

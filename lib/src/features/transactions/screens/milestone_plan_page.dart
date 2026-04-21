@@ -405,7 +405,7 @@ class _MilestonePlanPageState extends State<MilestonePlanPage> {
                   children: [
                     if (budget != null)
                       Text(
-                        'Budget: RM ${budget.toStringAsFixed(2)}',
+                        'Price: RM ${budget.toStringAsFixed(2)}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       )
                     else

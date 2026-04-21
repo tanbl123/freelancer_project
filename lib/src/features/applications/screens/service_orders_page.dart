@@ -440,7 +440,7 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
                   if (order.proposedBudget != null)
                     _SheetRow(
                       icon: Icons.attach_money,
-                      label: 'Proposed Budget',
+                      label: 'Proposed Price',
                       value: 'RM ${order.proposedBudget!.toStringAsFixed(0)}',
                       valueColor: Colors.green.shade700,
                     ),

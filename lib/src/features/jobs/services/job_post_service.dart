@@ -171,14 +171,14 @@ class JobPostService {
   static const double maxBudget = 10000;
 
   static String? validateBudget(double? min, double? max) {
-    if (max == null) return 'Please enter a budget.';
-    if (min != null && min < 0) return 'Minimum budget cannot be negative.';
-    if (max <= 0) return 'Budget must be greater than RM 0.';
+    if (max == null) return 'Please enter a price.';
+    if (min != null && min < 0) return 'Minimum price cannot be negative.';
+    if (max <= 0) return 'Price must be greater than RM 0.';
     if (max > maxBudget) {
-      return 'Budget cannot exceed RM ${maxBudget.toStringAsFixed(0)}.';
+      return 'Price cannot exceed RM ${maxBudget.toStringAsFixed(0)}.';
     }
     if (min != null && min > max) {
-      return 'Minimum budget cannot exceed maximum budget.';
+      return 'Minimum price cannot exceed maximum price.';
     }
     return null;
   }
@@ -190,7 +190,7 @@ class JobPostService {
     if (isMin && amount < 0) return 'Cannot be negative.';
     if (!isMin && amount <= 0) return 'Must be greater than RM 0.';
     if (!isMin && amount > maxBudget) {
-      return 'Budget cannot exceed RM ${maxBudget.toStringAsFixed(0)}.';
+      return 'Price cannot exceed RM ${maxBudget.toStringAsFixed(0)}.';
     }
     return null;
   }

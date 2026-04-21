@@ -464,7 +464,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                 .toList(),
           ),
           const SizedBox(height: 16),
-          const Text('Max Budget (RM)',
+          const Text('Max Price (RM)',
               style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           TextField(

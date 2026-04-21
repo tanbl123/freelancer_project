@@ -360,7 +360,7 @@ class _PostFormPageState extends State<PostFormPage> {
               TextFormField(
                 controller: _budgetController,
                 decoration: const InputDecoration(
-                  labelText: 'Minimum Budget (RM) *',
+                  labelText: 'Minimum Price (RM) *',
                   border: OutlineInputBorder(),
                   prefixText: 'RM ',
                 ),
@@ -368,9 +368,9 @@ class _PostFormPageState extends State<PostFormPage> {
                     const TextInputType.numberWithOptions(decimal: true),
                 textInputAction: TextInputAction.next,
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'Budget is required';
+                  if (v == null || v.trim().isEmpty) return 'Price is required';
                   final val = double.tryParse(v);
-                  if (val == null || val <= 0) return 'Budget must be greater than 0';
+                  if (val == null || val <= 0) return 'Price must be greater than 0';
                   return null;
                 },
               ),

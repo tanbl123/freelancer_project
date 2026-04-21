@@ -32,6 +32,9 @@ class ProfileUser {
     this.certifications = const [],
     this.portfolioDescription,
     this.stripeAccountId,
+    this.bankName,
+    this.bankAccountNumber,
+    this.bankAccountHolder,
   });
 
   final String uid;
@@ -58,8 +61,20 @@ class ProfileUser {
   final String? portfolioDescription;
   final String? stripeAccountId;
 
+  // ── Bank payout details (Malaysia — manual bank transfer) ─────────────────
+  final String? bankName;
+  final String? bankAccountNumber;
+  final String? bankAccountHolder;
+
   bool get hasStripeAccount =>
       stripeAccountId != null && stripeAccountId!.isNotEmpty;
+
+  /// True when the freelancer has saved their bank account for payouts.
+  bool get hasBankAccount =>
+      bankAccountNumber != null && bankAccountNumber!.isNotEmpty;
+
+  /// True when any payout method is configured.
+  bool get hasPayoutAccount => hasStripeAccount || hasBankAccount;
 
   // Backward-compat: treat as active when accountStatus is not deactivated
   bool get isActive => accountStatus != AccountStatus.deactivated;
@@ -92,6 +107,9 @@ class ProfileUser {
       'educations': educations.map((e) => e.toMap()).toList(),
       'certifications': certifications.map((c) => c.toMap()).toList(),
       'portfolio_description': portfolioDescription,
+      'bank_name': bankName,
+      'bank_account_number': bankAccountNumber,
+      'bank_account_holder': bankAccountHolder,
     };
   }
 
@@ -197,6 +215,9 @@ class ProfileUser {
           parseJsonList(map['certifications'], CertificationItem.fromMap),
       portfolioDescription: map['portfolio_description'] as String?,
       stripeAccountId: map['stripe_account_id'] as String?,
+      bankName: map['bank_name'] as String?,
+      bankAccountNumber: map['bank_account_number'] as String?,
+      bankAccountHolder: map['bank_account_holder'] as String?,
     );
   }
 
@@ -225,6 +246,9 @@ class ProfileUser {
     List<CertificationItem>? certifications,
     String? portfolioDescription,
     bool clearPortfolioDescription = false,
+    String? bankName,
+    String? bankAccountNumber,
+    String? bankAccountHolder,
   }) {
     return ProfileUser(
       uid: uid,
@@ -251,6 +275,9 @@ class ProfileUser {
       portfolioDescription: clearPortfolioDescription
           ? null
           : (portfolioDescription ?? this.portfolioDescription),
+      bankName: bankName ?? this.bankName,
+      bankAccountNumber: bankAccountNumber ?? this.bankAccountNumber,
+      bankAccountHolder: bankAccountHolder ?? this.bankAccountHolder,
     );
   }
 }

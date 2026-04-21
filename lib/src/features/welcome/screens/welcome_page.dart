@@ -104,7 +104,7 @@ class _WelcomePageState extends State<WelcomePage> {
                   color: Colors.green,
                   title: 'Apply with Confidence',
                   description:
-                      'Submit proposals with a resume, budget and voice pitch. Clients review and accept the best fit.',
+                      'Submit proposals with a resume and price. Clients review and accept the best fit.',
                 ),
                 const SizedBox(height: 12),
                 _FeatureCard(

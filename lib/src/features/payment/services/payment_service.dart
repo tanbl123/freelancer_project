@@ -110,14 +110,14 @@ class PaymentService {
     ProjectItem project,
   ) {
     if (project.totalBudget == null || project.totalBudget! <= 0) {
-      return 'Project has no budget set.';
+      return 'Project has no price set.';
     }
     final total =
         milestones.fold(0.0, (s, m) => s + m.paymentAmount);
     final budget = project.totalBudget!;
     if ((total - budget).abs() > 0.01) {
       return 'Milestone total (RM ${total.toStringAsFixed(2)}) does not match '
-          'the project budget (RM ${budget.toStringAsFixed(2)}).';
+          'the project price (RM ${budget.toStringAsFixed(2)}).';
     }
     return null;
   }

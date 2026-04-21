@@ -173,8 +173,8 @@ class _MilestonePlanReviewPageState extends State<MilestonePlanReviewPage> {
                   children: [
                     Text(
                       budget > 0
-                          ? 'Total Budget: RM ${budget.toStringAsFixed(2)}'
-                          : 'Budget not set',
+                          ? 'Total Price: RM ${budget.toStringAsFixed(2)}'
+                          : 'Price not set',
                     ),
                     const Spacer(),
                     Text(

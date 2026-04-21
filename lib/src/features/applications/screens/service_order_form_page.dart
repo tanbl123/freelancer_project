@@ -249,7 +249,7 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
               TextFormField(
                 controller: _budgetController,
                 decoration: const InputDecoration(
-                  labelText: 'Your Budget (RM) — optional',
+                  labelText: 'Your Price (RM) — optional',
                   border: OutlineInputBorder(),
                   prefixText: 'RM ',
                   helperText:

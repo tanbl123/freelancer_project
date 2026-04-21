@@ -47,7 +47,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Future<void> _pay() async {
     if (_total <= 0) {
       setState(() => _errorMessage =
-          'Contract value is RM 0. Please ensure the project has a valid budget.');
+          'Contract value is RM 0. Please ensure the project has a valid price.');
       return;
     }
 
@@ -294,7 +294,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 _processing
                     ? 'Processing…'
                     : _total <= 0
-                        ? 'Invalid Budget (RM 0)'
+                        ? 'Invalid Price (RM 0)'
                         : 'Hold RM ${_total.toStringAsFixed(2)} in Escrow',
                 style: const TextStyle(fontSize: 16),
               ),
@@ -308,7 +308,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       size: 14, color: Colors.red),
                   SizedBox(width: 4),
                   Text(
-                    'Project has no budget set. Contact the client.',
+                    'Project has no price set. Contact the client.',
                     style: TextStyle(fontSize: 11, color: Colors.red),
                   ),
                 ],

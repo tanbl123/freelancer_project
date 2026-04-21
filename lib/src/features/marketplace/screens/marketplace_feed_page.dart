@@ -582,7 +582,7 @@ class _PostDetailSheet extends StatelessWidget {
           ),
           _DetailRow(
               icon: Icons.attach_money,
-              label: isJob ? 'Budget' : 'Starting at',
+              label: isJob ? 'Price' : 'Starting at',
               value: 'RM ${post.minimumBudget.toStringAsFixed(0)}'),
           _DetailRow(
               icon: Icons.calendar_today_outlined,

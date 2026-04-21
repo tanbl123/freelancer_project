@@ -411,7 +411,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
               TextFormField(
                 controller: _budgetController,
                 decoration: const InputDecoration(
-                  labelText: 'Budget (RM) *',
+                  labelText: 'Price (RM) *',
                   hintText: 'e.g. 500',
                   border: OutlineInputBorder(),
                   prefixText: 'RM ',
@@ -426,13 +426,13 @@ class _JobFormScreenState extends State<JobFormScreen> {
                 ],
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) {
-                    return 'Please enter a budget.';
+                    return 'Please enter a price.';
                   }
                   final amount = double.tryParse(v.trim());
                   if (amount == null) return 'Enter a valid number.';
-                  if (amount <= 0) return 'Budget must be greater than RM 0.';
+                  if (amount <= 0) return 'Price must be greater than RM 0.';
                   if (amount > JobPostService.maxBudget) {
-                    return 'Budget cannot exceed RM ${JobPostService.maxBudget.toStringAsFixed(0)}.';
+                    return 'Price cannot exceed RM ${JobPostService.maxBudget.toStringAsFixed(0)}.';
                   }
                   return null;
                 },

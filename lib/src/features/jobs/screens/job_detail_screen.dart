@@ -589,7 +589,7 @@ class _ProjectDetailsCard extends StatelessWidget {
     if (post.budgetDisplay != null) {
       items.add(_DetailItem(
         icon: Icons.payments_outlined,
-        label: 'Budget',
+        label: 'Price',
         value: post.budgetDisplay!,
         valueColor: Colors.green.shade700,
       ));
