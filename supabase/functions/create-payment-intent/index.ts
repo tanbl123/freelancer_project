@@ -54,10 +54,13 @@ serve(async (req) => {
 
     // Create PaymentIntent — NOT confirmed yet.
     // Stripe Payment Sheet will handle card collection + confirmation.
+    // Explicitly restrict to card-only so Stripe Link (redirect flow) is
+    // never offered — Link requires an external browser round-trip that
+    // breaks the in-app deep-link return.
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: 'myr',
-      automatic_payment_methods: { enabled: true },
+      payment_method_types: ['card'],
       description: `Escrow for project ${project_id}`,
       metadata: {
         project_id: project_id ?? '',

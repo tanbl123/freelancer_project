@@ -69,6 +69,8 @@ class _ReviewCreateEditScreenState extends State<ReviewCreateEditScreen> {
 
     final user = AppState.instance.currentUser!;
     String? err;
+    // Capture reviewee name before any async gaps so it's available after pop.
+    String shareRevieweeName = '';
 
     if (widget.isEdit) {
       // Edit mode
@@ -83,7 +85,7 @@ class _ReviewCreateEditScreenState extends State<ReviewCreateEditScreen> {
       final revieweeId = project.clientId == user.uid
           ? project.freelancerId
           : project.clientId;
-      final revieweeName = project.clientId == user.uid
+      shareRevieweeName = project.clientId == user.uid
           ? (project.freelancerName ?? revieweeId)
           : (project.clientName ?? revieweeId);
 
@@ -99,11 +101,6 @@ class _ReviewCreateEditScreenState extends State<ReviewCreateEditScreen> {
       );
 
       err = await AppState.instance.addReview(review);
-
-      if (err == null && mounted) {
-        // Offer to share
-        _offerShare(revieweeName, _stars);
-      }
     }
 
     if (!mounted) return;
@@ -113,23 +110,37 @@ class _ReviewCreateEditScreenState extends State<ReviewCreateEditScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.red));
     } else {
+      // Pop FIRST so the screen begins its exit animation, then immediately
+      // show the snackbar.  The root ScaffoldMessenger is still reachable via
+      // this context during the pop animation, and starting the auto-dismiss
+      // timer from a stable context prevents the "snackbar never disappears"
+      // bug that occurs when the timer is started from a widget mid-dispose.
       Navigator.pop(context, true);
+      if (!widget.isEdit && shareRevieweeName.isNotEmpty) {
+        _offerShare(shareRevieweeName, _stars);
+      }
     }
   }
 
   void _offerShare(String revieweeName, int stars) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Review submitted! $stars ⭐'),
-        action: SnackBarAction(
-          label: 'Share',
-          onPressed: () => Share.share(
-            'I just gave $revieweeName $stars/5 stars on FreelanceHub! '
-            'Great work 🎉',
+    ScaffoldMessenger.of(context)
+      // Clear any lingering snackbar so the new one starts its timer fresh.
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          // Explicit duration guarantees auto-dismiss regardless of whether the
+          // snackbar has an action button (Material 3 has been inconsistent here).
+          duration: const Duration(seconds: 4),
+          content: Text('Review submitted! $stars ⭐'),
+          action: SnackBarAction(
+            label: 'Share',
+            onPressed: () => Share.share(
+              'I just gave $revieweeName $stars/5 stars on FreelanceHub! '
+              'Great work 🎉',
+            ),
           ),
         ),
-      ),
-    );
+      );
   }
 
   @override

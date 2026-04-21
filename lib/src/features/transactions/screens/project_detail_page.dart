@@ -1234,7 +1234,11 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
           onReviewed: _load, // refresh so the summary card shows immediately
         )
       else
-        _ReviewGivenCard(review: myReview, otherName: otherName),
+        _ReviewGivenCard(
+          review: myReview,
+          otherName: otherName,
+          onDeleted: _load, // refresh → switches back to prompt card
+        ),
 
       // ── Deliverable link (single-delivery) ────────────────────────────
       if (project.isSingleDelivery &&
@@ -3315,18 +3319,82 @@ class _ReviewPromptCard extends StatelessWidget {
 }
 
 /// Shown when the current user HAS already submitted a review.
-/// Displays their stars and comment inline.
-class _ReviewGivenCard extends StatelessWidget {
+/// Displays their stars and comment inline, with Edit and Delete actions.
+class _ReviewGivenCard extends StatefulWidget {
   const _ReviewGivenCard({
     required this.review,
     required this.otherName,
+    required this.onDeleted,
   });
 
   final ReviewItem review;
   final String otherName;
+  /// Called after the review is successfully deleted so the parent can refresh
+  /// and switch back to the [_ReviewPromptCard].
+  final VoidCallback onDeleted;
+
+  @override
+  State<_ReviewGivenCard> createState() => _ReviewGivenCardState();
+}
+
+class _ReviewGivenCardState extends State<_ReviewGivenCard> {
+  bool _deleting = false;
+
+  Future<void> _handleDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove Review?'),
+        content: Text(
+          'Your review of ${widget.otherName} will be permanently removed. '
+          'You will be able to submit a new review afterwards.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deleting = true);
+    final err = await AppState.instance.removeReview(widget.review);
+    if (!mounted) return;
+    setState(() => _deleting = false);
+
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err), backgroundColor: Colors.red),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          duration: Duration(seconds: 3),
+          content: Text('Review removed. You can now submit a new one.'),
+        ),
+      );
+      widget.onDeleted();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_deleting) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(20),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
     return Card(
       color: Colors.green.shade50,
       shape: RoundedRectangleBorder(
@@ -3338,7 +3406,7 @@ class _ReviewGivenCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
+            // ── Header ──────────────────────────────────────────────────
             Row(
               children: [
                 const Icon(Icons.check_circle_outline,
@@ -3346,7 +3414,7 @@ class _ReviewGivenCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'You reviewed $otherName',
+                    'You reviewed ${widget.otherName}',
                     style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         color: Colors.green,
@@ -3364,30 +3432,44 @@ class _ReviewGivenCard extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (_) =>
-                          ReviewCreateEditScreen(review: review),
+                          ReviewCreateEditScreen(review: widget.review),
                     ),
                   ),
                   child: const Text('Edit', style: TextStyle(fontSize: 12)),
                 ),
+                const SizedBox(width: 8),
+                // Delete button
+                TextButton(
+                  style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 0),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      foregroundColor: Colors.red.shade400),
+                  onPressed: _handleDelete,
+                  child: const Text('Delete', style: TextStyle(fontSize: 12)),
+                ),
               ],
             ),
             const SizedBox(height: 8),
-            // Stars
+            // ── Stars ────────────────────────────────────────────────────
             Row(
-              children: List.generate(5, (i) => Icon(
-                i < review.stars
-                    ? Icons.star_rounded
-                    : Icons.star_outline_rounded,
-                size: 20,
-                color: i < review.stars
-                    ? Colors.amber.shade600
-                    : Colors.grey.shade400,
-              )),
+              children: List.generate(
+                5,
+                (i) => Icon(
+                  i < widget.review.stars
+                      ? Icons.star_rounded
+                      : Icons.star_outline_rounded,
+                  size: 20,
+                  color: i < widget.review.stars
+                      ? Colors.amber.shade600
+                      : Colors.grey.shade400,
+                ),
+              ),
             ),
-            if (review.comment.isNotEmpty) ...[
+            if (widget.review.comment.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(
-                review.comment,
+                widget.review.comment,
                 style: const TextStyle(fontSize: 13, height: 1.4),
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,

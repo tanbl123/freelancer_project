@@ -874,11 +874,14 @@ class SupabaseService {
 
   Future<bool> hasReviewedProject(
       String projectId, String reviewerId) async {
+    // Only count PUBLISHED reviews — removed/soft-deleted rows must not block
+    // re-submission after a user deletes their own review.
     final rows = await _client
         .from('reviews')
         .select('id')
         .eq('project_id', projectId)
-        .eq('reviewer_id', reviewerId);
+        .eq('reviewer_id', reviewerId)
+        .eq('status', 'published');
     return rows.isNotEmpty;
   }
 

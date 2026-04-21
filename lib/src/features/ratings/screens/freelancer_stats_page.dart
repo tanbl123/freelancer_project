@@ -88,6 +88,17 @@ class _FreelancerStatsPageState extends State<FreelancerStatsPage> {
                 p.clientId == widget.freelancerId))
         .length;
 
+    // Compute avg + total directly from _ratingDistribution (same live source
+    // as the pie chart) so the KPI card is always consistent with the charts,
+    // even when the profile's cached averageRating/totalReviews lags behind.
+    final liveTotal =
+        _ratingDistribution.values.fold<int>(0, (sum, v) => sum + v);
+    final liveAvg = liveTotal > 0
+        ? _ratingDistribution.entries
+                .fold<double>(0, (sum, e) => sum + e.key * e.value) /
+            liveTotal
+        : 0.0;
+
     final isOwner = _isOwner;
 
     return Scaffold(
@@ -126,7 +137,12 @@ class _FreelancerStatsPageState extends State<FreelancerStatsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // ── KPI summary ──────────────────────────────────────
-                    if (user != null) _KpiCard(user: user, completedProjects: completedProjects),
+                    _KpiCard(
+                      user: user,
+                      avgRating: liveAvg,
+                      totalReviews: liveTotal,
+                      completedProjects: completedProjects,
+                    ),
                     const SizedBox(height: 20),
 
                     // ── Monthly earnings bar chart (owner only) ────────
@@ -203,8 +219,17 @@ class _FreelancerStatsPageState extends State<FreelancerStatsPage> {
 // ── KPI summary card ──────────────────────────────────────────────────────────
 
 class _KpiCard extends StatelessWidget {
-  const _KpiCard({required this.user, required this.completedProjects});
-  final dynamic user; // ProfileUser
+  const _KpiCard({
+    required this.user,
+    required this.avgRating,
+    required this.totalReviews,
+    required this.completedProjects,
+  });
+
+  final dynamic user; // ProfileUser — used only for future fields; KPI values
+                      // come from the live-computed parameters below.
+  final double avgRating;
+  final int totalReviews;
   final int completedProjects;
 
   @override
@@ -218,14 +243,15 @@ class _KpiCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _KpiItem(
-              value: user.averageRating?.toStringAsFixed(1) ?? '—',
+              // Use live-computed value — always consistent with the pie chart.
+              value: totalReviews > 0 ? avgRating.toStringAsFixed(1) : '—',
               label: 'Avg Rating',
               icon: Icons.star_rounded,
               iconColor: Colors.amber,
             ),
             _Divider(),
             _KpiItem(
-              value: '${user.totalReviews ?? 0}',
+              value: '$totalReviews',
               label: 'Reviews',
               icon: Icons.rate_review_outlined,
               iconColor: cs.primary,

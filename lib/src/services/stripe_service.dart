@@ -59,15 +59,12 @@ class StripeService {
 
     // Step 2 — initialise Payment Sheet
     //
-    // returnURL is REQUIRED for redirect-based payment methods (FPX, GrabPay,
-    // etc.) that open an external browser/app.  After the bank confirms the
-    // payment it redirects to this URL, which brings the user back here and
-    // lets the Stripe SDK auto-confirm the PaymentIntent.
+    // Card-only mode: no returnURL needed because cards are confirmed inline
+    // without any external browser/app redirect.
     await Stripe.instance.initPaymentSheet(
       paymentSheetParameters: SetupPaymentSheetParameters(
         paymentIntentClientSecret: clientSecret,
         merchantDisplayName: merchantName,
-        returnURL: 'io.supabase.freelancerapp://payment-return',
       ),
     );
 
