@@ -816,12 +816,29 @@ class AppState extends ChangeNotifier {
     final oldName = _currentUser?.displayName;
     final newName = updated.displayName;
     if (oldName != null && oldName != newName) {
-      // Fire-and-forget — non-critical; the DB will be consistent shortly.
-      _db.updateUserDisplayNameEverywhere(updated.uid, newName).catchError((_) {});
+      final uid = updated.uid;
+
+      // Update Supabase (all 11 tables) — awaited so we know if it failed.
+      // Previously this was fire-and-forget (.catchError((_) {})) which silently
+      // left Supabase with the old name on any network error.
+      try {
+        await _db.updateUserDisplayNameEverywhere(uid, newName);
+      } catch (e) {
+        debugPrint('[updateProfile] cascade rename failed: $e');
+        // Non-fatal — in-memory and SQLite cache are still updated below;
+        // the Supabase rows will be corrected on the next successful edit.
+      }
+
+      // Patch the local SQLite job-post cache so the offline Browse tab
+      // never serves the stale old name.
+      try {
+        await _db.updateCachedClientName(uid, newName);
+      } catch (e) {
+        debugPrint('[updateProfile] SQLite cache rename failed: $e');
+      }
 
       // Mirror the rename in every in-memory list immediately so the UI
       // updates without waiting for a full reload.
-      final uid = updated.uid;
 
       // Job posts (client_name)
       for (final list in [_jobPosts, _myJobPosts]) {
@@ -1040,6 +1057,41 @@ class AppState extends ChangeNotifier {
   /// 2. **Offline** → serve SQLite immediately, no network attempt.
   /// 3. **Online** → fetch Supabase → write columnar cache → clear offline flag.
   /// 4. **Online but Supabase fails** → fall back to SQLite and mark offline.
+  /// Cross-references [posts] against the in-memory [_users] list and fixes
+  /// any job post whose `clientName` no longer matches the owner's current
+  /// `displayName` (i.e. the user renamed after posting).
+  ///
+  /// Returns a corrected list.  For each stale entry, a background write
+  /// repairs both Supabase and the local SQLite cache so future loads are
+  /// already correct.
+  List<JobPost> _healJobPostNames(List<JobPost> posts) {
+    if (_users.isEmpty) return posts; // users not yet loaded — skip
+
+    final Map<String, String> fixes = {}; // clientId → correct name
+
+    final healed = posts.map((post) {
+      final knownUser =
+          _users.where((u) => u.uid == post.clientId).firstOrNull;
+      if (knownUser != null && knownUser.displayName != post.clientName) {
+        fixes[post.clientId] = knownUser.displayName;
+        return post.copyWith(clientName: knownUser.displayName);
+      }
+      return post;
+    }).toList();
+
+    // Repair Supabase + SQLite cache in the background for every stale owner.
+    for (final entry in fixes.entries) {
+      _db.updateUserDisplayNameEverywhere(entry.key, entry.value)
+          .catchError((e) => debugPrint(
+              '[healJobPostNames] Supabase fix failed for ${entry.key}: $e'));
+      _db.updateCachedClientName(entry.key, entry.value)
+          .catchError((e) => debugPrint(
+              '[healJobPostNames] cache fix failed for ${entry.key}: $e'));
+    }
+
+    return healed;
+  }
+
   Future<void> _loadJobPostsFeed() async {
     _isOnline = await ConnectivityService.instance.isOnline();
 
@@ -1050,7 +1102,8 @@ class AppState extends ChangeNotifier {
     }
 
     try {
-      final fresh = await _jobRepo.getOpenPosts();
+      final raw = await _jobRepo.getOpenPosts();
+      final fresh = _healJobPostNames(raw); // fix any stale client names
       _jobPosts             = fresh;
       _jobPostsFromCache    = false;
       // Write to columnar cache; record last-synced timestamp.
@@ -1115,12 +1168,13 @@ class AppState extends ChangeNotifier {
     }
 
     try {
-      final fresh = await _jobRepo.getOpenPosts(
+      final raw = await _jobRepo.getOpenPosts(
         search: search,
         category: category,
         minBudget: minBudget,
         maxBudget: maxBudget,
       );
+      final fresh = _healJobPostNames(raw); // fix any stale client names
       _jobPosts          = fresh;
       _jobPostsFromCache = false;
       // Only persist the cache on unfiltered loads.
@@ -1278,7 +1332,17 @@ class AppState extends ChangeNotifier {
       // row because it is a write-ahead counter that is never decremented on
       // withdraw/reject and will always be >= the real active count.
       final realCount = await _db.getJobApplicationCount(postId);
-      final withCount = fresh.copyWith(applicationCount: realCount);
+      var withCount = fresh.copyWith(applicationCount: realCount);
+
+      // Heal stale clientName — the DB row may still carry the old name if
+      // updateUserDisplayNameEverywhere hasn't propagated yet.  Cross-reference
+      // against the live _users list (same logic as _healJobPostNames) so the
+      // detail page never flips back to an old name after the refresh.
+      final liveClient =
+          _users.where((u) => u.uid == withCount.clientId).firstOrNull;
+      if (liveClient != null && liveClient.displayName != withCount.clientName) {
+        withCount = withCount.copyWith(clientName: liveClient.displayName);
+      }
 
       for (final list in [_jobPosts, _myJobPosts]) {
         final idx = list.indexWhere((p) => p.id == postId);
@@ -1315,17 +1379,53 @@ class AppState extends ChangeNotifier {
 
   // ── Freelancer Services ────────────────────────────────────────────────────
 
+  /// Heals stale [FreelancerService.freelancerName] values in [services] by
+  /// cross-referencing the live [_users] list — mirrors [_healJobPostNames].
+  ///
+  /// For every entry where the stored name differs from the live display name,
+  /// the in-memory object is corrected and a background write updates both
+  /// Supabase and the local SQLite cache so future loads are already correct.
+  List<FreelancerService> _healServiceNames(List<FreelancerService> services) {
+    if (_users.isEmpty) return services;
+
+    final Map<String, String> fixes = {}; // freelancerId → correct name
+
+    final healed = services.map((svc) {
+      final knownUser =
+          _users.where((u) => u.uid == svc.freelancerId).firstOrNull;
+      if (knownUser != null && knownUser.displayName != svc.freelancerName) {
+        fixes[svc.freelancerId] = knownUser.displayName;
+        return svc.copyWith(freelancerName: knownUser.displayName);
+      }
+      return svc;
+    }).toList();
+
+    for (final entry in fixes.entries) {
+      _db
+          .updateUserDisplayNameEverywhere(entry.key, entry.value)
+          .catchError(
+              (e) => debugPrint('[healServiceNames] Supabase fix failed: $e'));
+      _db
+          .updateCachedFreelancerServiceName(entry.key, entry.value)
+          .catchError(
+              (e) => debugPrint('[healServiceNames] cache fix failed: $e'));
+    }
+
+    return healed;
+  }
+
   /// Offline-first service feed loader.
-  /// 1. Online  → fetch Supabase → cache top 20 → populate feed.
+  /// 1. Online  → fetch Supabase → heal names → cache top 20 → populate feed.
   /// 2. Offline → serve SQLite cache and show offline banner.
   Future<void> _loadServicesFeed() async {
     try {
-      final fresh = await _serviceRepo.getActiveServices();
+      final raw = await _serviceRepo.getActiveServices();
+      final fresh = _healServiceNames(raw); // fix any stale freelancer names
       _services = fresh;
       _servicesFromCache = false;
       if (fresh.isNotEmpty) await _serviceRepo.cache(fresh);
     } catch (_) {
-      _services = await _serviceRepo.getCached();
+      _services = _healServiceNames(await _serviceRepo.getCached());
       _servicesFromCache = _services.isNotEmpty;
     }
   }
@@ -1337,11 +1437,12 @@ class AppState extends ChangeNotifier {
     double? maxPrice,
   }) async {
     try {
-      final fresh = await _serviceRepo.getActiveServices(
+      final raw = await _serviceRepo.getActiveServices(
         search: search,
         category: category,
         maxPrice: maxPrice,
       );
+      final fresh = _healServiceNames(raw); // fix any stale freelancer names
       _services = fresh;
       _servicesFromCache = false;
       // Only update cache on unfiltered loads.
@@ -1350,7 +1451,8 @@ class AppState extends ChangeNotifier {
       }
     } catch (_) {
       if (_services.isEmpty) {
-        _services = await _serviceRepo.getCached();
+        _services =
+            _healServiceNames(await _serviceRepo.getCached());
         _servicesFromCache = _services.isNotEmpty;
       }
     }

@@ -12,6 +12,8 @@ import '../../../services/supabase_storage_service.dart';
 import '../../../state/app_state.dart';
 import '../../disputes/models/dispute_record.dart';
 import '../../overdue/services/overdue_service.dart';
+import '../../ratings/models/review_item.dart';
+import '../../ratings/screens/review_create_edit_screen.dart';
 import '../models/milestone_item.dart';
 import '../models/project_item.dart';
 import '../services/project_service.dart';
@@ -1162,7 +1164,28 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   // ── Completed ──────────────────────────────────────────────────────────────
 
   List<Widget> _buildCompletedSection() {
+    final user    = AppState.instance.currentUser;
+    final project = _project!;
+    final isClient = user?.uid == project.clientId;
+
+    // Look up any existing review the current user wrote for this project.
+    final myReview = AppState.instance.reviews
+        .where((r) => r.reviewerId == user?.uid && r.projectId == project.id)
+        .firstOrNull;
+
+    // Resolve the other party's name from the live users list so we always show
+    // the current name even if the denormalized field on the project is stale.
+    final otherUid  = isClient ? project.freelancerId : project.clientId;
+    final otherUser = AppState.instance.users
+        .where((u) => u.uid == otherUid)
+        .firstOrNull;
+    final otherName = otherUser?.displayName
+        ?? (isClient
+            ? (project.freelancerName ?? 'Freelancer')
+            : (project.clientName ?? 'Client'));
+
     return [
+      // ── Completion banner ──────────────────────────────────────────────
       Card(
         color: Colors.green.shade50,
         child: Padding(
@@ -1179,69 +1202,77 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                         color: Colors.green,
                         fontSize: 16)),
               ]),
-              if (_project!.clientSignatureUrl != null) ...[
+              if (project.clientSignatureUrl != null) ...[
                 const SizedBox(height: 6),
                 const Row(children: [
                   Icon(Icons.draw, size: 14, color: Colors.grey),
                   SizedBox(width: 4),
                   Text('Client signed off',
-                      style:
-                          TextStyle(color: Colors.grey, fontSize: 13)),
+                      style: TextStyle(color: Colors.grey, fontSize: 13)),
                 ]),
               ],
-              if (_project!.isSingleDelivery) ...[
+              if (project.isSingleDelivery) ...[
                 const SizedBox(height: 6),
                 const Row(children: [
                   Icon(Icons.bolt, size: 14, color: Colors.grey),
                   SizedBox(width: 4),
                   Text('Single Delivery',
-                      style:
-                          TextStyle(color: Colors.grey, fontSize: 13)),
+                      style: TextStyle(color: Colors.grey, fontSize: 13)),
                 ]),
               ],
             ],
           ),
         ),
       ),
-      // Show deliverable link for single-delivery completed projects
-      if (_project!.isSingleDelivery &&
-          _project!.singleDeliverableUrl != null) ...[
+
+      // ── Review prompt / summary ────────────────────────────────────────
+      const SizedBox(height: 12),
+      if (myReview == null)
+        _ReviewPromptCard(
+          project: project,
+          otherName: otherName,
+          onReviewed: _load, // refresh so the summary card shows immediately
+        )
+      else
+        _ReviewGivenCard(review: myReview, otherName: otherName),
+
+      // ── Deliverable link (single-delivery) ────────────────────────────
+      if (project.isSingleDelivery &&
+          project.singleDeliverableUrl != null) ...[
         const SizedBox(height: 12),
         Card(
           child: ListTile(
-            leading:
-                const Icon(Icons.link, color: Colors.green),
+            leading: const Icon(Icons.link, color: Colors.green),
             title: const Text('Submitted Deliverable'),
             subtitle: Text(
-              _project!.singleDeliverableUrl!,
+              project.singleDeliverableUrl!,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            trailing: const Icon(Icons.check_circle,
-                color: Colors.green, size: 20),
+            trailing:
+                const Icon(Icons.check_circle, color: Colors.green, size: 20),
           ),
         ),
       ],
-      // Show milestone list for milestone-mode completed projects
-      if (!_project!.isSingleDelivery && _milestones.isNotEmpty) ...[
+
+      // ── Milestone list (milestone-mode) ───────────────────────────────
+      if (!project.isSingleDelivery && _milestones.isNotEmpty) ...[
         const SizedBox(height: 12),
         const Text('Milestones',
-            style:
-                TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         ..._milestones.map(
           (m) => Card(
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
-              leading: const Icon(Icons.check_circle, color: Colors.green),
+              leading:
+                  const Icon(Icons.check_circle, color: Colors.green),
               title: Text(m.title,
                   style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(
-                  '${m.percentage.toStringAsFixed(0)}%  ·  '
+              subtitle: Text('${m.percentage.toStringAsFixed(0)}%  ·  '
                   'RM ${m.paymentAmount.toStringAsFixed(2)}'),
               trailing: m.isPaid
-                  ? const Icon(Icons.payments,
-                      color: Colors.green, size: 20)
+                  ? const Icon(Icons.payments, color: Colors.green, size: 20)
                   : null,
             ),
           ),
@@ -1268,6 +1299,19 @@ class _ProjectInfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = project.status.color;
+
+    // Always resolve names from the live users list so the project card
+    // reflects the current display name, not the stale denormalized copy.
+    final allUsers   = AppState.instance.users;
+    final freelancer = allUsers.where((u) => u.uid == project.freelancerId).firstOrNull;
+    final client     = allUsers.where((u) => u.uid == project.clientId).firstOrNull;
+    final freelancerLabel = freelancer?.displayName
+        ?? project.freelancerName
+        ?? project.freelancerId;
+    final clientLabel = client?.displayName
+        ?? project.clientName
+        ?? project.clientId;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -1303,11 +1347,9 @@ class _ProjectInfoCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             if (isClient)
-              _InfoRow(Icons.code, 'Freelancer',
-                  project.freelancerName ?? project.freelancerId)
+              _InfoRow(Icons.code, 'Freelancer', freelancerLabel)
             else
-              _InfoRow(Icons.business, 'Client',
-                  project.clientName ?? project.clientId),
+              _InfoRow(Icons.business, 'Client', clientLabel),
             if (project.startDate != null)
               _InfoRow(
                   Icons.play_arrow, 'Started', _fmt(project.startDate!)),
@@ -3192,6 +3234,168 @@ class _SingleDeliverableDialogState
           onPressed: _submit,
         ),
       ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Review widgets (shown in _buildCompletedSection)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Shown when the current user has NOT yet reviewed the other party.
+/// Tapping "Rate Now" opens the full ReviewCreateEditScreen.
+class _ReviewPromptCard extends StatelessWidget {
+  const _ReviewPromptCard({
+    required this.project,
+    required this.otherName,
+    required this.onReviewed,
+  });
+
+  final ProjectItem project;
+  final String otherName;
+  final VoidCallback onReviewed;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      color: cs.primaryContainer.withValues(alpha: 0.55),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: cs.primary.withValues(alpha: 0.25)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                Icon(Icons.star_rounded, color: Colors.amber.shade600, size: 22),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'How was your experience?',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Share your feedback about $otherName. Your review helps '
+              'others make better decisions on FreelanceHub.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.star_outline_rounded, size: 18),
+                label: Text('Rate $otherName'),
+                onPressed: () async {
+                  final done = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ReviewCreateEditScreen(project: project),
+                    ),
+                  );
+                  if (done == true) onReviewed();
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when the current user HAS already submitted a review.
+/// Displays their stars and comment inline.
+class _ReviewGivenCard extends StatelessWidget {
+  const _ReviewGivenCard({
+    required this.review,
+    required this.otherName,
+  });
+
+  final ReviewItem review;
+  final String otherName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Colors.green.shade50,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.green.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                const Icon(Icons.check_circle_outline,
+                    color: Colors.green, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'You reviewed $otherName',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.green,
+                        fontSize: 13),
+                  ),
+                ),
+                // Edit button
+                TextButton(
+                  style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 0),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      foregroundColor: Colors.green.shade700),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ReviewCreateEditScreen(review: review),
+                    ),
+                  ),
+                  child: const Text('Edit', style: TextStyle(fontSize: 12)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Stars
+            Row(
+              children: List.generate(5, (i) => Icon(
+                i < review.stars
+                    ? Icons.star_rounded
+                    : Icons.star_outline_rounded,
+                size: 20,
+                color: i < review.stars
+                    ? Colors.amber.shade600
+                    : Colors.grey.shade400,
+              )),
+            ),
+            if (review.comment.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                review.comment,
+                style: const TextStyle(fontSize: 13, height: 1.4),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

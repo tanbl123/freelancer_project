@@ -346,6 +346,14 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
         : '';
     final statusColor = order.status.color;
 
+    // Live name lookup so renames are reflected immediately.
+    final clientName =
+        AppState.instance.users
+            .where((u) => u.uid == order.clientId)
+            .firstOrNull
+            ?.displayName ??
+        order.clientName;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -414,7 +422,7 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
                   _SheetRow(
                     icon: Icons.person_outline,
                     label: 'Client',
-                    value: order.clientName,
+                    value: clientName,
                     trailing: TextButton(
                       onPressed: () {
                         Navigator.pop(ctx);
@@ -687,6 +695,20 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
         ? DateFormat('d MMM y').format(order.createdAt!)
         : '';
 
+    // Live name lookups so renames show immediately on both views.
+    final clientName =
+        AppState.instance.users
+            .where((u) => u.uid == order.clientId)
+            .firstOrNull
+            ?.displayName ??
+        order.clientName;
+    final freelancerName =
+        AppState.instance.users
+            .where((u) => u.uid == order.freelancerId)
+            .firstOrNull
+            ?.displayName ??
+        order.freelancerName;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.hardEdge,
@@ -732,8 +754,8 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
                               // Name row — tap handled by parent InkWell (detail sheet)
                               Text(
                                 widget.isFreelancerView
-                                    ? 'From: ${order.clientName}'
-                                    : 'To: ${order.freelancerName}',
+                                    ? 'From: $clientName'
+                                    : 'To: $freelancerName',
                                 style: const TextStyle(
                                     color: Colors.grey, fontSize: 12),
                               ),

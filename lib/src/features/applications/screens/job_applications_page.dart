@@ -363,6 +363,14 @@ class _ApplicationCard extends StatelessWidget {
         user?.role == UserRole.freelancer && item.freelancerId == user?.uid;
     final statusColor = _statusColor(item.status);
 
+    // Live name lookup — avoids showing stale denormalised copy after rename.
+    final freelancerName =
+        AppState.instance.users
+            .where((u) => u.uid == item.freelancerId)
+            .firstOrNull
+            ?.displayName ??
+        item.freelancerName;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.hardEdge,
@@ -382,14 +390,14 @@ class _ApplicationCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 20,
-                  child: Text(item.freelancerName[0].toUpperCase()),
+                  child: Text(freelancerName[0].toUpperCase()),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(item.freelancerName,
+                      Text(freelancerName,
                           style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 15)),

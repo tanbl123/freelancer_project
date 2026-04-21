@@ -309,6 +309,14 @@ class _ApplicationCardState extends State<_ApplicationCard> {
     final app = widget.app;
     final cs  = Theme.of(context).colorScheme;
 
+    // Live name lookup — avoids showing stale denormalised copy after rename.
+    final freelancerName =
+        AppState.instance.users
+            .where((u) => u.uid == app.freelancerId)
+            .firstOrNull
+            ?.displayName ??
+        app.freelancerName;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 400),
       margin: const EdgeInsets.only(bottom: 10),
@@ -340,7 +348,7 @@ class _ApplicationCardState extends State<_ApplicationCard> {
                           backgroundColor:
                               cs.primaryContainer,
                           child: Text(
-                            app.freelancerName[0].toUpperCase(),
+                            freelancerName[0].toUpperCase(),
                             style: TextStyle(
                                 color: cs.onPrimaryContainer,
                                 fontWeight: FontWeight.bold),
@@ -354,7 +362,7 @@ class _ApplicationCardState extends State<_ApplicationCard> {
                               Row(
                                 children: [
                                   Text(
-                                    app.freelancerName,
+                                    freelancerName,
                                     style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 14),

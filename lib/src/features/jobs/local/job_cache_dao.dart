@@ -177,6 +177,21 @@ class JobCacheDao {
     return DateTime.now().difference(last) > kStaleDuration;
   }
 
+  // ── Patch operations ─────────────────────────────────────────────────────────
+
+  /// Updates `client_name` for every cached post owned by [clientId].
+  ///
+  /// Call this immediately after a client changes their display name so the
+  /// offline cache stays in sync and does not serve the stale old name.
+  Future<void> updateClientName(String clientId, String newName) async {
+    await _db.update(
+      kTable,
+      {'client_name': newName},
+      where: 'client_id = ?',
+      whereArgs: [clientId],
+    );
+  }
+
   // ── Maintenance ───────────────────────────────────────────────────────────────
 
   /// Wipe the cache — call on logout so the next user starts fresh.

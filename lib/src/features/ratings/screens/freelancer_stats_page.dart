@@ -34,9 +34,15 @@ class _FreelancerStatsPageState extends State<FreelancerStatsPage> {
     _load();
   }
 
+  bool get _isOwner =>
+      AppState.instance.currentUser?.uid == widget.freelancerId;
+
   Future<void> _load() async {
-    final earnings =
-        await AppState.instance.getMonthlyEarnings(widget.freelancerId);
+    // Only fetch earnings for the freelancer themselves — never expose
+    // another user's financial data.
+    final earnings = _isOwner
+        ? await AppState.instance.getMonthlyEarnings(widget.freelancerId)
+        : <String, double>{};
     final dist =
         await AppState.instance.getRatingDistribution(widget.freelancerId);
     final trend =
@@ -82,9 +88,15 @@ class _FreelancerStatsPageState extends State<FreelancerStatsPage> {
                 p.clientId == widget.freelancerId))
         .length;
 
+    final isOwner = _isOwner;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text('${user?.displayName ?? 'Freelancer'} — Stats'),
+        title: Text(
+          isOwner
+              ? '${user?.displayName ?? 'Freelancer'} — Earnings & Stats'
+              : '${user?.displayName ?? 'Freelancer'} — Reviews & Stats',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
@@ -117,25 +129,27 @@ class _FreelancerStatsPageState extends State<FreelancerStatsPage> {
                     if (user != null) _KpiCard(user: user, completedProjects: completedProjects),
                     const SizedBox(height: 20),
 
-                    // ── Monthly earnings bar chart ─────────────────────
-                    _SectionHeader(
-                        icon: Icons.payments_outlined,
-                        title: 'Monthly Earnings (Last 6 Months)'),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
-                        child: _monthlyEarnings.isEmpty
-                            ? _EmptyChartPlaceholder(
-                                message: 'No earnings data yet.')
-                            : SizedBox(
-                                height: 200,
-                                child: _EarningsBarChart(
-                                    data: _monthlyEarnings),
-                              ),
+                    // ── Monthly earnings bar chart (owner only) ────────
+                    if (isOwner) ...[
+                      _SectionHeader(
+                          icon: Icons.payments_outlined,
+                          title: 'Monthly Earnings (Last 6 Months)'),
+                      const SizedBox(height: 8),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
+                          child: _monthlyEarnings.isEmpty
+                              ? _EmptyChartPlaceholder(
+                                  message: 'No earnings data yet.')
+                              : SizedBox(
+                                  height: 200,
+                                  child: _EarningsBarChart(
+                                      data: _monthlyEarnings),
+                                ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 20),
+                      const SizedBox(height: 20),
+                    ],
 
                     // ── Rating trend line chart ─────────────────────────
                     _SectionHeader(

@@ -1324,6 +1324,12 @@ class SupabaseService {
   /// `true` when the cache is older than [JobCacheDao.kStaleDuration] or empty.
   Future<bool> isJobCacheStale() => _jobCacheDao.isStale();
 
+  /// Patches `client_name` in the local SQLite cache for every post owned by
+  /// [clientId]. Must be called alongside [updateUserDisplayNameEverywhere] so
+  /// the offline cache never serves a stale display name.
+  Future<void> updateCachedClientName(String clientId, String newName) =>
+      _jobCacheDao.updateClientName(clientId, newName);
+
   // ── Freelancer Services ────────────────────────────────────────────────────
 
   /// Fetch active service listings with optional search, category, and
@@ -1463,6 +1469,29 @@ class SupabaseService {
           jsonDecode(row['payload'] as String) as Map<String, dynamic>;
       return FreelancerService.fromMap(decoded);
     }).toList();
+  }
+
+  /// Patches `freelancer_name` inside every JSON blob row whose
+  /// `freelancer_id` matches [freelancerId].
+  ///
+  /// Call this alongside [updateUserDisplayNameEverywhere] so the offline
+  /// service cache never serves a stale display name.
+  Future<void> updateCachedFreelancerServiceName(
+      String freelancerId, String newName) async {
+    final rows = await _localDb.query('cached_freelancer_services');
+    for (final row in rows) {
+      final decoded =
+          jsonDecode(row['payload'] as String) as Map<String, dynamic>;
+      if (decoded['freelancer_id'] == freelancerId) {
+        decoded['freelancer_name'] = newName;
+        await _localDb.update(
+          'cached_freelancer_services',
+          {'payload': jsonEncode(decoded)},
+          where: 'id = ?',
+          whereArgs: [decoded['id']],
+        );
+      }
+    }
   }
 
   // ── Dispute Records ────────────────────────────────────────────────────────

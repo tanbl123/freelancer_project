@@ -456,13 +456,13 @@ class FreelancerProfilePage extends StatelessWidget {
                           ),
                   ),
 
-                  // View full stats button
+                  // View reviews & rating stats (earnings are private)
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.bar_chart),
-                      label: const Text('View Earnings & Stats'),
+                      label: const Text('View Reviews & Stats'),
                       onPressed: () => Navigator.pushNamed(
                         context,
                         AppRoutes.ratingsStats,

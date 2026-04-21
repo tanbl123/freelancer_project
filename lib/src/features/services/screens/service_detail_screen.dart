@@ -159,6 +159,15 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     final isActive = _service.status == ServiceStatus.active;
     final colors = Theme.of(context).colorScheme;
 
+    // Live freelancer name — prevents showing the stale denormalised copy
+    // after the provider renames their account.
+    final freelancerName =
+        AppState.instance.users
+            .where((u) => u.uid == _service.freelancerId)
+            .firstOrNull
+            ?.displayName ??
+        _service.freelancerName;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Service Details'),
@@ -278,9 +287,8 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                               backgroundColor:
                                   colors.primaryContainer,
                               child: Text(
-                                _service.freelancerName.isNotEmpty
-                                    ? _service.freelancerName[0]
-                                        .toUpperCase()
+                                freelancerName.isNotEmpty
+                                    ? freelancerName[0].toUpperCase()
                                     : '?',
                                 style: TextStyle(
                                     fontSize: 12,
@@ -295,7 +303,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                                     CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    _service.freelancerName,
+                                    freelancerName,
                                     style: const TextStyle(
                                         fontWeight: FontWeight.w600,
                                         fontSize: 13),

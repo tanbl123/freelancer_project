@@ -202,6 +202,15 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
     final user = AppState.instance.currentUser;
     final isFreelancer = user?.role == UserRole.freelancer;
 
+    // Live client name — prevents the brief flicker where refreshJobPost()
+    // temporarily overwrites the healed name with the stale DB copy.
+    final clientName =
+        AppState.instance.users
+            .where((u) => u.uid == _post.clientId)
+            .firstOrNull
+            ?.displayName ??
+        _post.clientName;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Job Details'),
@@ -354,8 +363,8 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                               backgroundColor:
                                   colors.secondaryContainer,
                               child: Text(
-                                _post.clientName.isNotEmpty
-                                    ? _post.clientName[0].toUpperCase()
+                                clientName.isNotEmpty
+                                    ? clientName[0].toUpperCase()
                                     : '?',
                                 style: TextStyle(
                                     fontSize: 12,
@@ -370,7 +379,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                                     CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    _post.clientName,
+                                    clientName,
                                     style: const TextStyle(
                                         fontWeight: FontWeight.w600,
                                         fontSize: 13),
