@@ -968,18 +968,30 @@ class SupabaseService {
     final projectIds =
         projectRows.map((r) => r['id'] as String).toList();
 
-    // Get approved/locked milestones for these projects
+    // Only count milestones that are fully completed (deliverable approved +
+    // payment released to the freelancer).
+    // 'approved' = plan was approved, work hasn't started yet — NOT earnings.
+    // 'completed' = client signed off the deliverable and released payment ✓
+    //
+    // Limit to the last 6 months to match the chart title.
+    final sixMonthsAgo = DateTime.now()
+        .subtract(const Duration(days: 183))
+        .toIso8601String();
+
     final milestoneRows = await _client
         .from('milestones')
-        .select('payment_amount,updated_at,status')
+        .select('payment_amount,updated_at')
         .inFilter('project_id', projectIds)
-        .or('status.eq.approved,status.eq.locked');
+        .eq('status', 'completed')
+        .gte('updated_at', sixMonthsAgo)
+        .order('updated_at', ascending: true);
 
-    final monthNames = [
+    const monthNames = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
     ];
 
+    // Use a LinkedHashMap-ordered map so chart bars appear chronologically.
     final Map<String, double> result = {};
     for (final row in milestoneRows) {
       final updatedAt = _parseDate(row['updated_at']);
