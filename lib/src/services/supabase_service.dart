@@ -891,6 +891,33 @@ class SupabaseService {
         .toList();
   }
 
+  /// Returns the number of **completed** projects that originated from the
+  /// given service.
+  ///
+  /// Chain: service_orders(service_id) → projects(service_order_id, status=completed)
+  ///
+  /// This is the live count straight from the database — more reliable than
+  /// the denormalised `order_count` column which depends on an RPC trigger.
+  Future<int> getCompletedOrderCountForService(String serviceId) async {
+    // Step 1 — all service_order IDs for this service
+    final orderRows = await _client
+        .from('service_orders')
+        .select('id')
+        .eq('service_id', serviceId);
+    final orderIds = (orderRows as List)
+        .map((r) => (r as Map<String, dynamic>)['id'] as String)
+        .toList();
+    if (orderIds.isEmpty) return 0;
+
+    // Step 2 — count projects that are completed and linked to those orders
+    final projectRows = await _client
+        .from('projects')
+        .select('id')
+        .inFilter('service_order_id', orderIds)
+        .eq('status', 'completed');
+    return (projectRows as List).length;
+  }
+
   /// All reviews (any status) authored by [userId].
   Future<List<ReviewItem>> getReviewsByUser(String userId) async {
     final rows = await _client

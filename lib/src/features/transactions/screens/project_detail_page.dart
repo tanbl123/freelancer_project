@@ -465,6 +465,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
               _PaymentStatusBanner(
                 payment: paymentRecord,
                 milestones: _milestones,
+                project: _project!,
               ),
             // ── Payout banner (freelancer only) ───────────────────────
             // Only shown when bank account is NOT yet registered —
@@ -2082,26 +2083,33 @@ class _PaymentStatusBanner extends StatelessWidget {
   const _PaymentStatusBanner({
     required this.payment,
     required this.milestones,
+    required this.project,
   });
   final PaymentRecord payment;
   final List<MilestoneItem> milestones;
+  final ProjectItem project;
 
   @override
   Widget build(BuildContext context) {
-    // ── Derive released amount from completed milestones ─────────────────────
-    // The payment_records.released_amount column can lag behind reality when
-    // releaseMilestonePayout fails silently (e.g. Stripe Connect unavailable).
-    // Using milestones as the authoritative source keeps this banner in sync
-    // with the green BudgetCard, which also reads milestone statuses directly.
-    final milestoneReleased = milestones
-        .where((m) => m.isCompleted)
-        .fold(0.0, (s, m) => s + m.paymentAmount);
-
-    // Take the higher of the two sources — never show LESS than what the DB says
-    final effectiveReleased =
-        milestoneReleased > payment.releasedAmount
-            ? milestoneReleased
-            : payment.releasedAmount;
+    // ── Derive released amount ────────────────────────────────────────────────
+    // payment_records.released_amount can lag when the payout RPC fails silently.
+    //
+    // Milestone plan: sum completed milestone amounts as authoritative source.
+    // Single delivery: once the project is completed the full amount is released
+    //   (there are no milestone rows to sum, so we detect this case explicitly).
+    final double effectiveReleased;
+    if (project.isSingleDelivery && project.isCompleted) {
+      // All funds released when a single-delivery project is marked complete.
+      effectiveReleased = payment.totalAmount;
+    } else {
+      final milestoneReleased = milestones
+          .where((m) => m.isCompleted)
+          .fold(0.0, (s, m) => s + m.paymentAmount);
+      // Take the higher of the two sources — never show LESS than what the DB says
+      effectiveReleased = milestoneReleased > payment.releasedAmount
+          ? milestoneReleased
+          : payment.releasedAmount;
+    }
 
     final effectiveRemaining =
         (payment.heldAmount - effectiveReleased - payment.refundedAmount)

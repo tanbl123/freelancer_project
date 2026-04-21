@@ -110,37 +110,35 @@ class _ReviewCreateEditScreenState extends State<ReviewCreateEditScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(err), backgroundColor: Colors.red));
     } else {
-      // Pop FIRST so the screen begins its exit animation, then immediately
-      // show the snackbar.  The root ScaffoldMessenger is still reachable via
-      // this context during the pop animation, and starting the auto-dismiss
-      // timer from a stable context prevents the "snackbar never disappears"
-      // bug that occurs when the timer is started from a widget mid-dispose.
+      // Capture the ScaffoldMessenger BEFORE popping so the reference stays
+      // valid after this widget is removed from the tree.  Using the context
+      // after Navigator.pop starts the dispose cycle, which causes the
+      // auto-dismiss timer to never fire.
+      final messenger = ScaffoldMessenger.of(context);
+      final capturedStars = _stars;
+      final capturedName  = shareRevieweeName;
+      final showShare     = !widget.isEdit && capturedName.isNotEmpty;
+
       Navigator.pop(context, true);
-      if (!widget.isEdit && shareRevieweeName.isNotEmpty) {
-        _offerShare(shareRevieweeName, _stars);
+
+      if (showShare) {
+        messenger
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              duration: const Duration(seconds: 4),
+              content: Text('Review submitted! $capturedStars ⭐'),
+              action: SnackBarAction(
+                label: 'Share',
+                onPressed: () => Share.share(
+                  'I just gave $capturedName $capturedStars/5 stars on FreelanceHub! '
+                  'Great work 🎉',
+                ),
+              ),
+            ),
+          );
       }
     }
-  }
-
-  void _offerShare(String revieweeName, int stars) {
-    ScaffoldMessenger.of(context)
-      // Clear any lingering snackbar so the new one starts its timer fresh.
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          // Explicit duration guarantees auto-dismiss regardless of whether the
-          // snackbar has an action button (Material 3 has been inconsistent here).
-          duration: const Duration(seconds: 4),
-          content: Text('Review submitted! $stars ⭐'),
-          action: SnackBarAction(
-            label: 'Share',
-            onPressed: () => Share.share(
-              'I just gave $revieweeName $stars/5 stars on FreelanceHub! '
-              'Great work 🎉',
-            ),
-          ),
-        ),
-      );
   }
 
   @override

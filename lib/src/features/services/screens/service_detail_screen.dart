@@ -29,6 +29,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   late FreelancerService _service;
   bool _actionLoading = false;
   int _galleryIndex = 0;
+  int? _liveOrderCount; // fetched from DB; overrides stale model value
 
   @override
   void initState() {
@@ -37,6 +38,17 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     final user = AppState.instance.currentUser;
     if (user?.uid != _service.freelancerId) {
       AppState.instance.recordServiceView(_service.id);
+    }
+    _fetchLiveOrderCount();
+  }
+
+  Future<void> _fetchLiveOrderCount() async {
+    try {
+      final count = await AppState.instance.db
+          .getCompletedOrderCountForService(_service.id);
+      if (mounted) setState(() => _liveOrderCount = count);
+    } catch (_) {
+      // Silently fall back to the model's cached value
     }
   }
 
@@ -324,7 +336,11 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                         const SizedBox(height: 16),
 
                         // ── Key stats card ───────────────────────────
-                        _StatsCard(service: _service),
+                        _StatsCard(
+                          service: _liveOrderCount != null
+                              ? _service.copyWith(orderCount: _liveOrderCount)
+                              : _service,
+                        ),
                         const SizedBox(height: 20),
 
                         // ── Description ──────────────────────────────
