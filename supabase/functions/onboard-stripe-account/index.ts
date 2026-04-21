@@ -48,9 +48,13 @@ serve(async (req) => {
     let accountId = profile?.stripe_account_id;
 
     if (!accountId) {
-      // Create a new Stripe Express account
+      // Create a new Stripe Express account.
+      // country: 'US' is used for sandbox testing because Stripe Connect
+      // Express/Custom accounts are not yet publicly available for MY-based
+      // platforms. In production, replace with the freelancer's actual country.
       const account = await stripe.accounts.create({
         type: 'express',
+        country: 'US',
         email: profile?.email ?? user.email,
         capabilities: {
           transfers: { requested: true },

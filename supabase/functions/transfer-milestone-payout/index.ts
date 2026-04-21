@@ -57,17 +57,19 @@ serve(async (req) => {
     // Net = 90% of gross (platform keeps 10%)
     const netAmountCents = Math.round(gross_amount_myr * 0.9 * 100);
 
-    // Transfer from platform account to freelancer's connected account
+    // Transfer from platform balance to freelancer's connected account.
+    // Note: source_transaction is not used here because we are on the
+    // Platform (not Marketplace) model — transfers come from platform balance.
     const transfer = await stripe.transfers.create({
       amount: netAmountCents,
       currency: 'myr',
       destination: freelancerProfile.stripe_account_id,
-      source_transaction: payment_intent_id,
       description: `Milestone payout for ${milestone_id}`,
       metadata: {
         freelancer_id,
         milestone_id,
         gross_amount_myr: gross_amount_myr.toString(),
+        payment_intent_id,
       },
     });
 

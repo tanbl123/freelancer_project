@@ -81,17 +81,25 @@ class StripeService {
   /// Calls the `onboard-stripe-account` Edge Function to create/retrieve a
   /// Stripe Express account for the freelancer and returns the onboarding URL.
   static Future<String> getOnboardingUrl() async {
-    final response = await Supabase.instance.client.functions.invoke(
-      'onboard-stripe-account',
-      body: {},
-    );
-    final data = response.data as Map<String, dynamic>?;
-    if (data == null || data['error'] != null) {
-      throw StripePaymentException(
-        data?['error']?.toString() ?? 'Failed to create payout account.',
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        'onboard-stripe-account',
+        body: {},
       );
+      final data = response.data as Map<String, dynamic>?;
+      if (data == null || data['error'] != null) {
+        throw StripePaymentException(
+          data?['error']?.toString() ?? 'Failed to create payout account.',
+        );
+      }
+      return data['onboarding_url']?.toString() ?? '';
+    } on StripePaymentException {
+      rethrow;
+    } catch (e) {
+      // FunctionException or network error — surface the real message
+      final msg = _extractFunctionError(e) ?? 'Failed to create payout account.';
+      throw StripePaymentException(msg);
     }
-    return data['onboarding_url']?.toString() ?? '';
   }
 
   /// Transfers the net milestone payout to the freelancer's connected Stripe account.
@@ -103,22 +111,45 @@ class StripeService {
     required String paymentIntentId,
     required String milestoneId,
   }) async {
-    final response = await Supabase.instance.client.functions.invoke(
-      'transfer-milestone-payout',
-      body: {
-        'freelancer_id': freelancerId,
-        'gross_amount_myr': grossAmountMyr,
-        'payment_intent_id': paymentIntentId,
-        'milestone_id': milestoneId,
-      },
-    );
-    final data = response.data as Map<String, dynamic>?;
-    if (data == null || data['error'] != null) {
-      throw StripePaymentException(
-        data?['error']?.toString() ?? 'Payout transfer failed.',
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        'transfer-milestone-payout',
+        body: {
+          'freelancer_id': freelancerId,
+          'gross_amount_myr': grossAmountMyr,
+          'payment_intent_id': paymentIntentId,
+          'milestone_id': milestoneId,
+        },
       );
+      final data = response.data as Map<String, dynamic>?;
+      if (data == null || data['error'] != null) {
+        throw StripePaymentException(
+          data?['error']?.toString() ?? 'Payout transfer failed.',
+        );
+      }
+      return data['transfer_id']?.toString() ?? generatePayoutReference();
+    } on StripePaymentException {
+      rethrow;
+    } catch (e) {
+      final msg = _extractFunctionError(e) ?? 'Payout transfer failed.';
+      throw StripePaymentException(msg);
     }
-    return data['transfer_id']?.toString() ?? generatePayoutReference();
+  }
+
+  // ── Extracts a readable message from a Supabase FunctionException ─────────
+
+  static String? _extractFunctionError(Object e) {
+    // FunctionException.details may be a Map with an 'error' key,
+    // or a raw String, depending on what the Edge Function returned.
+    try {
+      final details = (e as dynamic).details;
+      if (details is Map) return details['error']?.toString();
+      if (details is String && details.isNotEmpty) return details;
+    } catch (_) {}
+    // Fall back to the exception's own toString (trims Dart class prefix)
+    final raw = e.toString();
+    final colon = raw.indexOf(':');
+    return colon >= 0 ? raw.substring(colon + 1).trim() : raw;
   }
 
   // ── Reference generators for payout / refund DB records ───────────────────
