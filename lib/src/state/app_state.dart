@@ -759,6 +759,19 @@ class AppState extends ChangeNotifier {
         }
       }
 
+      // ── Guard: block clients with active projects ──────────────────────────
+      if (role == UserRole.client) {
+        final hasActiveWork = _projects.any((p) =>
+            p.clientId == uid &&
+            (p.status == ProjectStatus.pendingStart ||
+                p.status == ProjectStatus.inProgress ||
+                p.status == ProjectStatus.disputed));
+        if (hasActiveWork) {
+          return 'You have ongoing projects. Please complete or wait for all '
+              'active projects to finish before deactivating your account.';
+        }
+      }
+
       // ── Hide content from browse feeds ────────────────────────────────────
       await _db.deactivateUserContent(uid, role);
 
@@ -1720,6 +1733,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> updateApplicationStatus(
       String appId, ApplicationStatus status) async {
+    // Deactivated clients should not be able to change application statuses.
+    if (_currentUser != null && !_currentUser!.isActive) return;
     await _db.updateApplicationStatus(appId, status);
 
     // Capture app reference before mutating the list (used for notification below).
@@ -1760,6 +1775,10 @@ class AppState extends ChangeNotifier {
     if (_acceptingIds.contains(app.id)) return null;
     _acceptingIds.add(app.id);
     try {
+      // Guard: deactivated clients cannot accept new applications.
+      if (_currentUser != null && !_currentUser!.isActive) {
+        return 'Your account is not active.';
+      }
       // DB-level dedup: skip project creation if one already exists.
       final existing = await _db.getProjectByApplicationId(app.id);
       if (existing != null) {

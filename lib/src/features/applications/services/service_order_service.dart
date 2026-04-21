@@ -84,6 +84,7 @@ class ServiceOrderService {
 
   Future<String?> acceptOrder(
       ProfileUser actor, ServiceOrder order, String note) async {
+    if (!actor.isActive) return 'Your account is not active.';
     if (actor.uid != order.freelancerId) return 'Access denied.';
     if (!order.isPending) return 'Only pending orders can be accepted.';
 
@@ -103,6 +104,7 @@ class ServiceOrderService {
 
   Future<String?> rejectOrder(
       ProfileUser actor, ServiceOrder order, String reason) async {
+    if (!actor.isActive) return 'Your account is not active.';
     if (actor.uid != order.freelancerId) return 'Access denied.';
     if (!order.isPending) return 'Only pending orders can be rejected.';
 

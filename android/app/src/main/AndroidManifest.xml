@@ -45,6 +45,18 @@
                     android:scheme="io.supabase.freelancerapp"
                     android:host="login-callback"/>
             </intent-filter>
+
+            <!-- Stripe payment return: io.supabase.freelancerapp://payment-return
+                 Required for redirect-based payment methods (FPX, GrabPay, etc.)
+                 that open an external browser and need to return to this app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="io.supabase.freelancerapp"
+                    android:host="payment-return"/>
+            </intent-filter>
         </activity>
         <meta-data
             android:name="flutterEmbedding"
