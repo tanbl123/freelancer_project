@@ -1225,6 +1225,10 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
       ),
 
       // ── Review prompt / summary ────────────────────────────────────────
+      // Three states:
+      //   1. No review yet          → prompt card with "Rate" button
+      //   2. Review exists (active) → summary card with edit/delete
+      //   3. Review removed by admin → locked notice, no re-submission allowed
       const SizedBox(height: 12),
       if (myReview == null)
         _ReviewPromptCard(
@@ -1232,6 +1236,8 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
           otherName: otherName,
           onReviewed: _load, // refresh so the summary card shows immediately
         )
+      else if (myReview.isRemoved)
+        const _ReviewRemovedCard()
       else
         _ReviewGivenCard(
           review: myReview,
@@ -3283,6 +3289,59 @@ class _SingleDeliverableDialogState
 // ─────────────────────────────────────────────────────────────────────────────
 // Review widgets (shown in _buildCompletedSection)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Shown when the current user's review was removed by an admin.
+/// No further submission is allowed for this project.
+class _ReviewRemovedCard extends StatelessWidget {
+  const _ReviewRemovedCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Colors.red.shade50,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.red.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.block_rounded,
+                color: Colors.red.shade400, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Review Removed',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.red.shade700),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Your review for this project was removed by our '
+                    'moderation team for not meeting FreelanceHub\'s '
+                    'community guidelines. No further reviews can be '
+                    'submitted for this project.',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red.shade800,
+                        height: 1.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// Shown when the current user has NOT yet reviewed the other party.
 /// Tapping "Rate Now" opens the full ReviewCreateEditScreen.
