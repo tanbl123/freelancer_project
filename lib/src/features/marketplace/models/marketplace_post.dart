@@ -125,6 +125,7 @@ class MarketplacePost {
   }
 
   MarketplacePost copyWith({
+    String? ownerName,
     String? title,
     String? description,
     double? minimumBudget,
@@ -137,7 +138,7 @@ class MarketplacePost {
     return MarketplacePost(
       id: id,
       ownerId: ownerId,
-      ownerName: ownerName,
+      ownerName: ownerName ?? this.ownerName,
       title: title ?? this.title,
       description: description ?? this.description,
       minimumBudget: minimumBudget ?? this.minimumBudget,

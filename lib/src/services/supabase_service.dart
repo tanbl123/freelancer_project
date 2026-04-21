@@ -203,6 +203,11 @@ class SupabaseService {
           .update({'reviewer_name': newName}).eq('reviewer_id', uid),
       _client.from('chat_rooms')
           .update({'last_sender_name': newName}).eq('last_sender_id', uid),
+
+      // Chat messages — each message caches the sender's name for performance.
+      // Must be updated so chat history shows the current name, not the old one.
+      _client.from('chat_messages')
+          .update({'sender_name': newName}).eq('sender_id', uid),
     ]);
   }
 

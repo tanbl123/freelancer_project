@@ -867,6 +867,13 @@ class AppState extends ChangeNotifier {
           _projects[i] = p.copyWith(clientName: newName);
         }
       }
+
+      // Legacy marketplace posts (owner_name)
+      for (int i = 0; i < _posts.length; i++) {
+        if (_posts[i].ownerId == uid) {
+          _posts[i] = _posts[i].copyWith(ownerName: newName);
+        }
+      }
     }
 
     final idx = _users.indexWhere((u) => u.uid == updated.uid);
