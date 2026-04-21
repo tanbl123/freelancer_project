@@ -62,6 +62,7 @@ class JobCacheDao {
         allow_pre_engagement_chat INTEGER NOT NULL DEFAULT 1,
         view_count                INTEGER NOT NULL DEFAULT 0,
         application_count         INTEGER NOT NULL DEFAULT 0,
+        project_duration          TEXT,
         created_at                INTEGER NOT NULL,
         updated_at                INTEGER NOT NULL,
         cached_at                 INTEGER NOT NULL

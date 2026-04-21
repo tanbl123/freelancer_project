@@ -13,21 +13,11 @@ import 'service_orders_page.dart';
 ///  - **Freelancer**: "My Applications" / "Incoming Orders"
 ///  - **Client**:     "Applications Received" / "My Orders"
 ///
-/// ## Realtime badge counts
-/// Both tab badges subscribe directly to the Supabase Realtime streams
-/// (`AppState.applicationsStream` and `AppState.serviceOrdersStream`) via
-/// nested `StreamBuilder` widgets. This means the badge numbers update
-/// **immediately** when a new application arrives or an order changes status
-/// — no pull-to-refresh, no polling, no `notifyListeners()` required.
-///
-/// ```
-/// ┌──────────────────────────────┐
-/// │  StreamBuilder (apps)        │  ← badge count from live stream
-/// │  ┌──────────────────────┐   │
-/// │  │ StreamBuilder (orders)│   │  ← badge count from live stream
-/// │  └──────────────────────┘   │
-/// └──────────────────────────────┘
-/// ```
+/// ## Badge counts
+/// Tab badges are driven by a single [ListenableBuilder] wrapping [AppState].
+/// Counts update automatically whenever [AppState.notifyListeners] fires —
+/// either from a user action (accept/reject) or from the 30-second background
+/// polling timer.  No Supabase Realtime subscription is needed here.
 class RaDashboardScreen extends StatefulWidget {
   const RaDashboardScreen({super.key});
 

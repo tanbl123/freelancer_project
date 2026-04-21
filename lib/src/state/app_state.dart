@@ -148,6 +148,11 @@ class AppState extends ChangeNotifier {
   List<InAppNotification> _notifications = [];
   Timer? _overdueTimer;
 
+  /// 30-second background polling timer — keeps applications and service
+  /// orders fresh without relying on Supabase Realtime WebSocket subscriptions
+  /// (which time out on emulators and slow connections).
+  Timer? _pollTimer;
+
   // Dispute Module state
   DisputeRecord? _activeDispute;
   List<DisputeRecord> _allOpenDisputes = []; // admin only
@@ -204,9 +209,15 @@ class AppState extends ChangeNotifier {
   Stream<List<ApplicationItem>> get applicationsStream {
     final uid = _currentUser?.uid;
     if (uid == null) return const Stream.empty();
-    return _currentUser!.role == UserRole.freelancer
-        ? _appRepo.streamForFreelancer(uid)
-        : _appRepo.streamForClient(uid);
+    return (_currentUser!.role == UserRole.freelancer
+            ? _appRepo.streamForFreelancer(uid)
+            : _appRepo.streamForClient(uid))
+        .handleError((e) {
+      // Swallow transient network/SSL errors (e.g. emulator clock drift,
+      // brief connectivity loss). The StreamBuilder will retain its last
+      // good snapshot and the RefreshIndicator stays available.
+      print('[AppState] applicationsStream error (ignored): $e');
+    });
   }
 
   // ── Public getters ─────────────────────────────────────────────────────────
@@ -303,9 +314,12 @@ class AppState extends ChangeNotifier {
   Stream<List<ServiceOrder>> get serviceOrdersStream {
     final uid = _currentUser?.uid;
     if (uid == null) return const Stream.empty();
-    return _currentUser!.role == UserRole.freelancer
-        ? _orderRepo.streamForFreelancer(uid)
-        : _orderRepo.streamForClient(uid);
+    return (_currentUser!.role == UserRole.freelancer
+            ? _orderRepo.streamForFreelancer(uid)
+            : _orderRepo.streamForClient(uid))
+        .handleError((e) {
+      print('[AppState] serviceOrdersStream error (ignored): $e');
+    });
   }
 
   /// Realtime stream for open job posts (Supabase Realtime channel).
@@ -315,7 +329,10 @@ class AppState extends ChangeNotifier {
           .stream(primaryKey: ['id'])
           .eq('status', 'open')
           .order('created_at', ascending: false)
-          .map((rows) => rows.map(JobPost.fromMap).toList());
+          .map((rows) => rows.map(JobPost.fromMap).toList())
+          .handleError((e) {
+        print('[AppState] jobPostsStream error (ignored): $e');
+      });
 
   FreelancerRequest? get myFreelancerRequest => _myFreelancerRequest;
   List<Appeal> get myAppeals => List.unmodifiable(_myAppeals);
@@ -455,6 +472,10 @@ class AppState extends ChangeNotifier {
     // Start realtime notification stream so the badge and inbox update
     // automatically whenever any user sends a notification to this user.
     _startNotificationsStream();
+
+    // Start polling so applications / orders stay fresh even when the
+    // Supabase Realtime WebSocket is unavailable (emulator, slow network).
+    _startPolling();
   }
 
   void _clearLocalState() {
@@ -487,6 +508,7 @@ class AppState extends ChangeNotifier {
     _chatRooms = [];
     _chatUnreadMap = {};
     _reportedReviews = [];
+    _stopPolling();
   }
 
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -3388,6 +3410,33 @@ class AppState extends ChangeNotifier {
   void _stopOverdueChecker() {
     _overdueTimer?.cancel();
     _overdueTimer = null;
+  }
+
+  // ── Background polling (applications + orders) ─────────────────────────────
+
+  /// Starts a 30-second periodic timer that re-fetches applications and
+  /// service orders from Supabase.
+  ///
+  /// This is the fallback mechanism for real-time UI updates when the Supabase
+  /// Realtime WebSocket subscription is unavailable (emulator clock drift,
+  /// poor connectivity, etc.).  The UI uses [ListenableBuilder] / [addListener]
+  /// so every [notifyListeners] call — whether from a user action or from this
+  /// timer — triggers an instant rebuild with no extra code in the widget.
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+      if (_currentUser == null) return;
+      // Run both fetches concurrently for speed.
+      await Future.wait([
+        reloadApplications(),
+        reloadServiceOrders(),
+      ]);
+    });
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
   }
 
   /// Scan all in-progress projects belonging to the current user for overdue

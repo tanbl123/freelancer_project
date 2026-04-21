@@ -59,7 +59,8 @@ class SupabaseService {
       dbPath,
       // v4: replaces blob-based cached_job_posts with columnar job_posts_cache
       //     + job_cache_meta for last-synced timestamp.
-      version: 4,
+      // v5: adds project_duration column to job_posts_cache.
+      version: 5,
       onCreate: (db, version) async {
         // ── Legacy tables (kept for backward compatibility) ──────────────────
         await db.execute('''
@@ -108,6 +109,17 @@ class SupabaseService {
         if (oldVersion < 4) {
           // Add columnar job cache tables introduced in v4.
           await JobCacheDao.ensureTables(db);
+        }
+        if (oldVersion < 5) {
+          // v5: add project_duration column added to JobPost.toSqliteMap().
+          // ALTER TABLE is safe to run even if the column already exists — the
+          // try/catch swallows "duplicate column" errors on fresh v4 installs
+          // that went through the CREATE TABLE path (which already has the col).
+          try {
+            await db.execute(
+              'ALTER TABLE ${JobCacheDao.kTable} ADD COLUMN project_duration TEXT',
+            );
+          } catch (_) {}
         }
       },
     );

@@ -11,8 +11,10 @@ import 'service_order_form_page.dart';
 /// - **Client view**: orders they submitted; can Cancel pending ones.
 /// - **Freelancer view**: orders received; can Accept / Reject pending ones.
 ///
-/// Uses [StreamBuilder] backed by Supabase Realtime so new orders appear
-/// instantly on both sides without needing a pull-to-refresh.
+/// Uses [ListenableBuilder] backed by [AppState] (a [ChangeNotifier]).
+/// The UI rebuilds automatically whenever [AppState.notifyListeners] fires —
+/// triggered by user actions (accept/reject) or by the 30-second background
+/// polling timer, so updates appear without a manual pull-to-refresh.
 class ServiceOrdersPage extends StatefulWidget {
   const ServiceOrdersPage({super.key});
 
@@ -30,7 +32,7 @@ class _ServiceOrdersPageState extends State<ServiceOrdersPage> {
   @override
   void initState() {
     super.initState();
-    // Seed in-memory cache so the stream's initialData is up to date.
+    // Populate the in-memory cache for the initial render.
     AppState.instance.reloadServiceOrders();
     // Refresh notification badge whenever this tab is opened.
     AppState.instance.loadNotifications();
@@ -38,20 +40,12 @@ class _ServiceOrdersPageState extends State<ServiceOrdersPage> {
 
   @override
   Widget build(BuildContext context) {
-    final user = AppState.instance.currentUser;
-    final isFreelancer = user?.role == UserRole.freelancer;
-
-    return StreamBuilder<List<ServiceOrder>>(
-      stream: AppState.instance.serviceOrdersStream,
-      initialData: AppState.instance.serviceOrders,
-      builder: (context, snapshot) {
-        // Keep AppState in sync so badge counts stay accurate.
-        if (snapshot.hasData) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            AppState.instance.syncServiceOrders(snapshot.data!);
-          });
-        }
-        final orders = snapshot.data ?? AppState.instance.serviceOrders;
+    return ListenableBuilder(
+      listenable: AppState.instance,
+      builder: (context, _) {
+        final user = AppState.instance.currentUser;
+        final isFreelancer = user?.role == UserRole.freelancer;
+        final orders = AppState.instance.serviceOrders;
 
     // Active = pending or accepted (user can still act on these)
     final activeOrders =
@@ -194,7 +188,7 @@ class _ServiceOrdersPageState extends State<ServiceOrdersPage> {
       ),
         ); // RefreshIndicator
       },
-    ); // StreamBuilder
+    ); // ListenableBuilder
   }
 }
 

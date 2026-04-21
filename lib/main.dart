@@ -24,6 +24,10 @@ Future<void> main() async {
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
+    realtimeClientOptions: const RealtimeClientOptions(
+      // Default is 10 s — emulators and slow connections need more headroom.
+      timeout: Duration(seconds: 30),
+    ),
   );
 
   await SupabaseService.instance.initialize(); // init local SQLite cache

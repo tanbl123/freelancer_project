@@ -8,25 +8,21 @@ import '../models/application_item.dart';
 /// Client-facing realtime screen — shows all applications received for the
 /// client's posted jobs and updates instantly via Supabase Realtime.
 ///
-/// ## How realtime works here
+/// ## How updates work here
 ///
 /// ```
-///  Supabase DB
-///     │  INSERT / UPDATE on applications
-///     │  where client_id = currentUser.uid
+///  AppState (ChangeNotifier)
+///     │  notifyListeners() fires on:
+///     │    • user action (accept/reject)
+///     │    • 30-second background polling timer
 ///     ▼
-///  Supabase Realtime (.stream)
-///     │  emits List<ApplicationItem> — full updated snapshot
-///     ▼
-///  StreamBuilder  ─────────────────────────────────────────────
-///     │  builder receives snapshot.data                        │
+///  ListenableBuilder  ────────────────────────────────────────
+///     │  builder receives AppState.instance.userApplications  │
 ///     │                                                        │
 ///     │  1. Compute _newIds = incoming ids not in _seenIds    │
 ///     │  2. Render list — new rows get a "NEW" flash badge     │
 ///     │  3. After 3 s, _seenIds absorbs new ids → badge fades │
-///     │                                                        │
-///  UI rebuilt (no setState, no polling, no AppState.notify)  │
-/// ──────────────────────────────────────────────────────────────
+/// ────────────────────────────────────────────────────────────
 /// ```
 ///
 /// ## Two-tab layout
@@ -145,25 +141,17 @@ class _IncomingApplicationsScreenState
           ],
         ),
       ),
-      body: StreamBuilder<List<ApplicationItem>>(
-        // This stream is filtered by client_id = uid via ApplicationRepository
-        // and backed by Supabase Realtime — it emits automatically on any
-        // INSERT or UPDATE on the applications table for this client.
-        stream: AppState.instance.applicationsStream,
-        initialData: AppState.instance.userApplications,
-        builder: (context, snapshot) {
-          // Detect and highlight new rows on each emission.
-          if (snapshot.hasData) {
-            WidgetsBinding.instance.addPostFrameCallback(
-              (_) => _detectNew(snapshot.data!),
-            );
-          }
+      body: ListenableBuilder(
+        listenable: AppState.instance,
+        builder: (context, _) {
+          // Detect and highlight new rows on every rebuild.
+          // _detectNew exits cheaply when nothing new has arrived.
+          final allData = AppState.instance.userApplications;
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _detectNew(allData),
+          );
 
-          if (snapshot.hasError) {
-            return _ErrorView(error: snapshot.error.toString());
-          }
-
-          var all = snapshot.data ?? AppState.instance.userApplications;
+          var all = allData;
 
           // Optional: narrow to a specific job.
           if (widget.jobId != null) {

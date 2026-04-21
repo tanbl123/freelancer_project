@@ -39,7 +39,7 @@ class _JobApplicationsBodyState extends State<JobApplicationsBody> {
   @override
   void initState() {
     super.initState();
-    // Seed in-memory cache so the stream's initialData is up to date.
+    // Populate the in-memory cache for the initial render.
     AppState.instance.reloadApplications();
   }
 
@@ -49,20 +49,12 @@ class _JobApplicationsBodyState extends State<JobApplicationsBody> {
 
   @override
   Widget build(BuildContext context) {
-    final user = AppState.instance.currentUser;
-    final isFreelancer = user?.role == UserRole.freelancer;
-
-    return StreamBuilder<List<ApplicationItem>>(
-      stream: AppState.instance.applicationsStream,
-      initialData: AppState.instance.userApplications,
-      builder: (context, snapshot) {
-        // Keep AppState in sync so badge counts and other listeners stay accurate.
-        if (snapshot.hasData) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            AppState.instance.syncApplications(snapshot.data!);
-          });
-        }
-        final allApps = snapshot.data ?? AppState.instance.userApplications;
+    return ListenableBuilder(
+      listenable: AppState.instance,
+      builder: (context, _) {
+        final user = AppState.instance.currentUser;
+        final isFreelancer = user?.role == UserRole.freelancer;
+        final allApps = AppState.instance.userApplications;
 
         // Active = pending only (user can still act on these)
         final activeApps =
@@ -199,7 +191,7 @@ class _JobApplicationsBodyState extends State<JobApplicationsBody> {
           ),
         ); // RefreshIndicator
       },
-    ); // StreamBuilder
+    ); // ListenableBuilder
   }
 }
 
