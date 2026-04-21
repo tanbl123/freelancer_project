@@ -130,12 +130,20 @@ class _ServiceOrdersPageState extends State<ServiceOrdersPage> {
                         () => _closedFilter = ServiceOrderStatus.cancelled),
                   ),
                   _StatusFilterChip(
-                    label: 'In Progress',
+                    label: 'Accepted',
                     selected:
                         _closedFilter == ServiceOrderStatus.convertedToProject,
-                    color: Colors.blue,
+                    color: Colors.green,
                     onTap: () => setState(() =>
                         _closedFilter = ServiceOrderStatus.convertedToProject),
+                  ),
+                  _StatusFilterChip(
+                    label: 'Completed',
+                    selected:
+                        _closedFilter == ServiceOrderStatus.completed,
+                    color: Colors.teal,
+                    onTap: () => setState(
+                        () => _closedFilter = ServiceOrderStatus.completed),
                   ),
                 ],
               ),

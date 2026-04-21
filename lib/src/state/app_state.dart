@@ -2437,7 +2437,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// Fire-and-forget: bumps `order_count` on the linked [FreelancerService]
-  /// when a service-sourced project is completed.
+  /// and marks the linked [ServiceOrder] as `completed` when a service-sourced
+  /// project is completed.
   ///
   /// Does nothing for job-sourced projects or when the service order cannot
   /// be resolved.
@@ -2447,15 +2448,26 @@ class AppState extends ChangeNotifier {
     }
     _orderRepo.getById(project.serviceOrderId!).then((order) {
       if (order == null) return;
-      // Persist to DB (fire-and-forget)
+
+      // ── Bump service order_count ────────────────────────────────────────
       _serviceRepo.incrementOrderCount(order.serviceId).catchError((_) {});
-      // Update in-memory list so the UI refreshes immediately
-      final idx = _myServices.indexWhere((s) => s.id == order.serviceId);
-      if (idx >= 0) {
-        _myServices[idx] =
-            _myServices[idx].copyWith(orderCount: _myServices[idx].orderCount + 1);
-        notifyListeners();
+      final svcIdx = _myServices.indexWhere((s) => s.id == order.serviceId);
+      if (svcIdx >= 0) {
+        _myServices[svcIdx] =
+            _myServices[svcIdx].copyWith(orderCount: _myServices[svcIdx].orderCount + 1);
       }
+
+      // ── Mark service order as completed ─────────────────────────────────
+      _db.updateServiceOrderStatus(order.id, ServiceOrderStatus.completed)
+          .catchError((_) {});
+      // Update in-memory list so the badge & status chip refresh immediately
+      final orderIdx = _serviceOrders.indexWhere((o) => o.id == order.id);
+      if (orderIdx >= 0) {
+        _serviceOrders[orderIdx] =
+            _serviceOrders[orderIdx].copyWith(status: ServiceOrderStatus.completed);
+      }
+
+      notifyListeners();
     }).catchError((_) {});
   }
 

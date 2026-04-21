@@ -133,14 +133,6 @@ class _JobApplicationsBodyState extends State<JobApplicationsBody> {
                         () => _closedFilter = ApplicationStatus.accepted),
                   ),
                   _StatusFilterChip(
-                    label: 'Converted',
-                    selected:
-                        _closedFilter == ApplicationStatus.convertedToProject,
-                    color: Colors.blue,
-                    onTap: () => setState(() =>
-                        _closedFilter = ApplicationStatus.convertedToProject),
-                  ),
-                  _StatusFilterChip(
                     label: 'Rejected',
                     selected: _closedFilter == ApplicationStatus.rejected,
                     color: Colors.red,

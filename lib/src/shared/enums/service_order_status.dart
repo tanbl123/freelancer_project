@@ -5,7 +5,8 @@ enum ServiceOrderStatus {
   accepted,
   rejected,
   cancelled,
-  convertedToProject;
+  convertedToProject,
+  completed;
 
   static ServiceOrderStatus fromString(String v) =>
       ServiceOrderStatus.values.firstWhere(
@@ -24,7 +25,9 @@ enum ServiceOrderStatus {
       case ServiceOrderStatus.cancelled:
         return 'Cancelled';
       case ServiceOrderStatus.convertedToProject:
-        return 'In Progress';
+        return 'Accepted';   // order was accepted → project was created
+      case ServiceOrderStatus.completed:
+        return 'Completed';
     }
   }
 
@@ -39,7 +42,9 @@ enum ServiceOrderStatus {
       case ServiceOrderStatus.cancelled:
         return Colors.grey;
       case ServiceOrderStatus.convertedToProject:
-        return Colors.blue;
+        return Colors.green;
+      case ServiceOrderStatus.completed:
+        return Colors.teal;
     }
   }
 
@@ -47,5 +52,6 @@ enum ServiceOrderStatus {
   bool get isTerminal =>
       this == ServiceOrderStatus.rejected ||
       this == ServiceOrderStatus.cancelled ||
-      this == ServiceOrderStatus.convertedToProject;
+      this == ServiceOrderStatus.convertedToProject ||
+      this == ServiceOrderStatus.completed;
 }
