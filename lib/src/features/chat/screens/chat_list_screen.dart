@@ -11,7 +11,7 @@ import 'chat_screen.dart';
 ///
 /// Rooms are sorted by last-message time (most recent first).
 /// An unread dot badge is shown on rooms with new messages since last visit.
-/// Tabs filter by room type: All | Direct | Projects | Admin.
+/// Tabs filter by room type: All | Direct (includes project chats) | Admin.
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
 
@@ -28,7 +28,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 4, vsync: this);
+    _tabCtrl = TabController(length: 3, vsync: this);
     _load();
     _subscribeToRooms();
   }
@@ -65,6 +65,16 @@ class _ChatListScreenState extends State<ChatListScreen>
     return rooms.where((r) => r.type == type).toList();
   }
 
+  /// Returns direct + project rooms merged, preserving the already-sorted
+  /// (most-recent-first) order from AppState.
+  List<ChatRoom> _directAndProjectRooms() {
+    final rooms = AppState.instance.chatRooms;
+    return rooms
+        .where((r) =>
+            r.type == ChatRoomType.direct || r.type == ChatRoomType.project)
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -76,7 +86,6 @@ class _ChatListScreenState extends State<ChatListScreen>
           tabs: const [
             Tab(text: 'All'),
             Tab(text: 'Direct'),
-            Tab(text: 'Projects'),
             Tab(text: 'Admin'),
           ],
         ),
@@ -96,10 +105,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 children: [
                   _RoomList(rooms: _filtered(null), onRefresh: _load),
                   _RoomList(
-                      rooms: _filtered(ChatRoomType.direct),
-                      onRefresh: _load),
-                  _RoomList(
-                      rooms: _filtered(ChatRoomType.project),
+                      rooms: _directAndProjectRooms(),
                       onRefresh: _load),
                   _RoomList(
                     rooms: [

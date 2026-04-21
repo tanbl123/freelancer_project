@@ -8,6 +8,7 @@ import '../../../shared/enums/service_status.dart';
 import '../../../shared/enums/user_role.dart';
 import '../../../state/app_state.dart';
 import '../../applications/screens/service_order_form_page.dart';
+import '../../ratings/models/review_item.dart';
 import '../models/freelancer_service.dart';
 import '../widgets/service_badges.dart';
 
@@ -360,6 +361,13 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                           ),
                           const SizedBox(height: 16),
                         ],
+
+                        // ── Reviews ───────────────────────────────────
+                        _ServiceReviewsSection(
+                          serviceId: _service.id,
+                          freelancerId: _service.freelancerId,
+                        ),
+                        const SizedBox(height: 16),
 
                         const SizedBox(height: 80),
                       ],
@@ -824,6 +832,207 @@ class _GalleryPlaceholder extends StatelessWidget {
         child: Icon(Icons.image_not_supported_outlined,
             size: 48, color: Colors.grey),
       ),
+    );
+  }
+}
+
+// ── Service reviews section ────────────────────────────────────────────────
+
+class _ServiceReviewsSection extends StatefulWidget {
+  const _ServiceReviewsSection({
+    required this.serviceId,
+    required this.freelancerId,
+  });
+  final String serviceId;
+  final String freelancerId;
+
+  @override
+  State<_ServiceReviewsSection> createState() => _ServiceReviewsSectionState();
+}
+
+class _ServiceReviewsSectionState extends State<_ServiceReviewsSection> {
+  List<ReviewItem>? _reviews;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final reviews = await AppState.instance.db
+          .getReviewsForService(widget.serviceId, widget.freelancerId);
+      if (mounted) setState(() { _reviews = reviews; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _reviews = []; _loading = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const _SectionCard(
+        title: 'Reviews',
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    final reviews = _reviews ?? [];
+
+    // Summary bar — avg stars + count
+    final avgStars = reviews.isEmpty
+        ? 0.0
+        : reviews.fold<int>(0, (s, r) => s + r.stars) / reviews.length;
+
+    return _SectionCard(
+      title: reviews.isEmpty
+          ? 'Reviews'
+          : 'Reviews (${reviews.length})',
+      child: reviews.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'No reviews yet for this service.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Average summary row
+                Row(
+                  children: [
+                    Text(
+                      avgStars.toStringAsFixed(1),
+                      style: const TextStyle(
+                          fontSize: 28, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(width: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _StarRow(stars: avgStars.round(), size: 16),
+                        Text(
+                          '${reviews.length} review${reviews.length == 1 ? '' : 's'}',
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const Divider(height: 20),
+                // Individual review cards
+                ...reviews.map((r) => _ReviewCard(review: r)),
+              ],
+            ),
+    );
+  }
+}
+
+// ── Single review card ─────────────────────────────────────────────────────
+
+class _ReviewCard extends StatelessWidget {
+  const _ReviewCard({required this.review});
+  final ReviewItem review;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    // Live reviewer name lookup (handles renamed accounts)
+    final reviewerName = AppState.instance.users
+            .where((u) => u.uid == review.reviewerId)
+            .firstOrNull
+            ?.displayName ??
+        (review.reviewerName.isNotEmpty ? review.reviewerName : 'Anonymous');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Reviewer avatar + name + date
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: cs.primaryContainer,
+                child: Text(
+                  reviewerName.isNotEmpty
+                      ? reviewerName[0].toUpperCase()
+                      : '?',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: cs.primary),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reviewerName,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (review.createdAt != null)
+                      Text(
+                        DateFormat('d MMM y').format(review.createdAt!),
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.grey),
+                      ),
+                  ],
+                ),
+              ),
+              _StarRow(stars: review.stars, size: 14),
+            ],
+          ),
+          if (review.comment.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              review.comment,
+              style: const TextStyle(fontSize: 13, height: 1.5),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.4)),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Star row helper ────────────────────────────────────────────────────────
+
+class _StarRow extends StatelessWidget {
+  const _StarRow({required this.stars, required this.size});
+  final int stars;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (i) {
+        final filled = i < stars;
+        return Icon(
+          filled ? Icons.star_rounded : Icons.star_outline_rounded,
+          size: size,
+          color: filled ? Colors.amber : Colors.grey.shade400,
+        );
+      }),
     );
   }
 }

@@ -852,6 +852,43 @@ class SupabaseService {
     return rows.map(ReviewItem.fromMap).toList();
   }
 
+  /// Published reviews left FOR a specific service.
+  ///
+  /// Traces: service_orders(service_id) → projects(service_order_id) →
+  ///         reviews(project_id, reviewee_id = freelancer, status = published).
+  Future<List<ReviewItem>> getReviewsForService(
+      String serviceId, String freelancerId) async {
+    // Step 1 — service order IDs for this service
+    final orderRows = await _client
+        .from('service_orders')
+        .select('id')
+        .eq('service_id', serviceId);
+    final orderIds = (orderRows as List)
+        .map((r) => r['id'] as String)
+        .toList();
+    if (orderIds.isEmpty) return [];
+
+    // Step 2 — project IDs whose source was one of those orders
+    final projectRows = await _client
+        .from('projects')
+        .select('id')
+        .inFilter('service_order_id', orderIds);
+    final projectIds = (projectRows as List)
+        .map((r) => r['id'] as String)
+        .toList();
+    if (projectIds.isEmpty) return [];
+
+    // Step 3 — published reviews on those projects where reviewee = freelancer
+    final reviewRows = await _client
+        .from('reviews')
+        .select()
+        .inFilter('project_id', projectIds)
+        .eq('reviewee_id', freelancerId)
+        .eq('status', 'published')
+        .order('created_at', ascending: false);
+    return (reviewRows as List).map(ReviewItem.fromMap).toList();
+  }
+
   /// All reviews (any status) authored by [userId].
   Future<List<ReviewItem>> getReviewsByUser(String userId) async {
     final rows = await _client
@@ -965,34 +1002,10 @@ class SupabaseService {
 
   Future<Map<String, double>> getMonthlyEarnings(
       String freelancerId) async {
-    // Get all projects for this freelancer
-    final projectRows = await _client
-        .from('projects')
-        .select('id')
-        .eq('freelancer_id', freelancerId);
-
-    if (projectRows.isEmpty) return {};
-
-    final projectIds =
-        projectRows.map((r) => r['id'] as String).toList();
-
-    // Only count milestones that are fully completed (deliverable approved +
-    // payment released to the freelancer).
-    // 'approved' = plan was approved, work hasn't started yet — NOT earnings.
-    // 'completed' = client signed off the deliverable and released payment ✓
-    //
     // Limit to the last 6 months to match the chart title.
     final sixMonthsAgo = DateTime.now()
         .subtract(const Duration(days: 183))
         .toIso8601String();
-
-    final milestoneRows = await _client
-        .from('milestones')
-        .select('payment_amount,updated_at')
-        .inFilter('project_id', projectIds)
-        .eq('status', 'completed')
-        .gte('updated_at', sixMonthsAgo)
-        .order('updated_at', ascending: true);
 
     const monthNames = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -1001,14 +1014,68 @@ class SupabaseService {
 
     // Use a LinkedHashMap-ordered map so chart bars appear chronologically.
     final Map<String, double> result = {};
-    for (final row in milestoneRows) {
-      final updatedAt = _parseDate(row['updated_at']);
-      final key =
-          '${monthNames[updatedAt.month - 1]} ${updatedAt.year}';
-      result[key] =
-          (result[key] ?? 0) + (row['payment_amount'] as num).toDouble();
+
+    // ── Source A: Milestone-plan earnings ─────────────────────────────────────
+    // Each completed milestone = one approved + paid deliverable.
+    // 'completed' status means the client signed off and payment was released ✓
+    final projectRows = await _client
+        .from('projects')
+        .select('id')
+        .eq('freelancer_id', freelancerId);
+
+    if (projectRows.isNotEmpty) {
+      final projectIds =
+          (projectRows as List).map((r) => r['id'] as String).toList();
+
+      final milestoneRows = await _client
+          .from('milestones')
+          .select('payment_amount,updated_at')
+          .inFilter('project_id', projectIds)
+          .eq('status', 'completed')
+          .gte('updated_at', sixMonthsAgo)
+          .order('updated_at', ascending: true);
+
+      for (final row in milestoneRows) {
+        final updatedAt = _parseDate(row['updated_at']);
+        final key = '${monthNames[updatedAt.month - 1]} ${updatedAt.year}';
+        result[key] =
+            (result[key] ?? 0) + (row['payment_amount'] as num).toDouble();
+      }
     }
-    return result;
+
+    // ── Source B: Single-delivery earnings ────────────────────────────────────
+    // Single-delivery projects have no milestone rows — the full contract value
+    // (total_budget) becomes an earning when the project status reaches
+    // 'completed'.  delivery_mode = 'single' identifies these projects.
+    final singleRows = await _client
+        .from('projects')
+        .select('total_budget,updated_at')
+        .eq('freelancer_id', freelancerId)
+        .eq('delivery_mode', 'single')
+        .eq('status', 'completed')
+        .gte('updated_at', sixMonthsAgo)
+        .order('updated_at', ascending: true);
+
+    for (final row in singleRows) {
+      final budget = (row['total_budget'] as num?)?.toDouble() ?? 0;
+      if (budget <= 0) continue;
+      final updatedAt = _parseDate(row['updated_at']);
+      final key = '${monthNames[updatedAt.month - 1]} ${updatedAt.year}';
+      result[key] = (result[key] ?? 0) + budget;
+    }
+
+    // Sort result chronologically so the chart bars appear in order.
+    final sortedKeys = result.keys.toList()
+      ..sort((a, b) {
+        DateTime parse(String k) {
+          final parts = k.split(' ');
+          final m = monthNames.indexOf(parts[0]) + 1;
+          final y = int.parse(parts[1]);
+          return DateTime(y, m);
+        }
+        return parse(a).compareTo(parse(b));
+      });
+    return {for (final k in sortedKeys) k: result[k]!};
   }
 
   Future<Map<int, int>> getRatingDistribution(String userId) async {

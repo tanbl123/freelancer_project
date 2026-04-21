@@ -182,6 +182,7 @@ class AppState extends ChangeNotifier {
 
   ChatService get chatService => _chatSvc;
   ReviewService get reviewService => _reviewSvc;
+  SupabaseService get db => _db;
 
   // ── Supabase Realtime streams ──────────────────────────────────────────────
   Stream<List<MarketplacePost>> get postsStream =>
@@ -2176,11 +2177,22 @@ class AppState extends ChangeNotifier {
       }
 
       // Self-heal: cross-check releasedAmount against actual payout records.
-      // If the payment record is stale (e.g. updated before payout tracking
-      // was added), recalculate and persist the correct value.
+      // If no payout records exist (e.g. Stripe Connect unavailable and
+      // releaseMilestonePayout threw silently), fall back to completed-milestone
+      // totals so the escrow banner always reflects the real state.
       final payouts = await _paymentRepo.getPayoutsForProject(projectId);
-      final actualReleased =
+      var actualReleased =
           payouts.fold(0.0, (sum, p) => sum + p.grossAmount);
+
+      // Fallback: derive released amount from completed milestones when payout
+      // records are absent (covers the case where releaseMilestonePayout failed
+      // silently but approveMilestone still marked the milestone as completed).
+      if (actualReleased == 0) {
+        final milestones = await _db.getMilestonesForProject(projectId);
+        actualReleased = milestones
+            .where((m) => m.isCompleted)
+            .fold(0.0, (sum, m) => sum + m.paymentAmount);
+      }
 
       if (actualReleased > 0 &&
           (actualReleased - record.releasedAmount).abs() > 0.01) {

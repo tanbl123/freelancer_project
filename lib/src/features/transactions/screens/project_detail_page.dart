@@ -462,20 +462,19 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             const SizedBox(height: 10),
             // ── Payment status banner — freelancers only ──────────────
             if (paymentRecord != null && !isClient)
-              _PaymentStatusBanner(payment: paymentRecord),
-            // ── Payout banners (freelancer only) ──────────────────────
-            // Case A: no Stripe account — prompt setup, show any waiting $
+              _PaymentStatusBanner(
+                payment: paymentRecord,
+                milestones: _milestones,
+              ),
+            // ── Payout banner (freelancer only) ───────────────────────
+            // Only shown when bank account is NOT yet registered —
+            // prompts the freelancer to add their bank details.
+            // Once registered the banner disappears; the platform
+            // handles the transfer without any extra action needed.
             if (!isClient && !user.hasPayoutAccount)
               _PayoutSetupBanner(
                 hasAccount: false,
                 pendingEarningsMyr: pendingEarnings,
-              ),
-            // Case B: has account but transfers still pending — show balance
-            if (!isClient && user.hasPayoutAccount && pendingEarnings > 0)
-              _PayoutSetupBanner(
-                hasAccount: true,
-                pendingEarningsMyr: pendingEarnings,
-                onClaim: _claimPendingPayouts,
               ),
             // ── Overdue warning banner ────────────────────────────────
             ..._milestones
@@ -2074,34 +2073,73 @@ class _MilestoneCard extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _PaymentStatusBanner extends StatelessWidget {
-  const _PaymentStatusBanner({required this.payment});
+  const _PaymentStatusBanner({
+    required this.payment,
+    required this.milestones,
+  });
   final PaymentRecord payment;
+  final List<MilestoneItem> milestones;
 
   @override
   Widget build(BuildContext context) {
-    final color = payment.status.color;
+    // ── Derive released amount from completed milestones ─────────────────────
+    // The payment_records.released_amount column can lag behind reality when
+    // releaseMilestonePayout fails silently (e.g. Stripe Connect unavailable).
+    // Using milestones as the authoritative source keeps this banner in sync
+    // with the green BudgetCard, which also reads milestone statuses directly.
+    final milestoneReleased = milestones
+        .where((m) => m.isCompleted)
+        .fold(0.0, (s, m) => s + m.paymentAmount);
+
+    // Take the higher of the two sources — never show LESS than what the DB says
+    final effectiveReleased =
+        milestoneReleased > payment.releasedAmount
+            ? milestoneReleased
+            : payment.releasedAmount;
+
+    final effectiveRemaining =
+        (payment.heldAmount - effectiveReleased - payment.refundedAmount)
+            .clamp(0.0, payment.heldAmount);
+
+    final effectiveProgress = payment.totalAmount > 0
+        ? (effectiveReleased / payment.totalAmount).clamp(0.0, 1.0)
+        : 0.0;
+
+    // Derive a display status from effective values so the label/colour/icon
+    // stay accurate even when the DB row is stale.
+    final PaymentStatus displayStatus;
+    if (effectiveReleased >= payment.totalAmount - 0.01 &&
+        payment.totalAmount > 0) {
+      displayStatus = PaymentStatus.fullyReleased;
+    } else if (effectiveReleased > 0) {
+      displayStatus = PaymentStatus.partiallyReleased;
+    } else {
+      displayStatus = payment.status;
+    }
+
+    final color = displayStatus.color;
     return Card(
       color: color.withValues(alpha: 0.08),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(
           children: [
-            Icon(payment.status.icon, color: color, size: 22),
+            Icon(displayStatus.icon, color: color, size: 22),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Escrow: ${payment.status.displayName}',
+                    'Escrow: ${displayStatus.displayName}',
                     style: TextStyle(
                         color: color,
                         fontWeight: FontWeight.bold,
                         fontSize: 13),
                   ),
                   Text(
-                    'RM ${payment.remainingHeld.toStringAsFixed(2)} remaining · '
-                    '${(payment.releaseProgress * 100).toStringAsFixed(0)}% released',
+                    'RM ${effectiveRemaining.toStringAsFixed(2)} remaining · '
+                    '${(effectiveProgress * 100).toStringAsFixed(0)}% released',
                     style: const TextStyle(
                         color: Colors.black54, fontSize: 12),
                   ),
