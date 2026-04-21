@@ -31,6 +31,7 @@ class ProfileUser {
     this.educations = const [],
     this.certifications = const [],
     this.portfolioDescription,
+    this.stripeAccountId,
   });
 
   final String uid;
@@ -55,6 +56,10 @@ class ProfileUser {
   final List<EducationItem> educations;
   final List<CertificationItem> certifications;
   final String? portfolioDescription;
+  final String? stripeAccountId;
+
+  bool get hasStripeAccount =>
+      stripeAccountId != null && stripeAccountId!.isNotEmpty;
 
   // Backward-compat: treat as active when accountStatus is not deactivated
   bool get isActive => accountStatus != AccountStatus.deactivated;
@@ -191,6 +196,7 @@ class ProfileUser {
       certifications:
           parseJsonList(map['certifications'], CertificationItem.fromMap),
       portfolioDescription: map['portfolio_description'] as String?,
+      stripeAccountId: map['stripe_account_id'] as String?,
     );
   }
 

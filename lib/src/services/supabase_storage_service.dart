@@ -29,7 +29,7 @@ class SupabaseStorageService {
   static const _uuid = Uuid();
 
   static const bucketJobCovers            = 'job-covers';
-  static const bucketServicePortfolio     = 'service-portfolio';
+  static const bucketServicePortfolio     = 'service-images';
   static const bucketProjectSignatures    = 'project-signatures';
   static const bucketMilestoneDeliverables = 'milestone-deliverables';
 
@@ -122,13 +122,18 @@ class SupabaseStorageService {
   }) async {
     try {
       final file = File(localPath);
-      if (!file.existsSync()) return null;
+      if (!file.existsSync()) {
+        print('[Storage] File not found: $localPath');
+        return null;
+      }
 
       final bytes = await file.readAsBytes();
       final ext = p.extension(localPath).toLowerCase().replaceFirst('.', '');
       final mime = _mimeForFile(ext);
       final remoteName = '${_uuid.v4()}${ext.isNotEmpty ? '.$ext' : ''}';
       final remotePath = '$userId/$milestoneId/$remoteName';
+
+      print('[Storage] Uploading deliverable: $remotePath (${bytes.length} bytes, $mime)');
 
       await Supabase.instance.client.storage
           .from(bucketMilestoneDeliverables)
@@ -138,10 +143,14 @@ class SupabaseStorageService {
             fileOptions: FileOptions(contentType: mime, upsert: true),
           );
 
-      return Supabase.instance.client.storage
+      final url = Supabase.instance.client.storage
           .from(bucketMilestoneDeliverables)
           .getPublicUrl(remotePath);
-    } catch (_) {
+
+      print('[Storage] Upload success: $url');
+      return url;
+    } catch (e) {
+      print('[Storage] uploadDeliverableFile FAILED: $e');
       return null;
     }
   }

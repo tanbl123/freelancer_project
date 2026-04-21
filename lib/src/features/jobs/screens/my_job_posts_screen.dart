@@ -46,7 +46,7 @@ class _MyJobPostsBodyState extends State<MyJobPostsBody>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 2, vsync: this);
     AppState.instance.reloadMyJobPosts();
   }
 
@@ -71,7 +71,6 @@ class _MyJobPostsBodyState extends State<MyJobPostsBody>
           controller: _tabs,
           tabs: const [
             Tab(text: 'Open'),
-            Tab(text: 'Closed'),
             Tab(text: 'Cancelled'),
           ],
         ),
@@ -81,26 +80,24 @@ class _MyJobPostsBodyState extends State<MyJobPostsBody>
             builder: (context, _) {
               final all = AppState.instance.myJobPosts;
 
-              List<JobPost> byStatus(JobStatus s) =>
-                  all.where((p) => p.status == s).toList();
-
               return RefreshIndicator(
                 onRefresh: _refresh,
                 child: TabBarView(
                   controller: _tabs,
                   children: [
                     _PostList(
-                      posts: byStatus(JobStatus.open),
+                      posts: all
+                          .where((p) => p.status == JobStatus.open)
+                          .toList(),
                       emptyMessage: 'No open job posts.',
                       emptyIcon: Icons.work_outline,
                     ),
                     _PostList(
-                      posts: byStatus(JobStatus.closed),
-                      emptyMessage: 'No closed posts.',
-                      emptyIcon: Icons.lock_outline,
-                    ),
-                    _PostList(
-                      posts: byStatus(JobStatus.cancelled),
+                      posts: all
+                          .where((p) =>
+                              p.status == JobStatus.cancelled ||
+                              p.status == JobStatus.closed)
+                          .toList(),
                       emptyMessage: 'No cancelled posts.',
                       emptyIcon: Icons.cancel_outlined,
                     ),
@@ -338,13 +335,15 @@ class _MyPostCardState extends State<_MyPostCard> {
                     const Divider(height: 16),
 
                     // ── Actions ──────────────────────────────────────
+                    // Open/Closed posts: Edit + bin (cancel → moves to
+                    //   Cancelled tab so history is preserved).
+                    // Cancelled posts: bin only (permanent delete).
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        if (isOpen) ...[
+                        if (isOpen)
                           TextButton.icon(
-                            icon: const Icon(Icons.edit_outlined,
-                                size: 14),
+                            icon: const Icon(Icons.edit_outlined, size: 14),
                             label: const Text('Edit',
                                 style: TextStyle(fontSize: 12)),
                             onPressed: () async {
@@ -354,48 +353,17 @@ class _MyPostCardState extends State<_MyPostCard> {
                               AppState.instance.reloadMyJobPosts();
                             },
                           ),
-                          TextButton.icon(
-                            icon: const Icon(Icons.lock_outline,
-                                size: 14, color: Colors.orange),
-                            label: const Text('Close',
-                                style: TextStyle(
-                                    fontSize: 12, color: Colors.orange)),
-                            onPressed: _close,
-                          ),
-                          TextButton.icon(
-                            icon: const Icon(Icons.cancel_outlined,
-                                size: 14, color: Colors.red),
-                            label: const Text('Cancel',
-                                style: TextStyle(
-                                    fontSize: 12, color: Colors.red)),
-                            onPressed: _cancel,
-                          ),
-                        ],
-                        // Closed + not expired → Reopen
-                        if (isClosed && !p.isExpired)
-                          TextButton.icon(
-                            icon: const Icon(Icons.lock_open_outlined,
-                                size: 14, color: Colors.green),
-                            label: const Text('Reopen',
-                                style: TextStyle(
-                                    fontSize: 12, color: Colors.green)),
-                            onPressed: _reopen,
-                          ),
-                        // Closed + expired → can only Cancel
-                        if (isClosed && p.isExpired)
-                          TextButton.icon(
-                            icon: const Icon(Icons.cancel_outlined,
-                                size: 14, color: Colors.red),
-                            label: const Text('Cancel',
-                                style: TextStyle(
-                                    fontSize: 12, color: Colors.red)),
-                            onPressed: _cancel,
-                          ),
                         IconButton(
                           icon: const Icon(Icons.delete_outline,
                               size: 18, color: Colors.red),
-                          tooltip: 'Delete',
-                          onPressed: _delete,
+                          // Open → cancel (soft, moves to Cancelled tab)
+                          // Closed / Cancelled → permanent delete
+                          tooltip: p.status == JobStatus.open
+                              ? 'Cancel post'
+                              : 'Delete',
+                          onPressed: p.status == JobStatus.open
+                              ? _cancel
+                              : _delete,
                         ),
                       ],
                     ),

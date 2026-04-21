@@ -14,3 +14,6 @@ class DevConfig {
   ///static const bool emailValidationEnabled = true;
 
 }
+///CARD NUMBER: 4242424242424242
+///EXPIRY: 1229
+///CVC: 123

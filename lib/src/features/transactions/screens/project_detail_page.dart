@@ -2,10 +2,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../backend/shared/domain_types.dart';
 import '../../../routing/app_router.dart';
+import '../../../services/stripe_service.dart';
 import '../../../services/supabase_storage_service.dart';
 import '../../../state/app_state.dart';
 import '../../disputes/models/dispute_record.dart';
@@ -63,7 +65,9 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     if (updated.status != _project?.status) {
       // Status changed — full reload so _dispute / _milestones stay in sync.
       _load();
-    } else if (updated != _project) {
+    } else {
+      // Always rebuild so the payment record (escrow balance) and
+      // milestone statuses stay up to date after approvals.
       setState(() => _project = updated);
     }
   }
@@ -127,6 +131,62 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         const SnackBar(
           content: Text('Milestone approved! Payment released.'),
           backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  // ── Claim pending payouts (freelancer has account now, retry transfers) ──────
+
+  Future<void> _claimPendingPayouts() async {
+    // Milestones paid but not yet transferred to Stripe (token = our po_ ref)
+    final pending = _milestones
+        .where((m) =>
+            m.isPaid && !(m.paymentToken?.startsWith('tr_') ?? false))
+        .toList();
+    if (pending.isEmpty || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final intentId =
+        AppState.instance.currentPaymentRecord?.stripePaymentIntentId ?? '';
+    int successCount = 0;
+
+    for (final m in pending) {
+      try {
+        final transferId = await StripeService.transferMilestonePayout(
+          freelancerId: _project!.freelancerId,
+          grossAmountMyr: m.paymentAmount,
+          paymentIntentId: intentId,
+          milestoneId: m.id,
+        );
+        // Persist the real Stripe transfer ID so we don't re-attempt next time
+        await Supabase.instance.client.from('milestones').update({
+          'payment_token': transferId,
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', m.id);
+        successCount++;
+      } catch (e) {
+        print('[Claim] Transfer failed for ${m.id}: $e');
+      }
+    }
+
+    if (!mounted) return;
+    await _load(); // Refresh milestone list so tokens are up to date
+
+    if (successCount > 0) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+              '$successCount payout${successCount > 1 ? 's' : ''} sent to your bank!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Transfer failed. Please check your payout account and try again.'),
+          backgroundColor: Colors.red,
         ),
       );
     }
@@ -347,6 +407,15 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         _project!.isInProgress || _project!.isPendingStart;
     final paymentRecord = AppState.instance.currentPaymentRecord;
 
+    // Milestones approved but Stripe transfer not yet completed (token = po_ ref)
+    final pendingEarnings = !isClient
+        ? _milestones
+            .where((m) =>
+                m.isPaid &&
+                !(m.paymentToken?.startsWith('tr_') ?? false))
+            .fold(0.0, (sum, m) => sum + m.paymentAmount * 0.9)
+        : 0.0;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_project!.jobTitle ?? 'Project Details'),
@@ -403,6 +472,20 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             // ── Payment status banner ─────────────────────────────────
             if (paymentRecord != null)
               _PaymentStatusBanner(payment: paymentRecord),
+            // ── Payout banners (freelancer only) ──────────────────────
+            // Case A: no Stripe account — prompt setup, show any waiting $
+            if (!isClient && !user.hasStripeAccount)
+              _PayoutSetupBanner(
+                hasAccount: false,
+                pendingEarningsMyr: pendingEarnings,
+              ),
+            // Case B: has account but transfers still pending — claim now
+            if (!isClient && user.hasStripeAccount && pendingEarnings > 0)
+              _PayoutSetupBanner(
+                hasAccount: true,
+                pendingEarningsMyr: pendingEarnings,
+                onClaim: _claimPendingPayouts,
+              ),
             // ── Overdue warning banner ────────────────────────────────
             ..._milestones
                 .where((m) => m.isInProgress)
@@ -1743,6 +1826,17 @@ class _MilestoneCard extends StatelessWidget {
                       style: const TextStyle(
                           color: Colors.grey, fontSize: 13),
                     ),
+                    // Show freelancer their net payout (after platform fee)
+                    if (!isClient) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        '→ You receive RM ${(m.paymentAmount * 0.9).toStringAsFixed(2)}',
+                        style: const TextStyle(
+                            color: Colors.green,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ],
                   ],
                 ),
                 Row(
@@ -1808,7 +1902,23 @@ class _MilestoneCard extends StatelessWidget {
             // Deliverable submission
             if (m.deliverableUrl != null &&
                 m.deliverableUrl!.isNotEmpty) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(Icons.upload_file,
+                      size: 13,
+                      color: Colors.blue.shade700),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Freelancer\'s Submission',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue.shade700),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
               _DeliverableView(raw: m.deliverableUrl!),
             ],
 
@@ -1959,6 +2069,219 @@ class _PaymentStatusBanner extends StatelessWidget {
                     '${(payment.releaseProgress * 100).toStringAsFixed(0)}% released',
                     style: const TextStyle(
                         color: Colors.black54, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payout banner — two states:
+//   • hasAccount = false  →  amber "Set Up Now" card (shows pending amount)
+//   • hasAccount = true   →  blue "Claim Earnings" card (retry transfers)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PayoutSetupBanner extends StatefulWidget {
+  const _PayoutSetupBanner({
+    required this.hasAccount,
+    this.pendingEarningsMyr = 0.0,
+    this.onClaim,
+  });
+
+  /// True when the freelancer has already connected a Stripe account.
+  final bool hasAccount;
+
+  /// Net earnings (after 10% fee) sitting on the platform awaiting transfer.
+  final double pendingEarningsMyr;
+
+  /// Non-null when [hasAccount] is true and there are pending transfers.
+  /// Calling it retries the Stripe transfers.
+  final Future<void> Function()? onClaim;
+
+  @override
+  State<_PayoutSetupBanner> createState() => _PayoutSetupBannerState();
+}
+
+class _PayoutSetupBannerState extends State<_PayoutSetupBanner> {
+  bool _loading = false;
+
+  // Launches Stripe Connect onboarding in an external browser
+  Future<void> _onSetUpNow() async {
+    setState(() => _loading = true);
+    try {
+      final url = await StripeService.getOnboardingUrl();
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } on StripePaymentException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open payout setup. Try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // Retries pending Stripe transfers now that the account is connected
+  Future<void> _onClaim() async {
+    setState(() => _loading = true);
+    try {
+      await widget.onClaim!();
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final amountStr =
+        'RM ${widget.pendingEarningsMyr.toStringAsFixed(2)}';
+    final hasPending = widget.pendingEarningsMyr > 0;
+
+    // ── Case B: account connected, transfers still pending ──────────────────
+    if (widget.hasAccount && widget.onClaim != null) {
+      return Card(
+        color: Colors.blue.shade50,
+        margin: const EdgeInsets.only(bottom: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: Colors.blue.shade200),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.account_balance_wallet_outlined,
+                  color: Colors.blue.shade700, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pending earnings: $amountStr',
+                      style: TextStyle(
+                        color: Colors.blue.shade800,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Your bank account is connected. Transfer your '
+                      'pending earnings to your bank now.',
+                      style: TextStyle(
+                          color: Colors.blue.shade700, fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 32,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.blue.shade700,
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 14),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                        icon: _loading
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white))
+                            : const Icon(Icons.send_outlined, size: 14),
+                        label: const Text('Claim Earnings'),
+                        onPressed: _loading ? null : _onClaim,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ── Case A: no account yet — prompt setup ───────────────────────────────
+    return Card(
+      color: Colors.orange.shade50,
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: Colors.orange.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.account_balance_outlined,
+                color: Colors.orange.shade700, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasPending
+                        ? '$amountStr is waiting for you!'
+                        : 'Set up your payout account',
+                    style: TextStyle(
+                      color: Colors.orange.shade800,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    hasPending
+                        ? 'Your earnings are safely held on the platform. '
+                          'Connect your bank account to receive them.'
+                        : 'Connect your bank account so you can receive '
+                          'payments when a milestone is approved.',
+                    style: TextStyle(
+                        color: Colors.orange.shade700, fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 32,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.orange.shade700,
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 14),
+                        textStyle: const TextStyle(fontSize: 12),
+                      ),
+                      icon: _loading
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.open_in_new, size: 14),
+                      label: const Text('Set Up Now'),
+                      onPressed: _loading ? null : _onSetUpNow,
+                    ),
                   ),
                 ],
               ),
@@ -2316,7 +2639,21 @@ class _DeliverableView extends StatelessWidget {
   final String raw;
 
   Future<void> _openUrl(BuildContext context, String url) async {
-    final uri = Uri.tryParse(url);
+    // For Office documents, wrap in Google Docs viewer so they open inline
+    // instead of triggering a download dialog.
+    final lower = url.toLowerCase();
+    final isOfficeDoc = lower.endsWith('.doc') ||
+        lower.endsWith('.docx') ||
+        lower.endsWith('.xls') ||
+        lower.endsWith('.xlsx') ||
+        lower.endsWith('.ppt') ||
+        lower.endsWith('.pptx');
+
+    final viewerUrl = isOfficeDoc
+        ? 'https://docs.google.com/viewer?url=${Uri.encodeComponent(url)}'
+        : url;
+
+    final uri = Uri.tryParse(viewerUrl);
     if (uri == null) return;
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);

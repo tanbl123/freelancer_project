@@ -2407,7 +2407,7 @@ class AppState extends ChangeNotifier {
 
       if (_currentPaymentRecord != null &&
           _currentPaymentRecord!.isHeld) {
-        // 2. Release payout from escrow
+        // 2. Release payout from escrow (DB record)
         try {
           final (updatedPayment, payout) =
               await _paymentSvc.releaseMilestonePayout(
@@ -2417,15 +2417,35 @@ class AppState extends ChangeNotifier {
           );
           _currentPaymentRecord = updatedPayment;
           payoutToken = payout.payoutToken ??
-              StripeService.generateSimulatedToken();
+              StripeService.generatePayoutReference();
         } catch (e) {
-          // Insufficient funds or other payment error — use simulated token
-          // so the milestone can still be marked complete in sandbox mode.
-          payoutToken = StripeService.generateSimulatedToken();
+          payoutToken = StripeService.generatePayoutReference();
+        }
+
+        // 3. Real Stripe transfer to freelancer's connected account
+        final project = _projects
+            .where((p) => p.id == milestone.projectId)
+            .firstOrNull;
+        final intentId =
+            _currentPaymentRecord?.stripePaymentIntentId ?? '';
+        if (project != null && intentId.isNotEmpty) {
+          try {
+            final transferId = await StripeService.transferMilestonePayout(
+              freelancerId: project.freelancerId,
+              grossAmountMyr: milestone.paymentAmount,
+              paymentIntentId: intentId,
+              milestoneId: milestone.id,
+            );
+            payoutToken = transferId;
+          } catch (e) {
+            // Freelancer may not have set up Stripe Connect yet —
+            // DB record is still updated, transfer logged as failed.
+            print('[Payout] Transfer skipped: $e');
+          }
         }
       } else {
-        // No payment record or not held — sandbox / demo fallback.
-        payoutToken = StripeService.generateSimulatedToken();
+        // No payment record — fallback reference.
+        payoutToken = StripeService.generatePayoutReference();
       }
 
       // 3. Mark milestone complete in DB
@@ -2742,12 +2762,12 @@ class AppState extends ChangeNotifier {
       if (_currentPaymentRecord != null && _currentPaymentRecord!.isHeld) {
         try {
           // Release full budget from escrow (single milestone = 100%)
-          payoutToken = StripeService.generateSimulatedToken();
+          payoutToken = StripeService.generatePayoutReference();
         } catch (_) {
-          payoutToken = StripeService.generateSimulatedToken();
+          payoutToken = StripeService.generatePayoutReference();
         }
       } else {
-        payoutToken = StripeService.generateSimulatedToken();
+        payoutToken = StripeService.generatePayoutReference();
       }
 
       // Mark project completed

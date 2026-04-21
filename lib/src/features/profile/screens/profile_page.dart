@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:open_file/open_file.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../routing/app_router.dart';
+import '../../../services/stripe_service.dart';
 import '../../../shared/enums/account_status.dart';
 import '../../../shared/enums/user_role.dart';
 import '../../../shared/guards/access_guard.dart';
@@ -342,7 +344,7 @@ class ProfilePage extends StatelessWidget {
                   const SizedBox(height: 8),
                 ],
 
-                // Freelancer: stats
+                // Freelancer: stats + payout setup
                 if (isFreelancer) ...[
                   SizedBox(
                     width: double.infinity,
@@ -358,6 +360,8 @@ class ProfilePage extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  _PayoutSetupButton(hasAccount: user.hasStripeAccount),
                   const SizedBox(height: 8),
                 ],
                 SizedBox(
@@ -1166,6 +1170,74 @@ class _FreelancerRequestBanner extends StatelessWidget {
             Icon(Icons.chevron_right, color: color, size: 18),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Payout Setup Button ───────────────────────────────────────────────────────
+
+class _PayoutSetupButton extends StatefulWidget {
+  const _PayoutSetupButton({required this.hasAccount});
+  final bool hasAccount;
+
+  @override
+  State<_PayoutSetupButton> createState() => _PayoutSetupButtonState();
+}
+
+class _PayoutSetupButtonState extends State<_PayoutSetupButton> {
+  bool _loading = false;
+
+  Future<void> _onTap() async {
+    setState(() => _loading = true);
+    try {
+      final url = await StripeService.getOnboardingUrl();
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } on StripePaymentException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Could not open payout setup. Try again.'),
+              backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isSetup = widget.hasAccount;
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        icon: _loading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2))
+            : Icon(
+                isSetup ? Icons.account_balance : Icons.account_balance_outlined,
+                color: isSetup ? Colors.green : null,
+              ),
+        label: Text(isSetup ? 'Payout Account Connected ✓' : 'Set Up Payouts'),
+        onPressed: _loading ? null : _onTap,
+        style: isSetup
+            ? OutlinedButton.styleFrom(
+                foregroundColor: Colors.green,
+                side: const BorderSide(color: Colors.green),
+              )
+            : null,
       ),
     );
   }

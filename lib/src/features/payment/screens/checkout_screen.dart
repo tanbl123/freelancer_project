@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-// Hide stripe's 'Card' model to avoid ambiguity with Flutter's Card widget.
-import 'package:flutter_stripe/flutter_stripe.dart' hide Card;
 
 import '../../../services/stripe_service.dart';
 import '../../../state/app_state.dart';
@@ -13,19 +11,6 @@ import '../services/payment_service.dart';
 /// Collects a payment card via Stripe's [CardField] widget, captures the
 /// full contract value in escrow, and creates a [PaymentRecord] with status
 /// [PaymentStatus.held].
-///
-/// ## Sandbox / test mode
-/// The screen works without a live Stripe account:
-/// - If the publishable key in [StripeService] is the placeholder, the card
-///   tokenisation step is simulated locally.
-/// - Use test card  **4242 4242 4242 4242** | any future date | any 3-digit CVC.
-///
-/// ## Production path
-/// In production:
-/// 1. Call a Supabase Edge Function that calls `stripe.paymentIntents.create`.
-/// 2. The Edge Function returns a `client_secret`.
-/// 3. Call `Stripe.instance.confirmPayment(paymentIntentClientSecret: secret, …)`.
-/// 4. On success, mark the [PaymentRecord] as `held`.
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({
     super.key,
@@ -41,7 +26,6 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  CardFieldInputDetails? _cardDetails;
   bool _processing = false;
   String? _errorMessage;
 
@@ -50,9 +34,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   double get _total => widget.project.totalBudget ?? 0;
 
-  // For single-delivery the milestones list is empty, so compute fees
-  // directly from the total budget; for milestone plans use the sum
-  // across all individual milestone amounts.
   double get _totalFees => widget.milestones.isEmpty
       ? PaymentService.calculatePayout(_total).platformFee
       : PaymentService.totalPlatformFees(widget.milestones);
@@ -66,12 +47,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Future<void> _pay() async {
     if (_total <= 0) {
       setState(() => _errorMessage =
-          'Contract value is RM 0. Please ensure the project has a valid budget before proceeding.');
-      return;
-    }
-    if (_cardDetails?.complete != true) {
-      setState(
-          () => _errorMessage = 'Please enter complete card details.');
+          'Contract value is RM 0. Please ensure the project has a valid budget.');
       return;
     }
 
@@ -80,40 +56,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _errorMessage = null;
     });
 
-    // Capture before any await to satisfy use_build_context_synchronously
     final messenger = ScaffoldMessenger.of(context);
 
     try {
-      // ── Step 1: Tokenise card with Stripe ──────────────────────────
-      // createPaymentMethod talks to Stripe's API using the publishable key.
-      // With the placeholder key it will throw StripeException; we fall back
-      // to a simulated token so the sandbox keeps working end-to-end.
-      String stripeMethodId;
-      try {
-        final pm = await Stripe.instance.createPaymentMethod(
-          params: const PaymentMethodParams.card(
-            paymentMethodData: PaymentMethodData(),
-          ),
-        );
-        stripeMethodId = pm.id;
-      } on StripeException {
-        // Placeholder key or no network → sandbox simulation.
-        stripeMethodId = StripeService.generateSimulatedToken();
-      }
+      // Opens Stripe's native Payment Sheet — user enters card details there.
+      // Returns the PaymentIntent ID after successful payment.
+      final paymentIntentId = await StripeService.presentPaymentSheet(
+        amountMyr: _total,
+        projectId: widget.project.id,
+      );
 
-      // ── Step 2: Simulate server-side PaymentIntent ─────────────────
-      // Production: call Supabase Edge Function to create PaymentIntent,
-      // receive clientSecret, then call Stripe.instance.confirmPayment().
-      //
-      // Sandbox: generate a reference ID locally.
-      final intentId =
-          StripeService.simulatePaymentIntent(_total, stripeMethodId);
-
-      // ── Step 3: Persist held payment in our database ───────────────
+      // Persist the held payment in our database
       final err = await AppState.instance.processProjectPayment(
         widget.project,
-        stripePaymentIntentId: intentId,
-        stripePaymentMethodId: stripeMethodId,
+        stripePaymentIntentId: paymentIntentId,
+        stripePaymentMethodId: '',
       );
 
       if (!mounted) return;
@@ -134,12 +91,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             duration: const Duration(seconds: 4),
           ),
         );
-        Navigator.pop(context, true); // success
+        Navigator.pop(context, true);
       }
-    } catch (e) {
+    } on StripePaymentException catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Payment failed: $e';
+          _errorMessage = e.message == 'Payment was cancelled.' ? null : e.message;
+          _processing = false;
+        });
+      }
+    } catch (e) {
+      print('[Checkout] Unexpected error: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
           _processing = false;
         });
       }
@@ -169,8 +134,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             const SizedBox(height: 16),
 
             // ── Breakdown card ────────────────────────────────────────
-            // Single Delivery: show a simple one-line summary.
-            // Milestone plan: show full per-milestone breakdown.
             if (widget.project.isSingleDelivery || _sorted.isEmpty)
               _SingleDeliveryBreakdown(total: _total)
             else
@@ -266,82 +229,25 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
             const SizedBox(height: 16),
 
-            // ── Stripe card input ─────────────────────────────────────
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.lock,
-                            size: 16, color: Colors.grey),
-                        const SizedBox(width: 6),
-                        const Text(
-                          'Card Details',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15),
-                        ),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.shade50,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'Secured by Stripe',
-                            style: TextStyle(
-                                fontSize: 10, color: Colors.blue),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    // Wrap the native Stripe CardField in a plain
-                    // container border — passing InputDecoration to the
-                    // native view can break keyboard / focus on some
-                    // platforms (shows blank / unresponsive field).
-                    Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
-                      child: CardField(
-                        onCardChanged: (details) =>
-                            setState(() => _cardDetails = details),
-                        style: const TextStyle(fontSize: 15),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Test card: 4242 4242 4242 4242  '
-                              '| Exp: 12/29  | CVC: 123',
-                            ),
-                            duration: Duration(seconds: 6),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.credit_card, size: 15),
-                      label: const Text('Show test card',
-                          style: TextStyle(fontSize: 12)),
-                      style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6)),
-                    ),
-                  ],
-                ),
+            // ── Secure payment notice ─────────────────────────────────
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.lock, size: 14, color: Colors.grey),
+                  SizedBox(width: 6),
+                  Text(
+                    'Payment secured by Stripe',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
               ),
             ),
 
@@ -369,43 +275,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
               ),
             ],
-            const SizedBox(height: 16),
-
-            // ── Sandbox disclaimer ────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    children: [
-                      Icon(Icons.science,
-                          size: 14, color: Colors.blue),
-                      SizedBox(width: 6),
-                      Text(
-                        'SANDBOX MODE — No real charges',
-                        style: TextStyle(
-                            color: Colors.blue,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    '• Funds are held in escrow until milestones are approved.\n'
-                    '• Platform fee (10%) is deducted per payout, not upfront.\n'
-                    '• Unused funds are refunded if the project is cancelled.',
-                    style: TextStyle(fontSize: 11, color: Colors.blue),
-                  ),
-                ],
-              ),
-            ),
             const SizedBox(height: 20),
 
             // ── Pay button ────────────────────────────────────────────

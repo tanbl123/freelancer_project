@@ -46,11 +46,13 @@ class JobStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (status) {
+    // Treat "closed" identically to "cancelled" in the UI.
+    final displayStatus = status == JobStatus.closed ? JobStatus.cancelled : status;
+    final color = switch (displayStatus) {
       JobStatus.open      => Colors.green,
-      JobStatus.closed    => Colors.orange,
       JobStatus.cancelled => Colors.red,
       JobStatus.deleted   => Colors.grey,
+      _                   => Colors.grey,
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -60,7 +62,7 @@ class JobStatusBadge extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(
-        status.displayName,
+        displayStatus.displayName,
         style: TextStyle(
             fontSize: 10, fontWeight: FontWeight.bold, color: color),
       ),
