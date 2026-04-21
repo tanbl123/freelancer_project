@@ -234,15 +234,44 @@ class _ProjectCardState extends State<_ProjectCard> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
+                    // Green tint when the plan is ready for the client to act on;
+                    // orange when something is still outstanding.
+                    color: (!project.isSingleDelivery &&
+                            _milestones.isNotEmpty &&
+                            isClient)
+                        ? Colors.green.shade50
+                        : Colors.orange.shade50,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    isClient
-                        ? 'Awaiting milestone plan from freelancer'
-                        : 'Action required: propose milestone plan',
+                    () {
+                      if (project.isSingleDelivery) {
+                        // Single delivery in pendingStart = client hasn't paid yet.
+                        // Freelancer cannot submit anything until payment clears.
+                        return isClient
+                            ? 'Action required: pay to get started'
+                            : 'Waiting for client payment';
+                      }
+                      // Milestone plan project
+                      if (_milestones.isNotEmpty) {
+                        // Freelancer has proposed; now waiting on the client to pay
+                        return isClient
+                            ? 'Milestone plan ready — review and pay to get started'
+                            : 'Milestone plan proposed — awaiting client payment';
+                      }
+                      // No plan yet
+                      return isClient
+                          ? 'Awaiting milestone plan from freelancer'
+                          : 'Action required: propose milestone plan';
+                    }(),
                     style: TextStyle(
-                        color: Colors.orange.shade800, fontSize: 12),
+                      color: (!project.isSingleDelivery &&
+                              _milestones.isNotEmpty &&
+                              isClient)
+                          ? Colors.green.shade800
+                          : Colors.orange.shade800,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],

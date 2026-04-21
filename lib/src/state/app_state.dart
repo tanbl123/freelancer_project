@@ -45,6 +45,7 @@ import '../features/notifications/models/in_app_notification.dart';
 import '../features/notifications/repositories/notification_repository.dart';
 import '../features/notifications/services/notification_service.dart';
 import '../shared/enums/notification_type.dart';
+import '../shared/enums/payout_status.dart';
 import '../features/overdue/models/overdue_record.dart';
 import '../features/overdue/repositories/overdue_repository.dart';
 import '../features/overdue/services/overdue_service.dart';
@@ -2184,14 +2185,27 @@ class AppState extends ChangeNotifier {
       var actualReleased =
           payouts.fold(0.0, (sum, p) => sum + p.grossAmount);
 
-      // Fallback: derive released amount from completed milestones when payout
+      // Fallback 1: derive released amount from completed milestones when payout
       // records are absent (covers the case where releaseMilestonePayout failed
       // silently but approveMilestone still marked the milestone as completed).
+      bool isSingleDeliveryHeal = false;
       if (actualReleased == 0) {
         final milestones = await _db.getMilestonesForProject(projectId);
         actualReleased = milestones
             .where((m) => m.isCompleted)
             .fold(0.0, (sum, m) => sum + m.paymentAmount);
+
+        // Fallback 2: single-delivery project — no milestones exist.
+        // If the project is completed, the full amount was released.
+        if (actualReleased == 0 && milestones.isEmpty) {
+          final project = _projects.where((p) => p.id == projectId).firstOrNull
+              ?? await _db.getProjectById(projectId);
+          if (project != null &&
+              project.status == ProjectStatus.completed) {
+            actualReleased = record.totalAmount;
+            isSingleDeliveryHeal = true;
+          }
+        }
       }
 
       if (actualReleased > 0 &&
@@ -2206,6 +2220,34 @@ class AppState extends ChangeNotifier {
         );
         await _paymentRepo.update(corrected);
         _currentPaymentRecord = corrected;
+
+        // Fallback 2 extra: create the missing payout record so the
+        // Payout History section is not empty for single-delivery projects.
+        if (isSingleDeliveryHeal && payouts.isEmpty) {
+          try {
+            final grossAmount = actualReleased;
+            final feePercent = record.platformFeePercent;
+            final fee = double.parse(
+                (grossAmount * feePercent / 100).toStringAsFixed(2));
+            final netAmount = double.parse(
+                (grossAmount - fee).toStringAsFixed(2));
+            await _paymentRepo.insertPayout(PayoutRecord(
+              id: _uuid.v4(),
+              paymentId: record.id,
+              milestoneId: projectId,
+              projectId: projectId,
+              freelancerId: record.freelancerId,
+              grossAmount: grossAmount,
+              platformFee: fee,
+              netAmount: netAmount,
+              platformFeePercent: feePercent,
+              payoutToken: StripeService.generatePayoutReference(),
+              status: PayoutStatus.processed,
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+            ));
+          } catch (_) {}
+        }
       } else {
         _currentPaymentRecord = record;
       }
@@ -2944,20 +2986,66 @@ class AppState extends ChangeNotifier {
     }
 
     try {
-      // Resolve / simulate payment token
+      // Resolve payment record
       _currentPaymentRecord ??=
           await _paymentRepo.getForProject(project.id);
 
-      String payoutToken;
+      String payoutToken = StripeService.generatePayoutReference();
+
       if (_currentPaymentRecord != null && _currentPaymentRecord!.isHeld) {
+        final payment = _currentPaymentRecord!;
+        final grossAmount = payment.totalAmount;
+        final feePercent = payment.platformFeePercent;
+        final fee = double.parse(
+            (grossAmount * feePercent / 100).toStringAsFixed(2));
+        final netAmount = double.parse(
+            (grossAmount - fee).toStringAsFixed(2));
+
+        // 1. Create payout record (full contract = 100% single payout)
+        final payoutId = _uuid.v4();
+        final payout = PayoutRecord(
+          id: payoutId,
+          paymentId: payment.id,
+          milestoneId: project.id,   // use project id as milestone key
+          projectId: project.id,
+          freelancerId: project.freelancerId,
+          grossAmount: grossAmount,
+          platformFee: fee,
+          netAmount: netAmount,
+          platformFeePercent: feePercent,
+          payoutToken: payoutToken,
+          status: PayoutStatus.processed,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
         try {
-          // Release full budget from escrow (single milestone = 100%)
-          payoutToken = StripeService.generatePayoutReference();
-        } catch (_) {
-          payoutToken = StripeService.generatePayoutReference();
+          await _paymentRepo.insertPayout(payout);
+        } catch (_) {}
+
+        // 2. Update payment record → fully released
+        final updatedPayment = payment.copyWith(
+          releasedAmount: grossAmount,
+          status: PaymentStatus.fullyReleased,
+        );
+        try {
+          await _paymentRepo.update(updatedPayment);
+          _currentPaymentRecord = updatedPayment;
+        } catch (_) {}
+
+        // 3. Real Stripe transfer to freelancer's connected account
+        final intentId = payment.stripePaymentIntentId ?? '';
+        if (intentId.isNotEmpty) {
+          try {
+            await StripeService.transferMilestonePayout(
+              freelancerId: project.freelancerId,
+              grossAmountMyr: grossAmount,
+              paymentIntentId: intentId,
+              milestoneId: project.id,
+            );
+          } catch (e) {
+            print('[Payout] Single delivery transfer skipped: $e');
+          }
         }
-      } else {
-        payoutToken = StripeService.generatePayoutReference();
       }
 
       // Mark project completed

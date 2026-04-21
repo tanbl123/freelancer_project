@@ -61,10 +61,13 @@ class StripeService {
     //
     // Card-only mode: no returnURL needed because cards are confirmed inline
     // without any external browser/app redirect.
+    // paymentMethodOrder restricts the sheet to card only — this hides the
+    // "Pay with Link" overlay even if Link is enabled at the Stripe account level.
     await Stripe.instance.initPaymentSheet(
       paymentSheetParameters: SetupPaymentSheetParameters(
         paymentIntentClientSecret: clientSecret,
         merchantDisplayName: merchantName,
+        paymentMethodOrder: const ['card'],
       ),
     );
 

@@ -423,30 +423,20 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                 ),
               ),
             ),
-          if (canModify)
+          if (_project!.isInProgress)
             PopupMenuButton<String>(
               onSelected: (v) {
-                if (v == 'cancel') _cancelProject();
                 if (v == 'dispute') _disputeProject();
               },
               itemBuilder: (_) => [
                 const PopupMenuItem(
-                  value: 'cancel',
+                  value: 'dispute',
                   child: Row(children: [
-                    Icon(Icons.cancel_outlined, color: Colors.red),
+                    Icon(Icons.gavel, color: Colors.orange),
                     SizedBox(width: 8),
-                    Text('Cancel Project'),
+                    Text('Raise Dispute'),
                   ]),
                 ),
-                if (_project!.isInProgress)
-                  const PopupMenuItem(
-                    value: 'dispute',
-                    child: Row(children: [
-                      Icon(Icons.gavel, color: Colors.orange),
-                      SizedBox(width: 8),
-                      Text('Raise Dispute'),
-                    ]),
-                  ),
               ],
             ),
         ],
@@ -879,72 +869,71 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
       }
       // Client has a deliverable to review
       return [
+        // ── Status header ──────────────────────────────────────────────────
         Card(
           color: Colors.blue.shade50,
           child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Row(
               children: [
-                const Row(children: [
-                  Icon(Icons.assignment_turned_in, color: Colors.blue),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Deliverable Submitted — Review Required',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
-                          fontSize: 15),
-                    ),
-                  ),
-                ]),
-                const SizedBox(height: 10),
-                const Text('Freelancer has submitted their work:'),
-                const SizedBox(height: 6),
-                GestureDetector(
-                  onTap: () async {
-                    final uri =
-                        Uri.tryParse(project.singleDeliverableUrl ?? '');
-                    if (uri != null && await canLaunchUrl(uri)) {
-                      await launchUrl(uri,
-                          mode: LaunchMode.externalApplication);
-                    }
-                  },
+                const Icon(Icons.assignment_turned_in, color: Colors.blue),
+                const SizedBox(width: 8),
+                const Expanded(
                   child: Text(
-                    project.singleDeliverableUrl ?? '',
-                    style: const TextStyle(
+                    'Deliverable Submitted — Review Required',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
                         color: Colors.blue,
-                        decoration: TextDecoration.underline),
+                        fontSize: 15),
                   ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red),
-                        icon: const Icon(Icons.thumb_down_outlined),
-                        label: const Text('Reject'),
-                        onPressed: () => _rejectSingleDelivery(project),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                            backgroundColor: Colors.green),
-                        icon: const Icon(Icons.thumb_up),
-                        label: const Text('Approve & Pay'),
-                        onPressed: () => _approveSingleDeliveryFlow(project),
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
           ),
+        ),
+
+        // ── Submission content — white background so note/file card is visible
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Icon(Icons.upload_file, size: 13, color: Colors.blue.shade700),
+            const SizedBox(width: 4),
+            Text(
+              'Freelancer\'s Submission',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.blue.shade700),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        _DeliverableView(raw: project.singleDeliverableUrl!),
+
+        // ── Action buttons ─────────────────────────────────────────────────
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red),
+                icon: const Icon(Icons.thumb_down_outlined),
+                label: const Text('Reject'),
+                onPressed: () => _rejectSingleDelivery(project),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                    backgroundColor: Colors.green),
+                icon: const Icon(Icons.thumb_up),
+                label: const Text('Approve & Pay'),
+                onPressed: () => _approveSingleDeliveryFlow(project),
+              ),
+            ),
+          ],
         ),
       ];
     } else {
@@ -957,18 +946,23 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             title: 'Deliverable Submitted',
             subtitle: 'Awaiting client review and approval.',
           ),
-          const SizedBox(height: 8),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.link, color: Colors.blue),
-              title: const Text('Submitted Link'),
-              subtitle: Text(
-                project.singleDeliverableUrl ?? '',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Icon(Icons.upload_file,
+                  size: 13, color: Colors.blue.shade700),
+              const SizedBox(width: 4),
+              Text(
+                'Your Submission',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.blue.shade700),
               ),
-            ),
+            ],
           ),
+          const SizedBox(height: 4),
+          _DeliverableView(raw: project.singleDeliverableUrl!),
         ];
       }
       if (wasRejected) {
@@ -1173,6 +1167,15 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         .where((r) => r.reviewerId == user?.uid && r.projectId == project.id)
         .firstOrNull;
 
+    // For the freelancer: find the review the client wrote about them.
+    final clientReview = !isClient
+        ? AppState.instance.reviews
+            .where((r) =>
+                r.reviewerId == project.clientId &&
+                r.projectId == project.id)
+            .firstOrNull
+        : null;
+
     // Resolve the other party's name from the live users list so we always show
     // the current name even if the denormalized field on the project is stale.
     final otherUid  = isClient ? project.freelancerId : project.clientId;
@@ -1225,66 +1228,74 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         ),
       ),
 
-      // ── Review prompt / summary ────────────────────────────────────────
-      // Three states:
-      //   1. No review yet          → prompt card with "Rate" button
-      //   2. Review exists (active) → summary card with edit/delete
-      //   3. Review removed by admin → locked notice, no re-submission allowed
-      const SizedBox(height: 12),
-      if (myReview == null)
-        _ReviewPromptCard(
-          project: project,
-          otherName: otherName,
-          onReviewed: _load, // refresh so the summary card shows immediately
-        )
-      else if (myReview.isRemoved)
-        const _ReviewRemovedCard()
-      else
-        _ReviewGivenCard(
-          review: myReview,
-          otherName: otherName,
-          onDeleted: _load, // refresh → switches back to prompt card
+      // ── Review section ────────────────────────────────────────────────
+      // Client: full prompt + edit/delete controls.
+      // Freelancer: read-only view of the client's review (if any).
+      if (isClient) ...[
+        const SizedBox(height: 12),
+        if (myReview == null)
+          _ReviewPromptCard(
+            project: project,
+            otherName: otherName,
+            onReviewed: _load,
+          )
+        else if (myReview.isRemoved)
+          const _ReviewRemovedCard()
+        else
+          _ReviewGivenCard(
+            review: myReview,
+            otherName: otherName,
+            onDeleted: _load,
+          ),
+      ] else if (clientReview != null) ...[
+        const SizedBox(height: 12),
+        _ReviewReceivedCard(
+          review: clientReview,
+          reviewerName: project.clientName ?? 'Client',
         ),
+      ],
 
       // ── Deliverable link (single-delivery) ────────────────────────────
       if (project.isSingleDelivery &&
           project.singleDeliverableUrl != null) ...[
         const SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.link, color: Colors.green),
-            title: const Text('Submitted Deliverable'),
-            subtitle: Text(
-              project.singleDeliverableUrl!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+        Row(
+          children: [
+            Icon(Icons.upload_file, size: 13, color: Colors.blue.shade700),
+            const SizedBox(width: 4),
+            Text(
+              'Submitted Deliverable',
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.blue.shade700),
             ),
-            trailing:
-                const Icon(Icons.check_circle, color: Colors.green, size: 20),
-          ),
+          ],
         ),
+        const SizedBox(height: 4),
+        _DeliverableView(raw: project.singleDeliverableUrl!),
       ],
 
       // ── Milestone list (milestone-mode) ───────────────────────────────
+      // Use _MilestoneCard (same as the in-progress view) so clients and
+      // freelancers can still see each milestone's submitted deliverable.
+      // _MilestoneCard automatically hides all action buttons when
+      // m.isCompleted is true, so no interactive controls appear here.
       if (!project.isSingleDelivery && _milestones.isNotEmpty) ...[
         const SizedBox(height: 12),
         const Text('Milestones',
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         ..._milestones.map(
-          (m) => Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: ListTile(
-              leading:
-                  const Icon(Icons.check_circle, color: Colors.green),
-              title: Text(m.title,
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text('${m.percentage.toStringAsFixed(0)}%  ·  '
-                  'RM ${m.paymentAmount.toStringAsFixed(2)}'),
-              trailing: m.isPaid
-                  ? const Icon(Icons.payments, color: Colors.green, size: 20)
-                  : null,
-            ),
+          (m) => _MilestoneCard(
+            milestone: m,
+            isClient: isClient,
+            onApprove: () {},
+            onSubmit: () {},
+            onReject: () {},
+            onRevise: () {},
+            onRequestExtension: () {},
+            onApproveExtension: () {},
           ),
         ),
       ],
@@ -3231,63 +3242,172 @@ class _SingleDeliverableDialog extends StatefulWidget {
 
 class _SingleDeliverableDialogState
     extends State<_SingleDeliverableDialog> {
-  final _ctrl = TextEditingController();
-  String? _error;
+  final _noteCtrl = TextEditingController();
+  String? _pickedFilePath;
+  String? _pickedFileName;
+  bool _uploading = false;
+  String? _noteError;
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _noteCtrl.dispose();
     super.dispose();
   }
 
-  void _submit() {
-    final val = _ctrl.text.trim();
-    if (val.isEmpty) {
-      setState(() => _error = 'Please enter a link or description.');
+  Future<void> _pickFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    if (file.path == null) return;
+    setState(() {
+      _pickedFilePath = file.path;
+      _pickedFileName = file.name;
+    });
+  }
+
+  void _clearFile() => setState(() {
+        _pickedFilePath = null;
+        _pickedFileName = null;
+      });
+
+  Future<void> _submit() async {
+    final note = _noteCtrl.text.trim();
+    if (note.isEmpty) {
+      setState(() => _noteError = 'Please describe the work completed.');
       return;
     }
-    Navigator.pop(context, val);
+    setState(() {
+      _noteError = null;
+      _uploading = true;
+    });
+
+    String? fileUrl;
+    if (_pickedFilePath != null) {
+      final user = AppState.instance.currentUser;
+      if (user != null) {
+        fileUrl = await SupabaseStorageService.instance.uploadDeliverableFile(
+          localPath: _pickedFilePath!,
+          userId: user.uid,
+          milestoneId: widget.project.id,
+        );
+      }
+      if (fileUrl == null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'File upload failed — deliverable saved without attachment.'),
+              backgroundColor: Colors.orange),
+        );
+      }
+    }
+
+    final encoded = fileUrl != null ? '$note$_deliverableSep$fileUrl' : note;
+    if (mounted) Navigator.pop(context, encoded);
   }
 
   @override
   Widget build(BuildContext context) {
+    final title = widget.project.jobTitle ?? 'Project';
     return AlertDialog(
       title: const Text('Submit Deliverable'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Provide a link (Google Drive, GitHub, etc.) or a brief '
-            'description of the completed work:',
-            style: TextStyle(fontSize: 13),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _ctrl,
-            autofocus: true,
-            maxLines: 3,
-            decoration: InputDecoration(
-              labelText: 'Deliverable Link / Description *',
-              hintText: 'https://drive.google.com/...',
-              border: const OutlineInputBorder(),
-              errorText: _error,
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Project: "$title"',
+              style: const TextStyle(color: Colors.black54, fontSize: 13),
             ),
-            onChanged: (_) {
-              if (_error != null) setState(() => _error = null);
-            },
-          ),
-        ],
+            const SizedBox(height: 16),
+
+            // ── Description (required) ─────────────────────────────────
+            TextField(
+              controller: _noteCtrl,
+              decoration: InputDecoration(
+                labelText: 'Work Description *',
+                hintText: 'Explain what was completed, any decisions made, etc.',
+                border: const OutlineInputBorder(),
+                alignLabelWithHint: true,
+                errorText: _noteError,
+              ),
+              maxLines: 4,
+              autofocus: true,
+              onChanged: (_) {
+                if (_noteError != null) setState(() => _noteError = null);
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // ── File attachment (optional) ─────────────────────────────
+            const Text(
+              'Proof / Attachment (optional)',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            if (_pickedFileName != null)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(_fileIcon(_pickedFileName!),
+                        size: 18, color: Colors.green.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _pickedFileName!,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green.shade800),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _clearFile,
+                      child: Icon(Icons.close,
+                          size: 16, color: Colors.green.shade700),
+                    ),
+                  ],
+                ),
+              )
+            else
+              OutlinedButton.icon(
+                icon: const Icon(Icons.attach_file, size: 18),
+                label: const Text('Attach File'),
+                onPressed: _pickFile,
+              ),
+            const SizedBox(height: 4),
+            Text(
+              'Supported: PDF, Word, Excel, images, zip, video, etc.',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: _uploading ? null : () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        FilledButton.icon(
-          icon: const Icon(Icons.send),
-          label: const Text('Submit'),
-          onPressed: _submit,
+        FilledButton(
+          onPressed: _uploading ? null : _submit,
+          child: _uploading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Submit'),
         ),
       ],
     );
@@ -3297,6 +3417,75 @@ class _SingleDeliverableDialogState
 // ─────────────────────────────────────────────────────────────────────────────
 // Review widgets (shown in _buildCompletedSection)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Read-only card shown to the freelancer when the client has left a review.
+class _ReviewReceivedCard extends StatelessWidget {
+  const _ReviewReceivedCard({
+    required this.review,
+    required this.reviewerName,
+  });
+  final ReviewItem review;
+  final String reviewerName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Colors.blue.shade50,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.blue.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header ─────────────────────────────────────────────────
+            Row(
+              children: [
+                Icon(Icons.star_rounded,
+                    color: Colors.amber.shade600, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '$reviewerName rated you',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue.shade700,
+                        fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // ── Stars ──────────────────────────────────────────────────
+            Row(
+              children: List.generate(
+                5,
+                (i) => Icon(
+                  i < review.stars
+                      ? Icons.star_rounded
+                      : Icons.star_outline_rounded,
+                  size: 20,
+                  color: i < review.stars
+                      ? Colors.amber.shade600
+                      : Colors.grey.shade400,
+                ),
+              ),
+            ),
+            if (review.comment.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                review.comment,
+                style: const TextStyle(fontSize: 13, height: 1.4),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// Shown when the current user's review was removed by an admin.
 /// No further submission is allowed for this project.

@@ -228,15 +228,19 @@ class _PaymentStatusScreenState extends State<PaymentStatusScreen> {
                   fontSize: 15, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           ..._payouts.map(
-              (p) => _PayoutCard(payout: p, isClient: isClient)),
+              (p) => _PayoutCard(payout: p, isClient: isClient,
+                  projectId: widget.project.id)),
         ] else
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Center(
                 child: Text(
-                  'No payouts yet.\n'
-                  'Payouts are created as milestones are approved.',
+                  widget.project.isSingleDelivery
+                      ? 'No payouts yet.\n'
+                        'A payout is created when the client approves the delivery.'
+                      : 'No payouts yet.\n'
+                        'Payouts are created as milestones are approved.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.grey.shade500),
                 ),
@@ -290,9 +294,10 @@ class _AmountRow extends StatelessWidget {
 
 class _PayoutCard extends StatelessWidget {
   const _PayoutCard(
-      {required this.payout, required this.isClient});
+      {required this.payout, required this.isClient, this.projectId});
   final PayoutRecord payout;
   final bool isClient;
+  final String? projectId;
 
   @override
   Widget build(BuildContext context) {
@@ -311,7 +316,9 @@ class _PayoutCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Milestone Payout',
+                    payout.milestoneId == projectId
+                        ? 'Full Delivery Payout'
+                        : 'Milestone Payout',
                     style: const TextStyle(
                         fontWeight: FontWeight.bold),
                   ),
