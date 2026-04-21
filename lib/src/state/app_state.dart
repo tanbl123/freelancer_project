@@ -3315,6 +3315,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Called by the [StreamBuilder] in [JobApplicationsBody] to keep the
+  /// in-memory cache in sync so badge counts and other listeners stay accurate.
+  void syncApplications(List<ApplicationItem> fresh) {
+    if (fresh == _applications) return;
+    _applications = fresh;
+    notifyListeners();
+  }
+
   // ── Portfolio ──────────────────────────────────────────────────────────────
 
   /// Loads portfolio items for [freelancerId] into [_portfolioItems].

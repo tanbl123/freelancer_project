@@ -39,18 +39,8 @@ class _JobApplicationsBodyState extends State<JobApplicationsBody> {
   @override
   void initState() {
     super.initState();
-    AppState.instance.addListener(_onStateChanged);
+    // Seed in-memory cache so the stream's initialData is up to date.
     AppState.instance.reloadApplications();
-  }
-
-  @override
-  void dispose() {
-    AppState.instance.removeListener(_onStateChanged);
-    super.dispose();
-  }
-
-  void _onStateChanged() {
-    if (mounted) setState(() {});
   }
 
   /// Only PENDING applications need user action (Edit / Withdraw available).
@@ -61,139 +51,155 @@ class _JobApplicationsBodyState extends State<JobApplicationsBody> {
   Widget build(BuildContext context) {
     final user = AppState.instance.currentUser;
     final isFreelancer = user?.role == UserRole.freelancer;
-    final allApps = AppState.instance.userApplications;
 
-    // Active = pending only (user can still act on these)
-    final activeApps =
-        allApps.where((a) => _isPending(a.status)).toList();
+    return StreamBuilder<List<ApplicationItem>>(
+      stream: AppState.instance.applicationsStream,
+      initialData: AppState.instance.userApplications,
+      builder: (context, snapshot) {
+        // Keep AppState in sync so badge counts and other listeners stay accurate.
+        if (snapshot.hasData) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            AppState.instance.syncApplications(snapshot.data!);
+          });
+        }
+        final allApps = snapshot.data ?? AppState.instance.userApplications;
 
-    // Closed = accepted, converted, rejected, withdrawn
-    final closedApps =
-        allApps.where((a) => !_isPending(a.status)).toList();
+        // Active = pending only (user can still act on these)
+        final activeApps =
+            allApps.where((a) => _isPending(a.status)).toList();
 
-    // Apply status sub-filter inside Closed tab
-    final shownClosed = _closedFilter == null
-        ? closedApps
-        : closedApps.where((a) => a.status == _closedFilter).toList();
+        // Closed = accepted, converted, rejected, withdrawn
+        final closedApps =
+            allApps.where((a) => !_isPending(a.status)).toList();
 
-    final shown = _showActive ? activeApps : shownClosed;
+        // Apply status sub-filter inside Closed tab
+        final shownClosed = _closedFilter == null
+            ? closedApps
+            : closedApps.where((a) => a.status == _closedFilter).toList();
 
-    return RefreshIndicator(
-      onRefresh: () => AppState.instance.reloadApplications(),
-      child: Column(
-        children: [
-          // ── Active / Closed toggle ────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _TabButton(
-                    label: 'Active',
-                    count: activeApps.length,
-                    selected: _showActive,
-                    onTap: () => setState(() => _showActive = true),
-                  ),
+        final shown = _showActive ? activeApps : shownClosed;
+
+        return RefreshIndicator(
+          onRefresh: () => AppState.instance.reloadApplications(),
+          child: Column(
+            children: [
+              // ── Active / Closed toggle ──────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _TabButton(
+                        label: 'Active',
+                        count: activeApps.length,
+                        selected: _showActive,
+                        onTap: () => setState(() => _showActive = true),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _TabButton(
+                        label: 'Closed',
+                        count: closedApps.length,
+                        selected: !_showActive,
+                        onTap: () => setState(() {
+                          _showActive = false;
+                          _closedFilter = null; // reset sub-filter on tab switch
+                        }),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _TabButton(
-                    label: 'Closed',
-                    count: closedApps.length,
-                    selected: !_showActive,
-                    onTap: () => setState(() {
-                      _showActive = false;
-                      _closedFilter = null; // reset sub-filter on tab switch
-                    }),
+              ),
+
+              // ── Status sub-filter (Closed tab only) ───────────────────
+              if (!_showActive && closedApps.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 34,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    children: [
+                      _StatusFilterChip(
+                        label: 'All',
+                        selected: _closedFilter == null,
+                        onTap: () => setState(() => _closedFilter = null),
+                      ),
+                      _StatusFilterChip(
+                        label: 'Accepted',
+                        selected:
+                            _closedFilter == ApplicationStatus.accepted,
+                        color: Colors.green,
+                        onTap: () => setState(
+                            () => _closedFilter = ApplicationStatus.accepted),
+                      ),
+                      _StatusFilterChip(
+                        label: 'Rejected',
+                        selected:
+                            _closedFilter == ApplicationStatus.rejected,
+                        color: Colors.red,
+                        onTap: () => setState(
+                            () => _closedFilter = ApplicationStatus.rejected),
+                      ),
+                      _StatusFilterChip(
+                        label: 'Withdrawn',
+                        selected:
+                            _closedFilter == ApplicationStatus.withdrawn,
+                        color: Colors.grey,
+                        onTap: () => setState(() =>
+                            _closedFilter = ApplicationStatus.withdrawn),
+                      ),
+                    ],
                   ),
                 ),
               ],
-            ),
-          ),
 
-          // ── Status sub-filter (Closed tab only) ───────────────────────────
-          if (!_showActive && closedApps.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 34,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  _StatusFilterChip(
-                    label: 'All',
-                    selected: _closedFilter == null,
-                    onTap: () => setState(() => _closedFilter = null),
-                  ),
-                  _StatusFilterChip(
-                    label: 'Accepted',
-                    selected: _closedFilter == ApplicationStatus.accepted,
-                    color: Colors.green,
-                    onTap: () => setState(
-                        () => _closedFilter = ApplicationStatus.accepted),
-                  ),
-                  _StatusFilterChip(
-                    label: 'Rejected',
-                    selected: _closedFilter == ApplicationStatus.rejected,
-                    color: Colors.red,
-                    onTap: () => setState(
-                        () => _closedFilter = ApplicationStatus.rejected),
-                  ),
-                  _StatusFilterChip(
-                    label: 'Withdrawn',
-                    selected: _closedFilter == ApplicationStatus.withdrawn,
-                    color: Colors.grey,
-                    onTap: () => setState(
-                        () => _closedFilter = ApplicationStatus.withdrawn),
-                  ),
-                ],
+              const SizedBox(height: 8),
+
+              // ── List ────────────────────────────────────────────────────
+              Expanded(
+                child: shown.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _showActive
+                                  ? Icons.description_outlined
+                                  : Icons.inventory_2_outlined,
+                              size: 64,
+                              color: Colors.grey,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _showActive
+                                  ? (isFreelancer
+                                      ? 'No pending applications.\nBrowse Jobs to find opportunities.'
+                                      : 'No pending applications on your jobs yet.')
+                                  : (_closedFilter != null
+                                      ? 'No ${_closedFilter!.name} applications.'
+                                      : 'No closed applications yet.'),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                        itemCount: shown.length,
+                        itemBuilder: (context, index) => _ApplicationCard(
+                          item: shown[index],
+                          currentUser: user,
+                        ),
+                      ),
               ),
-            ),
-          ],
-
-          const SizedBox(height: 8),
-
-          // ── List ─────────────────────────────────────────────────────────
-          Expanded(
-            child: shown.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _showActive
-                              ? Icons.description_outlined
-                              : Icons.inventory_2_outlined,
-                          size: 64,
-                          color: Colors.grey,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _showActive
-                              ? (isFreelancer
-                                  ? 'No pending applications.\nBrowse Jobs to find opportunities.'
-                                  : 'No pending applications on your jobs yet.')
-                              : (_closedFilter != null
-                                  ? 'No ${_closedFilter!.name} applications.'
-                                  : 'No closed applications yet.'),
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                    itemCount: shown.length,
-                    itemBuilder: (context, index) => _ApplicationCard(
-                      item: shown[index],
-                      currentUser: user,
-                    ),
-                  ),
+            ],
           ),
-        ],
-      ),
-    );
+        ); // RefreshIndicator
+      },
+    ); // StreamBuilder
   }
 }
 
