@@ -864,7 +864,7 @@ class SupabaseService {
         .select('id')
         .eq('service_id', serviceId);
     final orderIds = (orderRows as List)
-        .map((r) => r['id'] as String)
+        .map((r) => (r as Map<String, dynamic>)['id'] as String)
         .toList();
     if (orderIds.isEmpty) return [];
 
@@ -874,7 +874,7 @@ class SupabaseService {
         .select('id')
         .inFilter('service_order_id', orderIds);
     final projectIds = (projectRows as List)
-        .map((r) => r['id'] as String)
+        .map((r) => (r as Map<String, dynamic>)['id'] as String)
         .toList();
     if (projectIds.isEmpty) return [];
 
@@ -886,7 +886,9 @@ class SupabaseService {
         .eq('reviewee_id', freelancerId)
         .eq('status', 'published')
         .order('created_at', ascending: false);
-    return (reviewRows as List).map(ReviewItem.fromMap).toList();
+    return (reviewRows as List)
+        .map((r) => ReviewItem.fromMap(r as Map<String, dynamic>))
+        .toList();
   }
 
   /// All reviews (any status) authored by [userId].
@@ -1025,7 +1027,7 @@ class SupabaseService {
 
     if (projectRows.isNotEmpty) {
       final projectIds =
-          (projectRows as List).map((r) => r['id'] as String).toList();
+          (projectRows as List).map((r) => (r as Map<String, dynamic>)['id'] as String).toList();
 
       final milestoneRows = await _client
           .from('milestones')
