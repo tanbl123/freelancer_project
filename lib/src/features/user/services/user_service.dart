@@ -275,6 +275,7 @@ class UserService {
   Future<ProfileUser> ensureGoogleProfile(User authUser) async {
     var profile = await _db.getUserById(authUser.id);
     if (profile == null) {
+      // First-ever Google sign-in — create a fresh active profile.
       profile = ProfileUser(
         uid: authUser.id,
         displayName: authUser.userMetadata?['full_name'] as String? ??
@@ -290,6 +291,23 @@ class UserService {
         updatedAt: DateTime.now(),
       );
       await _db.insertUser(profile);
+    } else if (profile.accountStatus == AccountStatus.pendingVerification) {
+      // The handle_new_user DB trigger creates a skeleton profile with
+      // pendingVerification for every new auth user — including Google OAuth.
+      // Since Google already verified the email we can safely promote it to
+      // active and fill in any metadata the trigger skeleton left blank.
+      profile = profile.copyWith(
+        accountStatus: AccountStatus.active,
+        displayName: (authUser.userMetadata?['full_name'] as String?)
+                ?.isNotEmpty == true
+            ? authUser.userMetadata!['full_name'] as String
+            : profile.displayName,
+        photoUrl: (authUser.userMetadata?['avatar_url'] as String?)
+                ?.isNotEmpty == true
+            ? authUser.userMetadata!['avatar_url'] as String
+            : profile.photoUrl,
+      );
+      await _db.updateUser(profile);
     }
     return profile;
   }
