@@ -358,8 +358,6 @@ class _RequestCardState extends State<_RequestCard> {
                                 req: req,
                                 requester: requester,
                                 showActions: widget.showActions,
-                                onApprove: _approve,
-                                onReject: _reject,
                               ),
                             ),
                           ),
@@ -433,273 +431,355 @@ class _StatChip extends StatelessWidget {
 
 // ── Full application detail page ──────────────────────────────────────────────
 
-class _ApplicationDetailPage extends StatelessWidget {
+class _ApplicationDetailPage extends StatefulWidget {
   const _ApplicationDetailPage({
     required this.req,
     required this.requester,
     required this.showActions,
-    required this.onApprove,
-    required this.onReject,
   });
 
   final FreelancerRequest req;
   final ProfileUser? requester;
   final bool showActions;
-  final VoidCallback onApprove;
-  final VoidCallback onReject;
+
+  @override
+  State<_ApplicationDetailPage> createState() => _ApplicationDetailPageState();
+}
+
+class _ApplicationDetailPageState extends State<_ApplicationDetailPage> {
+  bool _loading = false;
+
+  // ── Approve ──────────────────────────────────────────────────────────────────
+  Future<void> _approve() async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Approve Request'),
+            content: const Text(
+                "Approve this freelancer request? The user's role will change to Freelancer."),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel')),
+              FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Confirm')),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+
+    setState(() => _loading = true);
+    final error =
+        await AppState.instance.approveFreelancerRequest(widget.req.id);
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Request approved. User is now a Freelancer.')));
+      Navigator.pop(context);
+    }
+  }
+
+  // ── Reject ───────────────────────────────────────────────────────────────────
+  Future<void> _reject() async {
+    final ctrl = TextEditingController();
+    final note = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rejection Reason'),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          autofocus: true,
+          decoration: const InputDecoration(
+              hintText: 'Provide a reason for the applicant',
+              border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (ctrl.text.trim().isNotEmpty) {
+                Navigator.pop(ctx, ctrl.text.trim());
+              }
+            },
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+    if (note == null || !mounted) return;
+
+    setState(() => _loading = true);
+    final error =
+        await AppState.instance.rejectFreelancerRequest(widget.req.id, note);
+    if (!mounted) return;
+    setState(() => _loading = false);
+
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Request rejected.')));
+      Navigator.pop(context);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final r = requester;
+    final req = widget.req;
+    final r = widget.requester;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Freelancer Application')),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Applicant header ─────────────────────────────────────────
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 32,
-                        backgroundColor: Theme.of(context)
-                            .colorScheme
-                            .primaryContainer,
-                        backgroundImage: r?.photoUrl != null &&
-                                File(r!.photoUrl!).existsSync()
-                            ? FileImage(File(r.photoUrl!))
-                            : null,
-                        child: r?.photoUrl == null ||
-                                !(r?.photoUrl != null &&
-                                    File(r!.photoUrl!).existsSync())
-                            ? Text(
-                                (r?.displayName ?? '?')[0].toUpperCase(),
-                                style: const TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold),
-                              )
-                            : null,
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Applicant header ───────────────────────────────────
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
                           children: [
-                            Text(r?.displayName ?? 'Unknown',
-                                style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.bold)),
-                            Text(r?.email ?? req.requesterId,
-                                style: const TextStyle(
-                                    color: Colors.grey, fontSize: 13)),
-                            if (r?.phone.isNotEmpty == true)
-                              Text(r!.phone,
-                                  style: const TextStyle(
-                                      color: Colors.grey, fontSize: 13)),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Submitted: ${_fmt(req.createdAt)}',
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.grey),
+                            CircleAvatar(
+                              radius: 32,
+                              backgroundColor: Theme.of(context)
+                                  .colorScheme
+                                  .primaryContainer,
+                              backgroundImage: r?.photoUrl != null &&
+                                      File(r!.photoUrl!).existsSync()
+                                  ? FileImage(File(r.photoUrl!))
+                                  : null,
+                              child: r?.photoUrl == null ||
+                                      !(r?.photoUrl != null &&
+                                          File(r!.photoUrl!).existsSync())
+                                  ? Text(
+                                      (r?.displayName ?? '?')[0].toUpperCase(),
+                                      style: const TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.bold),
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(r?.displayName ?? 'Unknown',
+                                      style: const TextStyle(
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.bold)),
+                                  Text(r?.email ?? req.requesterId,
+                                      style: const TextStyle(
+                                          color: Colors.grey, fontSize: 13)),
+                                  if (r?.phone.isNotEmpty == true)
+                                    Text(r!.phone,
+                                        style: const TextStyle(
+                                            color: Colors.grey, fontSize: 13)),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Submitted: ${_fmt(req.createdAt)}',
+                                    style: const TextStyle(
+                                        fontSize: 12, color: Colors.grey),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
+                    ),
+                    const SizedBox(height: 12),
 
-              // ── About / Bio ──────────────────────────────────────────────
-              _Section(
-                title: 'About',
-                icon: Icons.info_outline,
-                child: Text(
-                  r?.bio?.isNotEmpty == true
-                      ? r!.bio!
-                      : 'Not provided.',
-                  style: TextStyle(
-                    height: 1.5,
-                    color: r?.bio?.isNotEmpty == true
-                        ? null
-                        : Colors.grey,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // ── Skills & Expertise ───────────────────────────────────────
-              _Section(
-                title: 'Skills & Expertise',
-                icon: Icons.build_outlined,
-                child: r != null && r.skillsWithLevel.isNotEmpty
-                    ? Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: r.skillsWithLevel
-                            .map((s) => Chip(
-                                  label: Text('${s.skill} · ${s.level}'),
-                                  visualDensity: VisualDensity.compact,
-                                ))
-                            .toList(),
-                      )
-                    : const Text('No skills listed.',
-                        style: TextStyle(color: Colors.grey)),
-              ),
-              const SizedBox(height: 12),
-
-              // ── Work Experience ──────────────────────────────────────────
-              _Section(
-                title: 'Work Experience',
-                icon: Icons.work_outline,
-                child: r != null && r.workExperiences.isNotEmpty
-                    ? Column(
-                        children: r.workExperiences
-                            .map((w) => _WorkTile(w))
-                            .toList(),
-                      )
-                    : const Text('No work experience listed.',
-                        style: TextStyle(color: Colors.grey)),
-              ),
-              const SizedBox(height: 12),
-
-              // ── Education ────────────────────────────────────────────────
-              _Section(
-                title: 'Education',
-                icon: Icons.school_outlined,
-                child: r != null && r.educations.isNotEmpty
-                    ? Column(
-                        children: r.educations
-                            .map((e) => _EduTile(e))
-                            .toList(),
-                      )
-                    : const Text('No education listed.',
-                        style: TextStyle(color: Colors.grey)),
-              ),
-              const SizedBox(height: 12),
-
-              // ── Certifications ───────────────────────────────────────────
-              _Section(
-                title: 'Certifications',
-                icon: Icons.verified_outlined,
-                child: r != null && r.certifications.isNotEmpty
-                    ? Column(
-                        children: r.certifications
-                            .map((c) => _CertTile(c))
-                            .toList(),
-                      )
-                    : const Text('No certifications listed.',
-                        style: TextStyle(color: Colors.grey)),
-              ),
-              const SizedBox(height: 12),
-
-              // ── Resume ───────────────────────────────────────────────────
-              _Section(
-                title: 'Resume / CV',
-                icon: Icons.picture_as_pdf,
-                child: _ResumeRow(resumeUrl: r?.resumeUrl),
-              ),
-              const SizedBox(height: 12),
-
-              // ── Portfolio Description ────────────────────────────────────
-              _Section(
-                title: 'Portfolio',
-                icon: Icons.collections_bookmark_outlined,
-                child: Text(
-                  r?.portfolioDescription?.isNotEmpty == true
-                      ? r!.portfolioDescription!
-                      : 'Not provided.',
-                  style: TextStyle(
-                    height: 1.5,
-                    color: r?.portfolioDescription?.isNotEmpty == true
-                        ? null
-                        : Colors.grey,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // ── Why Become a Freelancer (Motivation) ─────────────────────
-              _Section(
-                title: 'Why Become a Freelancer?',
-                icon: Icons.lightbulb_outline,
-                child: Text(
-                  req.requestMessage?.isNotEmpty == true
-                      ? req.requestMessage!
-                      : 'Not provided.',
-                  style: TextStyle(
-                    height: 1.5,
-                    color: req.requestMessage?.isNotEmpty == true
-                        ? null
-                        : Colors.grey,
-                  ),
-                ),
-              ),
-
-              // ── Admin note (if rejected) ──────────────────────────────────
-              if (req.adminNote != null) ...[
-                const SizedBox(height: 12),
-                _Section(
-                  title: 'Admin Note',
-                  icon: Icons.admin_panel_settings_outlined,
-                  child: Text(
-                    req.adminNote!,
-                    style: const TextStyle(
-                        fontStyle: FontStyle.italic, height: 1.4),
-                  ),
-                ),
-              ],
-
-              // ── Action buttons ────────────────────────────────────────────
-              if (showActions) ...[
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.close),
-                        label: const Text('Reject'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 14),
+                    // ── About / Bio ────────────────────────────────────────
+                    _Section(
+                      title: 'About',
+                      icon: Icons.info_outline,
+                      child: Text(
+                        r?.bio?.isNotEmpty == true ? r!.bio! : 'Not provided.',
+                        style: TextStyle(
+                          height: 1.5,
+                          color:
+                              r?.bio?.isNotEmpty == true ? null : Colors.grey,
                         ),
-                        onPressed: () {
-                          onReject();
-                          Navigator.pop(context);
-                        },
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton.icon(
-                        icon: const Icon(Icons.check),
-                        label: const Text('Approve'),
-                        style: FilledButton.styleFrom(
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 14)),
-                        onPressed: () {
-                          onApprove();
-                          Navigator.pop(context);
-                        },
+                    const SizedBox(height: 12),
+
+                    // ── Skills & Expertise ─────────────────────────────────
+                    _Section(
+                      title: 'Skills & Expertise',
+                      icon: Icons.build_outlined,
+                      child: r != null && r.skillsWithLevel.isNotEmpty
+                          ? Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: r.skillsWithLevel
+                                  .map((s) => Chip(
+                                        label: Text('${s.skill} · ${s.level}'),
+                                        visualDensity: VisualDensity.compact,
+                                      ))
+                                  .toList(),
+                            )
+                          : const Text('No skills listed.',
+                              style: TextStyle(color: Colors.grey)),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ── Work Experience ────────────────────────────────────
+                    _Section(
+                      title: 'Work Experience',
+                      icon: Icons.work_outline,
+                      child: r != null && r.workExperiences.isNotEmpty
+                          ? Column(
+                              children: r.workExperiences
+                                  .map((w) => _WorkTile(w))
+                                  .toList(),
+                            )
+                          : const Text('No work experience listed.',
+                              style: TextStyle(color: Colors.grey)),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ── Education ──────────────────────────────────────────
+                    _Section(
+                      title: 'Education',
+                      icon: Icons.school_outlined,
+                      child: r != null && r.educations.isNotEmpty
+                          ? Column(
+                              children: r.educations
+                                  .map((e) => _EduTile(e))
+                                  .toList(),
+                            )
+                          : const Text('No education listed.',
+                              style: TextStyle(color: Colors.grey)),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ── Certifications ─────────────────────────────────────
+                    _Section(
+                      title: 'Certifications',
+                      icon: Icons.verified_outlined,
+                      child: r != null && r.certifications.isNotEmpty
+                          ? Column(
+                              children: r.certifications
+                                  .map((c) => _CertTile(c))
+                                  .toList(),
+                            )
+                          : const Text('No certifications listed.',
+                              style: TextStyle(color: Colors.grey)),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ── Resume ─────────────────────────────────────────────
+                    _Section(
+                      title: 'Resume / CV',
+                      icon: Icons.picture_as_pdf,
+                      child: _ResumeRow(resumeUrl: r?.resumeUrl),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ── Portfolio Description ──────────────────────────────
+                    _Section(
+                      title: 'Portfolio',
+                      icon: Icons.collections_bookmark_outlined,
+                      child: Text(
+                        r?.portfolioDescription?.isNotEmpty == true
+                            ? r!.portfolioDescription!
+                            : 'Not provided.',
+                        style: TextStyle(
+                          height: 1.5,
+                          color: r?.portfolioDescription?.isNotEmpty == true
+                              ? null
+                              : Colors.grey,
+                        ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+
+                    // ── Why Become a Freelancer ────────────────────────────
+                    _Section(
+                      title: 'Why Become a Freelancer?',
+                      icon: Icons.lightbulb_outline,
+                      child: Text(
+                        req.requestMessage?.isNotEmpty == true
+                            ? req.requestMessage!
+                            : 'Not provided.',
+                        style: TextStyle(
+                          height: 1.5,
+                          color: req.requestMessage?.isNotEmpty == true
+                              ? null
+                              : Colors.grey,
+                        ),
+                      ),
+                    ),
+
+                    // ── Admin note (if rejected) ───────────────────────────
+                    if (req.adminNote != null) ...[
+                      const SizedBox(height: 12),
+                      _Section(
+                        title: 'Admin Note',
+                        icon: Icons.admin_panel_settings_outlined,
+                        child: Text(
+                          req.adminNote!,
+                          style: const TextStyle(
+                              fontStyle: FontStyle.italic, height: 1.4),
+                        ),
+                      ),
+                    ],
+
+                    // ── Action buttons ─────────────────────────────────────
+                    if (widget.showActions) ...[
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.close),
+                              label: const Text('Reject'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 14),
+                              ),
+                              onPressed: _reject,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              icon: const Icon(Icons.check),
+                              label: const Text('Approve'),
+                              style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 14)),
+                              onPressed: _approve,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    const SizedBox(height: 24),
                   ],
                 ),
-              ],
-
-              const SizedBox(height: 24),
-            ],
-          ),
-        ),
-      ),
+              ),
+            ),
     );
   }
 
