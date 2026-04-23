@@ -274,6 +274,8 @@ class _AppealList extends StatelessWidget {
   }
 }
 
+/// Summary card — entire surface tappable for full details.
+/// Open appeals also show Reject / Approve buttons directly on the card.
 class _AppealCard extends StatefulWidget {
   const _AppealCard({required this.appeal, required this.showActions});
   final Appeal appeal;
@@ -287,8 +289,8 @@ class _AppealCardState extends State<_AppealCard> {
   bool _loading = false;
 
   Future<void> _approve() async {
-    final response = await _promptText(
-        'Approve Appeal', 'Write a response for the user:');
+    final response =
+        await _promptText('Approve Appeal', 'Write a response for the user:');
     if (response == null) return;
     setState(() => _loading = true);
     final error = await AppState.instance.resolveAppeal(
@@ -303,8 +305,8 @@ class _AppealCardState extends State<_AppealCard> {
   }
 
   Future<void> _reject() async {
-    final response = await _promptText(
-        'Reject Appeal', 'Write a reason for rejection:');
+    final response =
+        await _promptText('Reject Appeal', 'Write a reason for rejection:');
     if (response == null) return;
     setState(() => _loading = true);
     final error = await AppState.instance.resolveAppeal(
@@ -366,28 +368,31 @@ class _AppealCardState extends State<_AppealCard> {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Header: user info + status + date ──────────────────
-                  Row(
-                    children: [
-                      const Icon(Icons.person_outline, size: 16),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => Navigator.pushNamed(
-                            context,
-                            AppRoutes.adminUserDetail,
-                            arguments: {
-                              'userId': appeal.appellantId,
-                              'showActions': true,
-                            },
-                          ),
+      clipBehavior: Clip.hardEdge,
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => _AppealDetailPage(
+              appeal: appeal,
+              appellant: appellant,
+              showActions: widget.showActions,
+            ),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Header: user info + status badge ─────────────────
+                    Row(
+                      children: [
+                        const Icon(Icons.person_outline, size: 16),
+                        const SizedBox(width: 6),
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -397,97 +402,386 @@ class _AppealCardState extends State<_AppealCard> {
                                       fontSize: 13)),
                               Text(email,
                                   style: const TextStyle(
-                                      color: Colors.blue,
-                                      fontSize: 12,
-                                      decoration: TextDecoration.underline)),
+                                      color: Colors.grey, fontSize: 12)),
                             ],
                           ),
                         ),
-                      ),
-                      // Status badge
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: statusColor.withValues(alpha: 0.4)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: statusColor.withValues(alpha: 0.4)),
+                          ),
+                          child: Text(appeal.status.displayName,
+                              style: TextStyle(
+                                  color: statusColor,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold)),
                         ),
-                        child: Text(appeal.status.displayName,
-                            style: TextStyle(
-                                color: statusColor,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Submitted: ${_fmt(appeal.createdAt)}',
+                      style:
+                          const TextStyle(color: Colors.grey, fontSize: 11),
+                    ),
+
+                    // ── Reason preview ────────────────────────────────────
+                    const SizedBox(height: 8),
+                    Text(
+                      appeal.reason,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(height: 1.4, fontSize: 13),
+                    ),
+
+                    // ── Approve / Reject (open appeals) ───────────────────
+                    if (widget.showActions) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.close, size: 16),
+                            label: const Text('Reject'),
+                            style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red),
+                            onPressed: _reject,
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            icon: const Icon(Icons.check, size: 16),
+                            label: const Text('Approve'),
+                            onPressed: _approve,
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      // Resolved: subtle "tap to view" hint
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text('Tap to view details',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500)),
+                          Icon(Icons.chevron_right,
+                              size: 14, color: Colors.grey.shade400),
+                        ],
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Submitted: ${_fmt(appeal.createdAt)}',
-                    style: const TextStyle(color: Colors.grey, fontSize: 11),
-                  ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
 
-                  // ── Reason preview ─────────────────────────────────────
-                  const SizedBox(height: 8),
-                  Text(
-                    appeal.reason,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(height: 1.4, fontSize: 13),
-                  ),
+  String _fmt(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
+      '${dt.day.toString().padLeft(2, '0')}';
+}
 
-                  // ── Admin response (resolved) ──────────────────────────
-                  if (appeal.adminResponse != null) ...[
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
+// ── Full appeal detail page ───────────────────────────────────────────────────
+
+class _AppealDetailPage extends StatefulWidget {
+  const _AppealDetailPage({
+    required this.appeal,
+    required this.appellant,
+    required this.showActions,
+  });
+  final Appeal appeal;
+  final ProfileUser? appellant;
+  final bool showActions;
+
+  @override
+  State<_AppealDetailPage> createState() => _AppealDetailPageState();
+}
+
+class _AppealDetailPageState extends State<_AppealDetailPage> {
+  bool _loading = false;
+
+  Future<void> _approve() async {
+    final response =
+        await _promptText('Approve Appeal', 'Write a response for the user:');
+    if (response == null) return;
+    setState(() => _loading = true);
+    final error = await AppState.instance.resolveAppeal(
+      widget.appeal.id,
+      AppealStatus.approved,
+      widget.appeal.appellantId,
+      response,
+    );
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Appeal approved. Account reactivated.')));
+      Navigator.pop(context);
+    }
+  }
+
+  Future<void> _reject() async {
+    final response =
+        await _promptText('Reject Appeal', 'Write a reason for rejection:');
+    if (response == null) return;
+    setState(() => _loading = true);
+    final error = await AppState.instance.resolveAppeal(
+      widget.appeal.id,
+      AppealStatus.rejected,
+      widget.appeal.appellantId,
+      response,
+    );
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Appeal rejected.')));
+      Navigator.pop(context);
+    }
+  }
+
+  Future<String?> _promptText(String title, String hint) async {
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 4,
+          autofocus: true,
+          decoration: InputDecoration(
+              hintText: hint, border: const OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (ctrl.text.trim().isNotEmpty) {
+                Navigator.pop(ctx, ctrl.text.trim());
+              }
+            },
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appeal = widget.appeal;
+    final r = widget.appellant;
+    final statusColor = appeal.status.color;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Appeal Details')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Appellant info card ──────────────────────────────────
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
                       child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.admin_panel_settings_outlined,
-                              size: 14, color: Colors.grey),
-                          const SizedBox(width: 6),
-                          Expanded(
+                          CircleAvatar(
+                            radius: 26,
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primaryContainer,
                             child: Text(
-                              'Admin response: ${appeal.adminResponse}',
+                              (r?.displayName ?? '?')[0].toUpperCase(),
                               style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                  fontStyle: FontStyle.italic),
+                                  fontSize: 20, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(r?.displayName ?? 'Unknown User',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15)),
+                                Text(r?.email ?? appeal.appellantId,
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 13)),
+                                const SizedBox(height: 4),
+                                Row(children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          statusColor.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                          color: statusColor
+                                              .withValues(alpha: 0.4)),
+                                    ),
+                                    child: Text(appeal.status.displayName,
+                                        style: TextStyle(
+                                            color: statusColor,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold)),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Submitted: ${_fmt(appeal.createdAt)}',
+                                    style: const TextStyle(
+                                        fontSize: 11, color: Colors.grey),
+                                  ),
+                                ]),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ── Appeal reason ────────────────────────────────────────
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            Icon(Icons.gavel,
+                                size: 16,
+                                color:
+                                    Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 6),
+                            Text('Appeal Reason',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary)),
+                          ]),
+                          const SizedBox(height: 10),
+                          Text(appeal.reason,
+                              style: const TextStyle(
+                                  height: 1.5, fontSize: 14)),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // ── Admin response (resolved appeals) ────────────────────
+                  if (appeal.adminResponse != null) ...[
+                    const SizedBox(height: 12),
+                    Card(
+                      color: appeal.status == AppealStatus.approved
+                          ? Colors.green.shade50
+                          : Colors.red.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [
+                              Icon(
+                                appeal.status == AppealStatus.approved
+                                    ? Icons.check_circle_outline
+                                    : Icons.cancel_outlined,
+                                size: 16,
+                                color: appeal.status == AppealStatus.approved
+                                    ? Colors.green.shade700
+                                    : Colors.red.shade700,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Admin Response',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    color: appeal.status ==
+                                            AppealStatus.approved
+                                        ? Colors.green.shade700
+                                        : Colors.red.shade700),
+                              ),
+                            ]),
+                            const SizedBox(height: 8),
+                            Text(appeal.adminResponse!,
+                                style: const TextStyle(
+                                    height: 1.5, fontSize: 14)),
+                            if (appeal.reviewedAt != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                'Reviewed on ${_fmt(appeal.reviewedAt!)}',
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.grey),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
 
-                  // ── Action buttons (open appeals only) ─────────────────
+                  // ── Action buttons (open appeals only) ───────────────────
                   if (widget.showActions) ...[
-                    const SizedBox(height: 10),
-                    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.close, size: 16),
-                        label: const Text('Reject'),
-                        style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.red),
-                        onPressed: _reject,
+                    const SizedBox(height: 24),
+                    Row(children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.close),
+                          label: const Text('Reject'),
+                          style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red,
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 14)),
+                          onPressed: _reject,
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      FilledButton.icon(
-                        icon: const Icon(Icons.check, size: 16),
-                        label: const Text('Approve'),
-                        onPressed: _approve,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton.icon(
+                          icon: const Icon(Icons.check),
+                          label: const Text('Approve'),
+                          style: FilledButton.styleFrom(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 14)),
+                          onPressed: _approve,
+                        ),
                       ),
                     ]),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Approving will immediately restore the user\'s account.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey.shade500),
+                    ),
                   ],
+                  const SizedBox(height: 24),
                 ],
               ),
-      ),
+            ),
     );
   }
 
