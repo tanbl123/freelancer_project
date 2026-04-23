@@ -21,7 +21,7 @@ class FreelancerServiceService {
       return actor.role == UserRole.client
           ? 'Only freelancers can list services. '
               'Submit a freelancer upgrade request first.'
-          : 'Your account must be active to create services.';
+          : actor.accountStatus.blockedActionMessage;
     }
     final err = validateService(service);
     if (err != null) return err;
@@ -70,7 +70,7 @@ class FreelancerServiceService {
       return 'You can only activate your own services.';
     }
     if (!AccessGuard.canCreateService(actor)) {
-      return 'Your account does not have permission to list services.';
+      return actor.accountStatus.blockedActionMessage;
     }
     try {
       await _repo.updateStatus(serviceId, ServiceStatus.active);

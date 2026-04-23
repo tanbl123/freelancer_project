@@ -18,6 +18,21 @@ enum AccountStatus {
   /// Whether the user may create posts or apply for jobs.
   bool get canPost => this == AccountStatus.active;
 
+  /// Human-readable reason shown in a snackbar when a blocked action is
+  /// attempted.  Guides restricted/deactivated users to the appeal flow.
+  String get blockedActionMessage {
+    switch (this) {
+      case AccountStatus.restricted:
+        return 'Your account is restricted. Go to your profile and submit '
+            'an appeal to restore full access.';
+      case AccountStatus.deactivated:
+        return 'Your account has been deactivated. Please submit an appeal '
+            'via your profile to request reinstatement.';
+      default:
+        return 'Your account is not active.';
+    }
+  }
+
   /// Display label shown in UI badges.
   String get displayName {
     switch (this) {

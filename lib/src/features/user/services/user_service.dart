@@ -100,7 +100,7 @@ class UserService {
   ) async {
     if (!AccessGuard.canRequestFreelancerUpgrade(user)) {
       if (user.accountStatus != AccountStatus.active) {
-        return 'Your account must be active to submit a request.';
+        return user.accountStatus.blockedActionMessage;
       }
       return 'Only clients can request to become a freelancer.';
     }

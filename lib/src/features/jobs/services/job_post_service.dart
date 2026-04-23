@@ -18,7 +18,7 @@ class JobPostService {
   Future<String?> createPost(ProfileUser actor, JobPost post) async {
     if (!AccessGuard.canPostJob(actor)) {
       return actor.accountStatus != AccountStatus.active
-          ? 'Your account must be active to post a job.'
+          ? actor.accountStatus.blockedActionMessage
           : 'Only clients and freelancers can post jobs.';
     }
     final err = validatePost(post);

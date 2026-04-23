@@ -1,5 +1,6 @@
 import '../../../backend/shared/domain_types.dart';
 import '../../../features/profile/models/profile_user.dart';
+import '../../../shared/enums/account_status.dart';
 import '../../../shared/guards/access_guard.dart';
 import '../models/service_order.dart';
 import '../repositories/service_order_repository.dart';
@@ -23,7 +24,9 @@ class ServiceOrderService {
 
   Future<String?> submitOrder(ProfileUser actor, ServiceOrder order) async {
     if (!AccessGuard.canOrderService(actor)) {
-      return 'Only active clients can place service orders.';
+      return actor.accountStatus != AccountStatus.active
+          ? actor.accountStatus.blockedActionMessage
+          : 'Only clients can place service orders.';
     }
     if (actor.uid == order.freelancerId) {
       return 'You cannot order your own service.';
