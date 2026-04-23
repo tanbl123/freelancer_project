@@ -47,7 +47,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
   // ── Timeline state ──────────────────────────────────────────────────────
   _TimelineType _timelineType = _TimelineType.specificDate;
   DateTime? _specificDate;       // used when timelineType == specificDate
-  int _durationValue = 1;        // used when timelineType == duration
+  final _durationAmountController = TextEditingController(text: '1');
   String _durationUnit = 'Weeks';
   DateTime? _postingDeadline;    // posting close date, used when timelineType == duration
   String? _timelineError;        // inline validation error for the timeline section
@@ -61,7 +61,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
   late List<String> _origSkills;
   late _TimelineType _origTimelineType;
   late DateTime? _origSpecificDate;
-  late int _origDurationValue;
+  late String _origDurationValue;
   late String _origDurationUnit;
   late DateTime? _origPostingDeadline;
 
@@ -74,7 +74,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
       !_listEq(_skills, _origSkills) ||
       _timelineType != _origTimelineType ||
       _specificDate != _origSpecificDate ||
-      _durationValue != _origDurationValue ||
+      _durationAmountController.text.trim() != _origDurationValue ||
       _durationUnit != _origDurationUnit ||
       _postingDeadline != _origPostingDeadline;
 
@@ -105,8 +105,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
         final parts = p.projectDuration!.split(' ');
         if (parts.length == 2) {
           _durationUnit = _durationUnits.contains(parts[1]) ? parts[1] : 'Weeks';
-          final parsed = int.tryParse(parts[0]) ?? 1;
-          _durationValue = parsed.clamp(1, _maxForUnit(_durationUnit));
+          _durationAmountController.text = parts[0];
         }
         _postingDeadline = p.deadline;
       } else if (p.deadline != null) {
@@ -123,7 +122,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
     _origSkills        = List.from(_skills);
     _origTimelineType  = _timelineType;
     _origSpecificDate  = _specificDate;
-    _origDurationValue = _durationValue;
+    _origDurationValue = _durationAmountController.text.trim();
     _origDurationUnit  = _durationUnit;
     _origPostingDeadline = _postingDeadline;
   }
@@ -134,6 +133,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
     _descController.dispose();
     _budgetController.dispose();
     _skillInput.dispose();
+    _durationAmountController.dispose();
     super.dispose();
   }
 
@@ -220,9 +220,13 @@ class _JobFormScreenState extends State<JobFormScreen> {
     String? timelineErr;
     if (_timelineType == _TimelineType.specificDate && _specificDate == null) {
       timelineErr = 'Please select a completion date.';
-    } else if (_timelineType == _TimelineType.duration &&
-        _postingDeadline == null) {
-      timelineErr = 'Please set a closing date for this posting.';
+    } else if (_timelineType == _TimelineType.duration) {
+      final amount = int.tryParse(_durationAmountController.text.trim());
+      if (amount == null || amount <= 0) {
+        timelineErr = 'Enter a valid duration (e.g. 2).';
+      } else if (_postingDeadline == null) {
+        timelineErr = 'Please set a closing date for this posting.';
+      }
     }
     setState(() => _timelineError = timelineErr);
 
@@ -245,7 +249,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
       deadline = _specificDate;
       projectDuration = null;
     } else {
-      projectDuration = '$_durationValue $_durationUnit';
+      projectDuration = '${_durationAmountController.text.trim()} $_durationUnit';
       deadline = _postingDeadline;
     }
 
@@ -443,17 +447,15 @@ class _JobFormScreenState extends State<JobFormScreen> {
               _TimelineSection(
                 type: _timelineType,
                 specificDate: _specificDate,
-                durationValue: _durationValue,
+                durationAmountController: _durationAmountController,
                 durationUnit: _durationUnit,
                 postingDeadline: _postingDeadline,
                 error: _timelineError,
                 onTypeChanged: (t) =>
                     setState(() { _timelineType = t; _timelineError = null; }),
                 onPickSpecificDate: _pickSpecificDate,
-                onDurationValueChanged: (v) =>
-                    setState(() => _durationValue = v),
                 onDurationUnitChanged: (u) =>
-                    setState(() { _durationUnit = u; _durationValue = 1; }),
+                    setState(() { _durationUnit = u; }),
                 onPickPostingDeadline: _pickPostingDeadline,
                 onClearPostingDeadline: () =>
                     setState(() => _postingDeadline = null),
@@ -488,23 +490,17 @@ class _JobFormScreenState extends State<JobFormScreen> {
   }
 }
 
-// ── Timeline helpers ───────────────────────────────────────────────────────
-
-/// Maximum selectable value for a given duration unit.
-int _maxForUnit(String unit) => 7;
-
 // ── Timeline section widget ────────────────────────────────────────────────
 
 class _TimelineSection extends StatelessWidget {
   const _TimelineSection({
     required this.type,
     required this.specificDate,
-    required this.durationValue,
+    required this.durationAmountController,
     required this.durationUnit,
     required this.postingDeadline,
     required this.onTypeChanged,
     required this.onPickSpecificDate,
-    required this.onDurationValueChanged,
     required this.onDurationUnitChanged,
     required this.onPickPostingDeadline,
     required this.onClearPostingDeadline,
@@ -514,13 +510,12 @@ class _TimelineSection extends StatelessWidget {
 
   final _TimelineType type;
   final DateTime? specificDate;
-  final int durationValue;
+  final TextEditingController durationAmountController;
   final String durationUnit;
   final DateTime? postingDeadline;
   final String? error;
   final ValueChanged<_TimelineType> onTypeChanged;
   final VoidCallback onPickSpecificDate;
-  final ValueChanged<int> onDurationValueChanged;
   final ValueChanged<String> onDurationUnitChanged;
   final VoidCallback onPickPostingDeadline;
   final VoidCallback onClearPostingDeadline;
@@ -530,10 +525,6 @@ class _TimelineSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final hasError = error != null;
-    // Guard: clamp durationValue into [1, max] in case an old saved post
-    // had a value larger than the current limit (e.g. "52 Weeks").
-    final maxItems = _maxForUnit(durationUnit);
-    final safeValue = durationValue.clamp(1, maxItems);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -638,31 +629,34 @@ class _TimelineSection extends StatelessWidget {
                   children: [
                     // Duration number + unit picker
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Number dropdown — range depends on selected unit
+                        // Free-text number input
                         Expanded(
-                          child: DropdownButtonFormField<int>(
-                            value: safeValue,
+                          flex: 2,
+                          child: TextFormField(
+                            controller: durationAmountController,
                             decoration: const InputDecoration(
                               labelText: 'Amount',
                               border: OutlineInputBorder(),
                               isDense: true,
                             ),
-                            items: List.generate(
-                              maxItems,
-                              (i) => DropdownMenuItem(
-                                value: i + 1,
-                                child: Text('${i + 1}'),
-                              ),
-                            ),
-                            onChanged: (v) {
-                              if (v != null) onDurationValueChanged(v);
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            validator: (v) {
+                              if (type != _TimelineType.duration) return null;
+                              final n = int.tryParse(v?.trim() ?? '');
+                              if (n == null || n <= 0) return 'Enter a number';
+                              return null;
                             },
                           ),
                         ),
                         const SizedBox(width: 12),
                         // Unit dropdown
                         Expanded(
+                          flex: 2,
                           child: DropdownButtonFormField<String>(
                             value: durationUnit,
                             decoration: const InputDecoration(

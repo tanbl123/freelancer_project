@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../backend/shared/domain_types.dart';
@@ -43,9 +44,40 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
       text: widget.existing?.message ?? '');
   late final _budgetController = TextEditingController(
       text: widget.existing?.proposedBudget?.toStringAsFixed(0) ?? '');
-  late final _daysController = TextEditingController(
-      text: widget.existing?.timelineDays?.toString() ?? '');
+  // Timeline: amount text field + unit dropdown (Days / Weeks / Months).
+  late final _timelineAmountController = TextEditingController(
+      text: _daysToAmount(widget.existing?.timelineDays));
+  String _timelineUnit = _daysToUnit(widget.existing?.timelineDays);
   bool _isLoading = false;
+
+  /// Converts stored days back to a display amount.
+  /// e.g. 14 days → '2' (Weeks), 60 days → '2' (Months), 5 days → '5' (Days).
+  static String _daysToAmount(int? days) {
+    if (days == null) return '';
+    if (days % 30 == 0) return (days ~/ 30).toString();
+    if (days % 7 == 0) return (days ~/ 7).toString();
+    return days.toString();
+  }
+
+  static String _daysToUnit(int? days) {
+    if (days == null) return 'Days';
+    if (days % 30 == 0) return 'Months';
+    if (days % 7 == 0) return 'Weeks';
+    return 'Days';
+  }
+
+  /// Converts the amount + unit selection back to total days for storage.
+  int? _computeDays() {
+    final raw = _timelineAmountController.text.trim();
+    if (raw.isEmpty) return null;
+    final n = int.tryParse(raw);
+    if (n == null || n <= 0) return null;
+    return switch (_timelineUnit) {
+      'Weeks'  => n * 7,
+      'Months' => n * 30,
+      _        => n,
+    };
+  }
 
   // ── Unsaved-changes detection ─────────────────────────────────────────────
   bool get _hasChanges {
@@ -54,19 +86,20 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
       return _messageController.text.trim() != orig.message.trim() ||
           _budgetController.text.trim() !=
               (orig.proposedBudget?.toStringAsFixed(0) ?? '') ||
-          _daysController.text.trim() !=
-              (orig.timelineDays?.toString() ?? '');
+          _timelineAmountController.text.trim() !=
+              _daysToAmount(orig.timelineDays) ||
+          _timelineUnit != _daysToUnit(orig.timelineDays);
     }
     return _messageController.text.trim().isNotEmpty ||
         _budgetController.text.trim().isNotEmpty ||
-        _daysController.text.trim().isNotEmpty;
+        _timelineAmountController.text.trim().isNotEmpty;
   }
 
   @override
   void dispose() {
     _messageController.dispose();
     _budgetController.dispose();
-    _daysController.dispose();
+    _timelineAmountController.dispose();
     super.dispose();
   }
 
@@ -78,9 +111,7 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
     final budget = _budgetController.text.trim().isEmpty
         ? null
         : double.tryParse(_budgetController.text.trim());
-    final days = _daysController.text.trim().isEmpty
-        ? null
-        : int.tryParse(_daysController.text.trim());
+    final days = _computeDays();
 
     String? error;
 
@@ -257,22 +288,60 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
                 ),
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
+                // Only digits and a single dot allowed
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
                 validator: ServiceOrderService.validateBudget,
               ),
               const SizedBox(height: 16),
 
-              // ── Timeline (optional) ────────────────────────────────────
-              TextFormField(
-                controller: _daysController,
-                decoration: const InputDecoration(
-                  labelText: 'Your Expected Timeline (days) — optional',
-                  border: OutlineInputBorder(),
-                  suffixText: 'days',
-                  helperText: 'Leave blank to use the service\'s listed '
-                      'delivery time.',
-                ),
-                keyboardType: TextInputType.number,
-                validator: ServiceOrderService.validateTimeline,
+              // ── Timeline (optional) — number + unit dropdown ───────────
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: TextFormField(
+                      controller: _timelineAmountController,
+                      decoration: const InputDecoration(
+                        labelText: 'Expected Timeline — optional',
+                        border: OutlineInputBorder(),
+                        helperText: 'Leave blank to use the listed delivery time.',
+                        helperMaxLines: 2,
+                      ),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return null;
+                        final n = int.tryParse(v.trim());
+                        if (n == null || n <= 0) return 'Enter a valid number';
+                        return null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: DropdownButtonFormField<String>(
+                      value: _timelineUnit,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 16),
+                      ),
+                      items: ['Days', 'Weeks', 'Months']
+                          .map((u) => DropdownMenuItem(
+                                value: u,
+                                child: Text(u),
+                              ))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setState(() => _timelineUnit = v);
+                      },
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 28),
 

@@ -255,10 +255,13 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
   }
 
   // ── Month/year picker ──────────────────────────────────────────────────────
-  Future<DateTime?> _pickMonthYear(DateTime? initial) {
+  Future<DateTime?> _pickMonthYear(DateTime? initial, {DateTime? lastDate}) {
     return showDialog<DateTime>(
       context: context,
-      builder: (_) => _MonthYearPickerDialog(initialDate: initial),
+      builder: (_) => _MonthYearPickerDialog(
+        initialDate: initial,
+        lastDate: lastDate,
+      ),
     );
   }
 
@@ -1009,10 +1012,13 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
             controlAffinity: ListTileControlAffinity.leading,
           ),
 
-          // Start Date picker
+          // Start Date picker — cannot be in the future
           GestureDetector(
             onTap: () async {
-              final picked = await _pickMonthYear(_workStartDate);
+              final picked = await _pickMonthYear(
+                _workStartDate,
+                lastDate: DateTime.now(),
+              );
               if (picked != null) {
                 setState(() {
                   _workStartDate = picked;
@@ -1044,12 +1050,15 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
             ),
           ),
 
-          // End Date picker (hidden when currently working)
+          // End Date picker (hidden when currently working) — cannot be in the future
           if (!_workCurrently) ...[
             const SizedBox(height: 8),
             GestureDetector(
               onTap: () async {
-                final picked = await _pickMonthYear(_workEndDate);
+                final picked = await _pickMonthYear(
+                  _workEndDate,
+                  lastDate: DateTime.now(),
+                );
                 if (picked != null) {
                   setState(() {
                     _workEndDate = picked;
@@ -1128,6 +1137,28 @@ class _FreelancerRequestScreenState extends State<FreelancerRequestScreen> {
                   if (!_workCurrently && _workEndDate == null) {
                     setState(() => _workEndError = 'End date is required');
                     hasError = true;
+                  }
+                  // Start date must not be in the future
+                  final now = DateTime.now();
+                  final currentMonth = DateTime(now.year, now.month);
+                  if (_workStartDate != null) {
+                    final startMonth = DateTime(
+                        _workStartDate!.year, _workStartDate!.month);
+                    if (startMonth.isAfter(currentMonth)) {
+                      setState(() => _workStartError =
+                          'Start date cannot be in the future');
+                      hasError = true;
+                    }
+                  }
+                  // End date must not be in the future
+                  if (!_workCurrently && _workEndDate != null) {
+                    final endMonth = DateTime(
+                        _workEndDate!.year, _workEndDate!.month);
+                    if (endMonth.isAfter(currentMonth)) {
+                      setState(() => _workEndError =
+                          'End date cannot be in the future');
+                      hasError = true;
+                    }
                   }
                   // End date must be after start date
                   if (!_workCurrently &&
@@ -1626,8 +1657,10 @@ class _InlineError extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _MonthYearPickerDialog extends StatefulWidget {
-  const _MonthYearPickerDialog({this.initialDate});
+  const _MonthYearPickerDialog({this.initialDate, this.lastDate});
   final DateTime? initialDate;
+  /// When set, the user cannot pick any month/year after this date.
+  final DateTime? lastDate;
 
   @override
   State<_MonthYearPickerDialog> createState() =>
@@ -1647,29 +1680,43 @@ class _MonthYearPickerDialogState extends State<_MonthYearPickerDialog> {
   @override
   void initState() {
     super.initState();
-    final d = widget.initialDate ?? DateTime.now();
+    // Clamp initial date to lastDate if needed
+    DateTime d = widget.initialDate ?? DateTime.now();
+    if (widget.lastDate != null) {
+      final last = widget.lastDate!;
+      if (d.year > last.year ||
+          (d.year == last.year && d.month > last.month)) {
+        d = DateTime(last.year, last.month);
+      }
+    }
     _year = d.year;
     _month = d.month;
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentYear = DateTime.now().year;
-    final years = List.generate(currentYear - 1969, (i) => currentYear - i);
+    final last = widget.lastDate ?? DateTime(DateTime.now().year + 50);
+    final maxYear = last.year;
+    // Build year list from maxYear down to 1970
+    final years = List.generate(maxYear - 1969, (i) => maxYear - i);
+    // When the selected year equals the cap year, limit months
+    final maxMonth = _year == last.year ? last.month : 12;
+    // Clamp current month selection if year was changed to cap year
+    final safeMonth = _month.clamp(1, maxMonth);
 
     return AlertDialog(
       title: const Text('Select Month & Year'),
       contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
       content: Row(
         children: [
-          // Month dropdown
+          // Month dropdown — limited to maxMonth when on the cap year
           Expanded(
             flex: 3,
             child: DropdownButton<int>(
-              value: _month,
+              value: safeMonth,
               isExpanded: true,
               items: List.generate(
-                12,
+                maxMonth,
                 (i) => DropdownMenuItem(
                   value: i + 1,
                   child: Text(_monthNames[i]),
@@ -1679,7 +1726,7 @@ class _MonthYearPickerDialogState extends State<_MonthYearPickerDialog> {
             ),
           ),
           const SizedBox(width: 12),
-          // Year dropdown
+          // Year dropdown — capped at maxYear
           Expanded(
             flex: 2,
             child: DropdownButton<int>(
@@ -1691,7 +1738,16 @@ class _MonthYearPickerDialogState extends State<_MonthYearPickerDialog> {
                         child: Text('$y'),
                       ))
                   .toList(),
-              onChanged: (v) => setState(() => _year = v!),
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() {
+                  _year = v;
+                  // If switching to cap year, clamp month
+                  if (widget.lastDate != null && v == widget.lastDate!.year) {
+                    _month = _month.clamp(1, widget.lastDate!.month);
+                  }
+                });
+              },
             ),
           ),
         ],
@@ -1703,7 +1759,7 @@ class _MonthYearPickerDialogState extends State<_MonthYearPickerDialog> {
         ),
         FilledButton(
           onPressed: () =>
-              Navigator.pop(context, DateTime(_year, _month)),
+              Navigator.pop(context, DateTime(_year, safeMonth)),
           child: const Text('Select'),
         ),
       ],
