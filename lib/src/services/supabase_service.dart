@@ -724,6 +724,15 @@ class SupabaseService {
     }).eq('id', projectId);
   }
 
+  /// Freelancer withdraws their single-delivery submission — clears the URL
+  /// so they can re-submit without any rejection note.
+  Future<void> withdrawSingleDeliverySubmission(String projectId) async {
+    await _client.from('projects').update({
+      'single_deliverable_url': null,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', projectId);
+  }
+
   /// Legacy string-based update kept for any remaining call sites.
   Future<void> updateProjectStatus(String projectId, String status) async {
     await _client.from('projects').update({
@@ -791,6 +800,15 @@ class SupabaseService {
     await _client.from('milestones').update({
       'status': MilestoneStatus.rejected.name,
       'rejection_note': reason,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  /// Freelancer withdraws a submitted deliverable — resets back to inProgress.
+  Future<void> withdrawMilestoneSubmission(String id) async {
+    await _client.from('milestones').update({
+      'status': MilestoneStatus.inProgress.name,
+      'deliverable_url': null,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('id', id);
   }

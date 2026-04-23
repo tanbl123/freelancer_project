@@ -68,17 +68,16 @@ class _RegisterPageState extends State<RegisterPage> {
 
   String? _validatePhone(String? v) {
     if (v == null || v.trim().isEmpty) return 'Phone number is required.';
-    var digits = v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
-    if (digits.startsWith('+60')) {
-      digits = '0${digits.substring(3)}';
-    } else if (digits.startsWith('60') && digits.length >= 10) {
-      digits = '0${digits.substring(2)}';
-    }
-    final isMobile = RegExp(r'^01[0-9]\d{7,8}$').hasMatch(digits);
-    final isLandline = RegExp(r'^0[2-9]\d{6,8}$').hasMatch(digits);
-    if (!isMobile && !isLandline) {
-      return 'Enter a valid Malaysian phone number\n'
-          'Mobile: 01X-XXXXXXX(X) · Landline: 0X-XXXXXXXX';
+    // Strip spaces, dashes, brackets — keep digits and leading +
+    final cleaned = v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
+    // Must be either:
+    //   • International format: + followed by 7–15 digits
+    //   • Local format: digits only, 7–15 characters
+    final isInternational = RegExp(r'^\+\d{7,15}$').hasMatch(cleaned);
+    final isLocal = RegExp(r'^\d{7,15}$').hasMatch(cleaned);
+    if (!isInternational && !isLocal) {
+      return 'Enter a valid phone number (7–15 digits).\n'
+          'e.g. +60123456789 · 0123456789 · +441234567890';
     }
     return null;
   }
@@ -312,8 +311,8 @@ class _RegisterPageState extends State<RegisterPage> {
                   labelText: 'Phone Number *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.phone_outlined),
-                  hintText: 'e.g. 0123456789 or +60123456789',
-                  helperText: 'Malaysian mobile (01X) or landline (03–09)',
+                  hintText: 'e.g. +60123456789 or +441234567890',
+                  helperText: 'Include country code for international numbers',
                 ),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,

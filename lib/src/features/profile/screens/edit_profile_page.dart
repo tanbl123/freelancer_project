@@ -165,34 +165,22 @@ class _EditProfilePageState extends State<EditProfilePage> {
     });
   }
 
-  /// Validates a Malaysian phone number.
+  /// Validates an international phone number.
   ///
-  /// Accepts:
-  ///  - Mobile   : 01X-XXXXXXX(X)  → 10–11 digits  (e.g. 0123456789, 0111234567)
-  ///  - Landline : 0X-XXXXXXX(X)   → 9–10 digits   (e.g. 0312345678)
-  ///  - International prefix +60 or 60 is normalised to a leading 0 before
-  ///    the check, so +60123456789 is also accepted.
+  /// Accepts any number that is 7–15 digits long, with an optional leading +.
+  /// Spaces, dashes and brackets are stripped before checking.
   String? _validatePhone(String? v) {
     if (v == null || v.trim().isEmpty) return 'Phone number is required.';
 
-    // Strip whitespace / formatting characters
-    var digits = v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
+    // Strip spaces, dashes, brackets — keep digits and leading +
+    final cleaned = v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
 
-    // Normalise international prefix → local format
-    if (digits.startsWith('+60')) {
-      digits = '0${digits.substring(3)}';
-    } else if (digits.startsWith('60') && digits.length >= 10) {
-      digits = '0${digits.substring(2)}';
-    }
+    final isInternational = RegExp(r'^\+\d{7,15}$').hasMatch(cleaned);
+    final isLocal = RegExp(r'^\d{7,15}$').hasMatch(cleaned);
 
-    // Malaysian mobile: 010–019, total 10–11 digits
-    final isMobile = RegExp(r'^01[0-9]\d{7,8}$').hasMatch(digits);
-    // Malaysian landline: 02–09, total 9–10 digits
-    final isLandline = RegExp(r'^0[2-9]\d{6,8}$').hasMatch(digits);
-
-    if (!isMobile && !isLandline) {
-      return 'Enter a valid Malaysian phone number\n'
-          'Mobile: 01X-XXXXXXX(X) · Landline: 0X-XXXXXXXX';
+    if (!isInternational && !isLocal) {
+      return 'Enter a valid phone number (7–15 digits).\n'
+          'e.g. +60123456789 · 0123456789 · +441234567890';
     }
     return null;
   }
@@ -377,8 +365,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   labelText: 'Phone Number *',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.phone_outlined),
-                  hintText: 'e.g. 0123456789 or +60123456789',
-                  helperText: 'Malaysian mobile (01X) or landline (03–09)',
+                  hintText: 'e.g. +60123456789 or +441234567890',
+                  helperText: 'Include country code for international numbers',
                 ),
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,

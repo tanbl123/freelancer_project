@@ -42,9 +42,12 @@ class UserValidator {
 
   static String? validatePhone(String? v) {
     if (v == null || v.trim().isEmpty) return null; // optional
-    final digits = v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
-    if (!RegExp(r'^\+?[0-9]{9,15}$').hasMatch(digits)) {
-      return 'Enter a valid phone number (e.g. 0123456789)';
+    final cleaned = v.trim().replaceAll(RegExp(r'[\s\-()]'), '');
+    final isInternational = RegExp(r'^\+\d{7,15}$').hasMatch(cleaned);
+    final isLocal = RegExp(r'^\d{7,15}$').hasMatch(cleaned);
+    if (!isInternational && !isLocal) {
+      return 'Enter a valid phone number (7–15 digits).\n'
+          'e.g. +60123456789 · 0123456789 · +441234567890';
     }
     return null;
   }

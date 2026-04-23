@@ -206,6 +206,90 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     }
   }
 
+  // ── Withdraw submitted deliverable (freelancer only) ──────────────────────
+
+  Future<void> _withdrawMilestoneSubmission(MilestoneItem milestone) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Withdraw Submission?'),
+        content: const Text(
+          'This will remove your submitted deliverable and set the milestone '
+          'back to In Progress. You can re-submit at any time.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Withdraw'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final err =
+        await AppState.instance.withdrawMilestoneSubmission(milestone);
+    if (!mounted) return;
+    await _load();
+    if (err != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(err), backgroundColor: Colors.red),
+      );
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Submission withdrawn.')),
+      );
+    }
+  }
+
+  // ── Withdraw single-delivery submission (freelancer only) ─────────────────
+
+  Future<void> _withdrawSingleDelivery(ProjectItem project) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Withdraw Submission?'),
+        content: const Text(
+          'This will remove your submitted deliverable. '
+          'You can re-submit at any time.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Withdraw'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final err =
+        await AppState.instance.withdrawSingleDeliverySubmission(project);
+    if (!mounted) return;
+    await _load();
+    if (err != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(err), backgroundColor: Colors.red),
+      );
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Submission withdrawn.')),
+      );
+    }
+  }
+
   // ── Reject deliverable ─────────────────────────────────────────────────────
 
   Future<void> _rejectMilestone(MilestoneItem milestone) async {
@@ -446,7 +530,11 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
           children: [
-            _ProjectInfoCard(project: _project!, isClient: isClient),
+            _ProjectInfoCard(
+              project: _project!,
+              isClient: isClient,
+              milestones: _milestones,
+            ),
             const SizedBox(height: 10),
             _BudgetCard(project: _project!, milestones: _milestones),
             const SizedBox(height: 10),
@@ -753,6 +841,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         (m) => _MilestoneCard(
           milestone: m,
           isClient: isClient,
+          isProjectCompleted: false, // project is inProgress here
           onApprove: () => _approveFlow(m),
           onSubmit: () => _submitDeliverable(m),
           onReject: () => _rejectMilestone(m),
@@ -788,6 +877,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             }
             await _load();
           },
+          onWithdrawSubmission: () => _withdrawMilestoneSubmission(m),
         ),
       ),
 
@@ -958,6 +1048,19 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                     color: Colors.blue.shade700),
+              ),
+              const Spacer(),
+              // Freelancer can withdraw while client hasn't acted yet.
+              GestureDetector(
+                onTap: () => _withdrawSingleDelivery(project),
+                child: Tooltip(
+                  message: 'Withdraw submission',
+                  child: Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: Colors.red.shade400,
+                  ),
+                ),
               ),
             ],
           ),
@@ -1290,12 +1393,14 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
           (m) => _MilestoneCard(
             milestone: m,
             isClient: isClient,
+            isProjectCompleted: true, // view-only — no actions allowed
             onApprove: () {},
             onSubmit: () {},
             onReject: () {},
             onRevise: () {},
             onRequestExtension: () {},
             onApproveExtension: () {},
+            onWithdrawSubmission: () {},
           ),
         ),
       ],
@@ -1308,10 +1413,14 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ProjectInfoCard extends StatelessWidget {
-  const _ProjectInfoCard(
-      {required this.project, required this.isClient});
+  const _ProjectInfoCard({
+    required this.project,
+    required this.isClient,
+    required this.milestones,
+  });
   final ProjectItem project;
   final bool isClient;
+  final List<MilestoneItem> milestones;
 
   String _fmt(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}/'
@@ -1374,8 +1483,27 @@ class _ProjectInfoCard extends StatelessWidget {
             if (project.startDate != null)
               _InfoRow(
                   Icons.play_arrow, 'Started', _fmt(project.startDate!)),
-            if (project.endDate != null)
-              _InfoRow(Icons.flag, 'Deadline', _fmt(project.endDate!)),
+            // ── Deadline row ───────────────────────────────────────────
+            // Single delivery → use the project end date directly.
+            // Milestone plan  → use the last milestone's effective deadline
+            //                   (accounts for approved extensions).
+            if (project.isSingleDelivery) ...[
+              if (project.endDate != null)
+                _InfoRow(Icons.flag_outlined, 'Deadline', _fmt(project.endDate!)),
+            ] else ...[
+              if (milestones.isNotEmpty) ...[
+                () {
+                  final last = milestones.reduce((a, b) =>
+                      a.orderIndex > b.orderIndex ? a : b);
+                  return _InfoRow(
+                    Icons.flag_outlined,
+                    'Final Deadline',
+                    _fmt(last.effectiveDeadline),
+                  );
+                }(),
+              ] else if (project.endDate != null)
+                _InfoRow(Icons.flag_outlined, 'Deadline', _fmt(project.endDate!)),
+            ],
             if (project.isSingleDelivery || project.isInProgress || project.isCompleted)
               _InfoRow(Icons.bolt, 'Delivery', project.deliveryMode.displayName),
             if (project.description != null &&
@@ -1772,22 +1900,26 @@ class _MilestoneCard extends StatelessWidget {
   const _MilestoneCard({
     required this.milestone,
     required this.isClient,
+    required this.isProjectCompleted,
     required this.onApprove,
     required this.onSubmit,
     required this.onReject,
     required this.onRevise,
     required this.onRequestExtension,
     required this.onApproveExtension,
+    required this.onWithdrawSubmission,
   });
 
   final MilestoneItem milestone;
   final bool isClient;
+  final bool isProjectCompleted;
   final VoidCallback onApprove;
   final VoidCallback onSubmit;
   final VoidCallback onReject;
   final VoidCallback onRevise;
   final VoidCallback onRequestExtension;
   final VoidCallback onApproveExtension;
+  final VoidCallback onWithdrawSubmission;
 
   Color _statusColor(MilestoneStatus s) => switch (s) {
         MilestoneStatus.completed => Colors.green,
@@ -1968,6 +2100,22 @@ class _MilestoneCard extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                         color: Colors.blue.shade700),
                   ),
+                  const Spacer(),
+                  // Freelancer can withdraw a pending submission before
+                  // the client approves or rejects it.
+                  // Hidden once the project is completed (view-only mode).
+                  if (!isClient && m.isSubmitted && !isProjectCompleted)
+                    GestureDetector(
+                      onTap: onWithdrawSubmission,
+                      child: Tooltip(
+                        message: 'Withdraw submission',
+                        child: Icon(
+                          Icons.delete_outline,
+                          size: 18,
+                          color: Colors.red.shade400,
+                        ),
+                      ),
+                    ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -2024,8 +2172,8 @@ class _MilestoneCard extends StatelessWidget {
               ]),
             ],
 
-            // ── Action buttons ─────────────────────────────────────────
-            if (!m.isCompleted) ...[
+            // ── Action buttons — hidden for completed projects (view-only)
+            if (!m.isCompleted && !isProjectCompleted) ...[
               const Divider(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,

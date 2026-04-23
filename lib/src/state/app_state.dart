@@ -1957,6 +1957,8 @@ class AppState extends ChangeNotifier {
         totalBudget: app.expectedBudget > 0
             ? app.expectedBudget
             : (acceptedJobPost?.budgetMax ?? acceptedJobPost?.budgetMin),
+        // Carry the job post's deadline over as the project end date.
+        endDate: acceptedJobPost?.deadline,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
@@ -2598,6 +2600,43 @@ class AppState extends ChangeNotifier {
     return error;
   }
 
+  /// Freelancer withdraws a submitted deliverable — resets milestone to inProgress.
+  Future<String?> withdrawMilestoneSubmission(MilestoneItem milestone) async {
+    if (_currentUser == null) return 'Not logged in.';
+    try {
+      await _db.withdrawMilestoneSubmission(milestone.id);
+      final idx = _milestones.indexWhere((m) => m.id == milestone.id);
+      if (idx >= 0) {
+        final old = _milestones[idx];
+        _milestones[idx] = MilestoneItem(
+          id: old.id,
+          projectId: old.projectId,
+          title: old.title,
+          description: old.description,
+          deadline: old.deadline,
+          paymentAmount: old.paymentAmount,
+          status: MilestoneStatus.inProgress,
+          percentage: old.percentage,
+          orderIndex: old.orderIndex,
+          deliverableUrl: null,
+          clientSignatureUrl: old.clientSignatureUrl,
+          paymentToken: old.paymentToken,
+          rejectionNote: null,
+          revisionCount: old.revisionCount,
+          extensionDays: old.extensionDays,
+          extensionRequestedAt: old.extensionRequestedAt,
+          extensionApproved: old.extensionApproved,
+          createdAt: old.createdAt,
+          updatedAt: DateTime.now(),
+        );
+      }
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to withdraw submission: $e';
+    }
+  }
+
   /// Client approves a submitted milestone: sign + pay → completed.
   ///
   /// The legacy [paymentToken] parameter is retained for API compatibility.
@@ -3136,6 +3175,24 @@ class AppState extends ChangeNotifier {
       return null;
     } catch (e) {
       return 'Failed to reject delivery: $e';
+    }
+  }
+
+  /// Freelancer withdraws their single-delivery submission — clears the URL
+  /// so they can re-submit. Only allowed before the client acts on it.
+  Future<String?> withdrawSingleDeliverySubmission(ProjectItem project) async {
+    if (_currentUser == null) return 'Not logged in.';
+    if (_currentUser!.uid != project.freelancerId) return 'Access denied.';
+    if (!project.isSingleDeliverySubmitted) {
+      return 'No pending submission to withdraw.';
+    }
+    try {
+      await _db.withdrawSingleDeliverySubmission(project.id);
+      _updateProjectInCache(project.copyWith(singleDeliverableUrl: null));
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return 'Failed to withdraw submission: $e';
     }
   }
 
