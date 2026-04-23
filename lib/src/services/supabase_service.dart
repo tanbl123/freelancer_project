@@ -175,6 +175,15 @@ class SupabaseService {
     return rows.map(ProfileUser.fromMap).toList();
   }
 
+  /// Returns the UIDs of every admin account — used to fan-out appeal notifications.
+  Future<List<String>> getAdminUserIds() async {
+    final rows = await _client
+        .from('profiles')
+        .select('id')
+        .eq('role', 'admin');
+    return rows.map<String>((r) => r['id'] as String).toList();
+  }
+
   Future<void> updateUser(ProfileUser user) async {
     await _client
         .from('profiles')

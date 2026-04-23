@@ -3,6 +3,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../backend/shared/domain_types.dart';
 import '../../../routing/app_router.dart';
+import '../../../shared/enums/appeal_status.dart';
 import '../../../state/app_state.dart';
 import '../../applications/screens/ra_dashboard_screen.dart';
 import '../../disputes/screens/admin/admin_dispute_list_screen.dart';
@@ -50,7 +51,7 @@ class _MainShellState extends State<MainShell>
   // Admin-specific tabs.
   static const _adminTitles = [
     'Manage Users',
-    'Freelancer Requests',
+    'Requests',
     'Manage Reviews',
     'Manage Disputes',
     'My Profile',
@@ -235,28 +236,54 @@ class _MainShellState extends State<MainShell>
               selectedIndex: effectiveIndex,
               onDestinationSelected: (i) =>
                   setState(() => _currentIndex = i),
-              destinations: const [
-                NavigationDestination(
+              destinations: [
+                const NavigationDestination(
                   icon: Icon(Icons.people_alt_outlined),
                   selectedIcon: Icon(Icons.people_alt),
                   label: 'Users',
                 ),
                 NavigationDestination(
-                  icon: Icon(Icons.work_outline),
-                  selectedIcon: Icon(Icons.work),
+                  // Badge shows combined count: pending requests + open appeals
+                  icon: Badge(
+                    isLabelVisible: () {
+                      final pendingReqs = AppState.instance.allFreelancerRequests
+                          .where((r) => r.status.name == 'pending')
+                          .length;
+                      final openAppeals = AppState.instance.allAppeals
+                          .where((a) =>
+                              a.status == AppealStatus.open ||
+                              a.status == AppealStatus.underReview)
+                          .length;
+                      return pendingReqs + openAppeals > 0;
+                    }(),
+                    label: Text(() {
+                      final pendingReqs = AppState.instance.allFreelancerRequests
+                          .where((r) => r.status.name == 'pending')
+                          .length;
+                      final openAppeals = AppState.instance.allAppeals
+                          .where((a) =>
+                              a.status == AppealStatus.open ||
+                              a.status == AppealStatus.underReview)
+                          .length;
+                      final total = pendingReqs + openAppeals;
+                      return total > 99 ? '99+' : '$total';
+                    }()),
+                    child: const Icon(Icons.work_outline),
+                  ),
+                  selectedIcon: const Icon(Icons.work),
                   label: 'Requests',
                 ),
-                NavigationDestination(
+                const NavigationDestination(
                   icon: Icon(Icons.star_outline),
                   selectedIcon: Icon(Icons.star),
                   label: 'Reviews',
                 ),
-                NavigationDestination(
+                const NavigationDestination(
                   icon: Icon(Icons.gavel_outlined),
                   selectedIcon: Icon(Icons.gavel),
                   label: 'Disputes',
                 ),
-                NavigationDestination(
+                const NavigationDestination(
                   icon: Icon(Icons.person_outline),
                   selectedIcon: Icon(Icons.person),
                   label: 'Profile',

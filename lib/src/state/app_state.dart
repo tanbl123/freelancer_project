@@ -458,12 +458,10 @@ class AppState extends ChangeNotifier {
         await _requestRepo.getLatest(_currentUser!.uid);
     _myAppeals = await _appealRepo.getForUser(_currentUser!.uid);
 
-    // Admin: load all requests and appeals
+    // Admin: load all requests and appeals (all statuses so tabs stay current)
     if (_currentUser!.role == UserRole.admin) {
-      _allFreelancerRequests =
-          await _requestRepo.getAll(status: RequestStatus.pending);
-      _allAppeals =
-          await _appealRepo.getAll(status: AppealStatus.open);
+      _allFreelancerRequests = await _requestRepo.getAll();
+      _allAppeals = await _appealRepo.getAll();
     }
 
     // Chat rooms (load for all users)
@@ -1006,6 +1004,19 @@ class AppState extends ChangeNotifier {
         _currentUser!, reason, evidenceUrls);
     if (error == null) {
       _myAppeals = await _appealRepo.getForUser(_currentUser!.uid);
+      // Notify all admins so they see it immediately in their notification bell.
+      try {
+        final adminIds = await _db.getAdminUserIds();
+        for (final adminId in adminIds) {
+          await _notifSvc.send(
+            NotificationService.makeAppealSubmitted(
+              adminId: adminId,
+              appellantName: _currentUser!.displayName,
+              appellantId: _currentUser!.uid,
+            ),
+          );
+        }
+      } catch (_) {}
       notifyListeners();
     }
     return error;
@@ -1029,6 +1040,21 @@ class AppState extends ChangeNotifier {
         final updated = await _db.getUserById(appellantId);
         if (updated != null) _users[idx] = updated;
       }
+      // Notify the appellant of the outcome.
+      try {
+        final isApproved = resolution == AppealStatus.approved;
+        await _notifSvc.send(
+          isApproved
+              ? NotificationService.makeAppealApproved(
+                  appellantId: appellantId,
+                  adminResponse: response,
+                )
+              : NotificationService.makeAppealRejected(
+                  appellantId: appellantId,
+                  adminResponse: response,
+                ),
+        );
+      } catch (_) {}
       notifyListeners();
     }
     return error;
@@ -1054,7 +1080,7 @@ class AppState extends ChangeNotifier {
   Future<void> _reloadAdminData() async {
     _allFreelancerRequests =
         await _requestRepo.getAll(); // fetch all statuses so tabs stay current
-    _allAppeals = await _appealRepo.getAll(status: AppealStatus.open);
+    _allAppeals = await _appealRepo.getAll(); // all statuses so Resolved tab works
     _allOpenDisputes = await _disputeRepo.getAllOpen();
     _reportedReviews = await _reviewSvc.getReported();
     _users = await _db.getAllUsers();

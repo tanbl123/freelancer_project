@@ -45,6 +45,11 @@ enum NotificationType {
   // ── Review ────────────────────────────────────────────────────────────────
   reviewReceived,   // freelancer notified when a client leaves a review
 
+  // ── Appeal lifecycle ──────────────────────────────────────────────────────
+  appealSubmitted,  // restricted/deactivated user submitted an appeal → admins notified
+  appealApproved,   // admin approved the appeal → user notified
+  appealRejected,   // admin rejected the appeal → user notified
+
   // ── Chat ──────────────────────────────────────────────────────────────────
   newChatMessage;   // new message in any chat room
 
@@ -79,6 +84,9 @@ enum NotificationType {
         NotificationType.disputeRaised             => 'Dispute Filed',
         NotificationType.disputeResolved           => 'Dispute Resolved',
         NotificationType.reviewReceived            => 'New Review',
+        NotificationType.appealSubmitted           => 'New Appeal',
+        NotificationType.appealApproved            => 'Appeal Approved',
+        NotificationType.appealRejected            => 'Appeal Rejected',
         NotificationType.newChatMessage            => 'New Message',
       };
 
@@ -107,6 +115,9 @@ enum NotificationType {
         NotificationType.disputeRaised             => Icons.gavel,
         NotificationType.disputeResolved           => Icons.balance,
         NotificationType.reviewReceived            => Icons.star,
+        NotificationType.appealSubmitted           => Icons.gavel,
+        NotificationType.appealApproved            => Icons.check_circle,
+        NotificationType.appealRejected            => Icons.cancel,
         NotificationType.newChatMessage            => Icons.chat_bubble,
       };
 
@@ -135,6 +146,9 @@ enum NotificationType {
         NotificationType.disputeRaised             => Colors.deepOrange,
         NotificationType.disputeResolved           => Colors.indigo,
         NotificationType.reviewReceived            => Colors.amber,
+        NotificationType.appealSubmitted           => Colors.deepOrange,
+        NotificationType.appealApproved            => Colors.green,
+        NotificationType.appealRejected            => Colors.red,
         NotificationType.newChatMessage            => Colors.blue,
       };
 }

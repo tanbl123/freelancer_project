@@ -5,12 +5,16 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../routing/app_router.dart';
+import '../../../../shared/enums/appeal_status.dart';
 import '../../../../shared/enums/request_status.dart';
 import '../../../../state/app_state.dart';
 import '../../../profile/models/profile_user.dart';
+import '../../models/appeal.dart';
 import '../../models/freelancer_request.dart';
 
-/// Admin-only. Lists all freelancer upgrade requests, defaulting to pending.
+/// Admin-only. Two top-level sections:
+///   1. Freelancer Requests — Pending / Approved / Rejected inner tabs
+///   2. Appeals            — Open / Resolved inner tabs
 class AdminFreelancerRequestsScreen extends StatefulWidget {
   const AdminFreelancerRequestsScreen({super.key});
 
@@ -22,13 +26,106 @@ class AdminFreelancerRequestsScreen extends StatefulWidget {
 class _AdminFreelancerRequestsScreenState
     extends State<AdminFreelancerRequestsScreen>
     with SingleTickerProviderStateMixin {
+  late final TabController _outerTabs;
+
+  @override
+  void initState() {
+    super.initState();
+    _outerTabs = TabController(length: 2, vsync: this);
+    AppState.instance.loadAllFreelancerRequests();
+    AppState.instance.loadAllAppeals();
+  }
+
+  @override
+  void dispose() {
+    _outerTabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!AppState.instance.isAdmin) {
+      return const Center(child: Text('Access denied.'));
+    }
+
+    return ListenableBuilder(
+      listenable: AppState.instance,
+      builder: (context, _) {
+        final openAppeals = AppState.instance.allAppeals
+            .where((a) =>
+                a.status == AppealStatus.open ||
+                a.status == AppealStatus.underReview)
+            .length;
+
+        return Column(
+          children: [
+            // ── Outer tab bar: Requests | Appeals ─────────────────────────
+            TabBar(
+              controller: _outerTabs,
+              tabs: [
+                const Tab(text: 'Freelancer Requests'),
+                Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Appeals'),
+                      if (openAppeals > 0) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text('$openAppeals',
+                              style: const TextStyle(
+                                  color: Colors.orange,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                controller: _outerTabs,
+                children: const [
+                  _FreelancerRequestsSection(),
+                  _AppealsSection(),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Section 1 — Freelancer Requests (Pending / Approved / Rejected)
+// ════════════════════════════════════════════════════════════════════════════
+
+class _FreelancerRequestsSection extends StatefulWidget {
+  const _FreelancerRequestsSection();
+
+  @override
+  State<_FreelancerRequestsSection> createState() =>
+      _FreelancerRequestsSectionState();
+}
+
+class _FreelancerRequestsSectionState extends State<_FreelancerRequestsSection>
+    with SingleTickerProviderStateMixin {
   late final TabController _tabs;
 
   @override
   void initState() {
     super.initState();
     _tabs = TabController(length: 3, vsync: this);
-    AppState.instance.loadAllFreelancerRequests();
   }
 
   @override
@@ -39,9 +136,6 @@ class _AdminFreelancerRequestsScreenState
 
   @override
   Widget build(BuildContext context) {
-    if (!AppState.instance.isAdmin) {
-      return const Center(child: Text('Access denied.'));
-    }
     return ListenableBuilder(
       listenable: AppState.instance,
       builder: (context, _) {
@@ -85,6 +179,326 @@ class _AdminFreelancerRequestsScreenState
     );
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Section 2 — Appeals (Open / Resolved)
+// ════════════════════════════════════════════════════════════════════════════
+
+class _AppealsSection extends StatefulWidget {
+  const _AppealsSection();
+
+  @override
+  State<_AppealsSection> createState() => _AppealsSectionState();
+}
+
+class _AppealsSectionState extends State<_AppealsSection>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AppState.instance,
+      builder: (context, _) {
+        final all = AppState.instance.allAppeals;
+
+        final open = all
+            .where((a) =>
+                a.status == AppealStatus.open ||
+                a.status == AppealStatus.underReview)
+            .toList();
+        final resolved = all
+            .where((a) =>
+                a.status == AppealStatus.approved ||
+                a.status == AppealStatus.rejected)
+            .toList();
+
+        return Column(
+          children: [
+            TabBar(
+              controller: _tabs,
+              tabs: [
+                _CountTab('Open', open.length, Colors.orange),
+                _CountTab('Resolved', resolved.length, Colors.grey),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                controller: _tabs,
+                children: [
+                  _AppealList(appeals: open, showActions: true),
+                  _AppealList(appeals: resolved, showActions: false),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Appeals list + card
+// ════════════════════════════════════════════════════════════════════════════
+
+class _AppealList extends StatelessWidget {
+  const _AppealList({required this.appeals, required this.showActions});
+  final List<Appeal> appeals;
+  final bool showActions;
+
+  @override
+  Widget build(BuildContext context) {
+    if (appeals.isEmpty) {
+      return const Center(
+          child: Text('No appeals here.', style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: appeals.length,
+      itemBuilder: (ctx, i) =>
+          _AppealCard(appeal: appeals[i], showActions: showActions),
+    );
+  }
+}
+
+class _AppealCard extends StatefulWidget {
+  const _AppealCard({required this.appeal, required this.showActions});
+  final Appeal appeal;
+  final bool showActions;
+
+  @override
+  State<_AppealCard> createState() => _AppealCardState();
+}
+
+class _AppealCardState extends State<_AppealCard> {
+  bool _loading = false;
+
+  Future<void> _approve() async {
+    final response = await _promptText(
+        'Approve Appeal', 'Write a response for the user:');
+    if (response == null) return;
+    setState(() => _loading = true);
+    final error = await AppState.instance.resolveAppeal(
+      widget.appeal.id,
+      AppealStatus.approved,
+      widget.appeal.appellantId,
+      response,
+    );
+    if (!mounted) return;
+    setState(() => _loading = false);
+    _snack(error, 'Appeal approved. Account reactivated.');
+  }
+
+  Future<void> _reject() async {
+    final response = await _promptText(
+        'Reject Appeal', 'Write a reason for rejection:');
+    if (response == null) return;
+    setState(() => _loading = true);
+    final error = await AppState.instance.resolveAppeal(
+      widget.appeal.id,
+      AppealStatus.rejected,
+      widget.appeal.appellantId,
+      response,
+    );
+    if (!mounted) return;
+    setState(() => _loading = false);
+    _snack(error, 'Appeal rejected.');
+  }
+
+  Future<String?> _promptText(String title, String hint) async {
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 3,
+          autofocus: true,
+          decoration: InputDecoration(
+              hintText: hint, border: const OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (ctrl.text.trim().isNotEmpty) {
+                Navigator.pop(ctx, ctrl.text.trim());
+              }
+            },
+            child: const Text('Submit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _snack(String? error, String success) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(error ?? success)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final appeal = widget.appeal;
+    final appellant = AppState.instance.users
+        .cast<ProfileUser?>()
+        .firstWhere((u) => u?.uid == appeal.appellantId, orElse: () => null);
+    final displayName = appellant?.displayName ?? 'Unknown User';
+    final email = appellant?.email ?? appeal.appellantId;
+    final statusColor = appeal.status.color;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Header: user info + status + date ──────────────────
+                  Row(
+                    children: [
+                      const Icon(Icons.person_outline, size: 16),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => Navigator.pushNamed(
+                            context,
+                            AppRoutes.adminUserDetail,
+                            arguments: {
+                              'userId': appeal.appellantId,
+                              'showActions': true,
+                            },
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(displayName,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13)),
+                              Text(email,
+                                  style: const TextStyle(
+                                      color: Colors.blue,
+                                      fontSize: 12,
+                                      decoration: TextDecoration.underline)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Status badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: statusColor.withValues(alpha: 0.4)),
+                        ),
+                        child: Text(appeal.status.displayName,
+                            style: TextStyle(
+                                color: statusColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Submitted: ${_fmt(appeal.createdAt)}',
+                    style: const TextStyle(color: Colors.grey, fontSize: 11),
+                  ),
+
+                  // ── Reason preview ─────────────────────────────────────
+                  const SizedBox(height: 8),
+                  Text(
+                    appeal.reason,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(height: 1.4, fontSize: 13),
+                  ),
+
+                  // ── Admin response (resolved) ──────────────────────────
+                  if (appeal.adminResponse != null) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.admin_panel_settings_outlined,
+                              size: 14, color: Colors.grey),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Admin response: ${appeal.adminResponse}',
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                  fontStyle: FontStyle.italic),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  // ── Action buttons (open appeals only) ─────────────────
+                  if (widget.showActions) ...[
+                    const SizedBox(height: 10),
+                    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.close, size: 16),
+                        label: const Text('Reject'),
+                        style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red),
+                        onPressed: _reject,
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        icon: const Icon(Icons.check, size: 16),
+                        label: const Text('Approve'),
+                        onPressed: _approve,
+                      ),
+                    ]),
+                  ],
+                ],
+              ),
+      ),
+    );
+  }
+
+  String _fmt(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
+      '${dt.day.toString().padLeft(2, '0')}';
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Freelancer request list + card (unchanged from original)
+// ════════════════════════════════════════════════════════════════════════════
 
 class _CountTab extends Tab {
   _CountTab(String label, int count, Color color)
@@ -829,7 +1243,7 @@ class _Section extends StatelessWidget {
 
 class _WorkTile extends StatelessWidget {
   const _WorkTile(this.w);
-  final dynamic w; // WorkExperience
+  final dynamic w;
 
   @override
   Widget build(BuildContext context) {
@@ -861,8 +1275,7 @@ class _WorkTile extends StatelessWidget {
             ),
           if (w.industry != null)
             Text('Industry: ${w.industry}',
-                style:
-                    const TextStyle(fontSize: 12, color: Colors.grey)),
+                style: const TextStyle(fontSize: 12, color: Colors.grey)),
           if (w.description != null) ...[
             const SizedBox(height: 4),
             Text(w.description!,
@@ -878,7 +1291,7 @@ class _WorkTile extends StatelessWidget {
 
 class _EduTile extends StatelessWidget {
   const _EduTile(this.e);
-  final dynamic e; // EducationItem
+  final dynamic e;
 
   @override
   Widget build(BuildContext context) {
@@ -914,7 +1327,7 @@ class _EduTile extends StatelessWidget {
 
 class _CertTile extends StatelessWidget {
   const _CertTile(this.c);
-  final dynamic c; // CertificationItem
+  final dynamic c;
 
   @override
   Widget build(BuildContext context) {
@@ -952,8 +1365,8 @@ class _ResumeRow extends StatelessWidget {
 
   bool get _hasResume {
     if (resumeUrl == null || resumeUrl!.isEmpty) return false;
-    if (resumeUrl!.startsWith('http')) return true;        // remote URL
-    return File(resumeUrl!).existsSync();                  // local file
+    if (resumeUrl!.startsWith('http')) return true;
+    return File(resumeUrl!).existsSync();
   }
 
   Future<void> _open() async {

@@ -548,6 +548,54 @@ class NotificationService {
         createdAt: DateTime.now(),
       );
 
+  // ── Appeal lifecycle ───────────────────────────────────────────────────────
+
+  /// Sent to EACH admin when a restricted/deactivated user submits an appeal.
+  static InAppNotification makeAppealSubmitted({
+    required String adminId,
+    required String appellantName,
+    required String appellantId,
+  }) =>
+      InAppNotification(
+        id: _uuid.v4(),
+        userId: adminId,
+        title: '📩 New appeal from $appellantName',
+        body: '$appellantName has submitted an account appeal. '
+            'Review their case and approve or reject it.',
+        type: NotificationType.appealSubmitted,
+        createdAt: DateTime.now(),
+      );
+
+  /// Sent to the user when their appeal is approved.
+  static InAppNotification makeAppealApproved({
+    required String appellantId,
+    required String adminResponse,
+  }) =>
+      InAppNotification(
+        id: _uuid.v4(),
+        userId: appellantId,
+        title: '✅ Your appeal has been approved',
+        body: 'Your account has been fully restored. '
+            'Admin note: $adminResponse',
+        type: NotificationType.appealApproved,
+        createdAt: DateTime.now(),
+      );
+
+  /// Sent to the user when their appeal is rejected.
+  static InAppNotification makeAppealRejected({
+    required String appellantId,
+    required String adminResponse,
+  }) =>
+      InAppNotification(
+        id: _uuid.v4(),
+        userId: appellantId,
+        title: '❌ Your appeal was not approved',
+        body: 'Admin decision: $adminResponse. '
+            'You may submit a new appeal if your situation has changed.',
+        type: NotificationType.appealRejected,
+        createdAt: DateTime.now(),
+      );
+
   // ── Chat ───────────────────────────────────────────────────────────────────
 
   static InAppNotification makeNewChatMessage({
