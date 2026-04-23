@@ -47,8 +47,19 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
   // Timeline: amount text field + unit dropdown (Days / Weeks / Months).
   late final _timelineAmountController = TextEditingController(
       text: _daysToAmount(widget.existing?.timelineDays));
-  String _timelineUnit = _daysToUnit(widget.existing?.timelineDays);
+  late String _timelineUnit = _daysToUnit(widget.existing?.timelineDays);
   bool _isLoading = false;
+
+  /// Max allowed amount per unit: Days→365, Weeks→52, Months→12.
+  static int _maxForTimelineUnit(String unit) => switch (unit) {
+    'Weeks'  => 52,
+    'Months' => 12,
+    _        => 365,
+  };
+
+  /// Max digits per unit: Days→3, Weeks/Months→2.
+  static int _maxDigitsForTimelineUnit(String unit) =>
+      unit == 'Days' ? 3 : 2;
 
   /// Converts stored days back to a display amount.
   /// e.g. 14 days → '2' (Weeks), 60 days → '2' (Months), 5 days → '5' (Days).
@@ -311,11 +322,19 @@ class _ServiceOrderFormPageState extends State<ServiceOrderFormPage> {
                         helperMaxLines: 2,
                       ),
                       keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(
+                            _maxDigitsForTimelineUnit(_timelineUnit)),
+                      ],
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) return null;
                         final n = int.tryParse(v.trim());
                         if (n == null || n <= 0) return 'Enter a valid number';
+                        final max = _maxForTimelineUnit(_timelineUnit);
+                        if (n > max) {
+                          return 'Max $max ${_timelineUnit.toLowerCase()}';
+                        }
                         return null;
                       },
                     ),

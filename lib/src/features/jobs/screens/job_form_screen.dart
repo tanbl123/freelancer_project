@@ -455,7 +455,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
                     setState(() { _timelineType = t; _timelineError = null; }),
                 onPickSpecificDate: _pickSpecificDate,
                 onDurationUnitChanged: (u) =>
-                    setState(() { _durationUnit = u; }),
+                    setState(() => _durationUnit = u),
                 onPickPostingDeadline: _pickPostingDeadline,
                 onClearPostingDeadline: () =>
                     setState(() => _postingDeadline = null),
@@ -489,6 +489,19 @@ class _JobFormScreenState extends State<JobFormScreen> {
     ); // PopScope
   }
 }
+
+// ── Timeline helpers ───────────────────────────────────────────────────────
+
+/// Maximum allowed amount for each duration unit.
+/// Days → 365, Weeks → 52, Months → 12.
+int _maxAmountForUnit(String unit) => switch (unit) {
+  'Weeks'  => 52,
+  'Months' => 12,
+  _        => 365, // Days
+};
+
+/// Max digits allowed per unit: Days → 3, Weeks/Months → 2.
+int _maxDigitsForUnit(String unit) => unit == 'Days' ? 3 : 2;
 
 // ── Timeline section widget ────────────────────────────────────────────────
 
@@ -631,7 +644,7 @@ class _TimelineSection extends StatelessWidget {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Free-text number input
+                        // Free-text number input — max 3 digits, unit-capped
                         Expanded(
                           flex: 2,
                           child: TextFormField(
@@ -644,11 +657,17 @@ class _TimelineSection extends StatelessWidget {
                             keyboardType: TextInputType.number,
                             inputFormatters: [
                               FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(
+                                  _maxDigitsForUnit(durationUnit)),
                             ],
                             validator: (v) {
                               if (type != _TimelineType.duration) return null;
                               final n = int.tryParse(v?.trim() ?? '');
                               if (n == null || n <= 0) return 'Enter a number';
+                              final max = _maxAmountForUnit(durationUnit);
+                              if (n > max) {
+                                return 'Max $max ${durationUnit.toLowerCase()}';
+                              }
                               return null;
                             },
                           ),
