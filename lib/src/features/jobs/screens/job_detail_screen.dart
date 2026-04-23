@@ -486,22 +486,58 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
   Widget _buildCoverImage(String url) {
     final isRemote = url.startsWith('http');
     final isLocal = url.isNotEmpty && !isRemote && File(url).existsSync();
-    return ClipRRect(
-      borderRadius: const BorderRadius.only(
-        bottomLeft: Radius.circular(0),
-        bottomRight: Radius.circular(0),
-      ),
-      child: SizedBox(
-        width: double.infinity,
-        height: 200,
-        child: isRemote
-            ? Image.network(url,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink())
-            : isLocal
-                ? Image.file(File(url), fit: BoxFit.cover)
-                : const SizedBox.shrink(),
-      ),
+
+    Widget imageWidget = isRemote
+        ? Image.network(url,
+            width: double.infinity,
+            height: 220,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink())
+        : isLocal
+            ? Image.file(File(url),
+                width: double.infinity, height: 220, fit: BoxFit.cover)
+            : const SizedBox.shrink();
+
+    return Stack(
+      children: [
+        GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              fullscreenDialog: true,
+              builder: (_) => _FullScreenJobImage(url: url),
+            ),
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            height: 220,
+            child: imageWidget,
+          ),
+        ),
+        // ── "Tap to expand" badge ──────────────────────────────────────
+        Positioned(
+          top: 8,
+          left: 8,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black45,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.fullscreen, color: Colors.white, size: 14),
+                SizedBox(width: 4),
+                Text('Tap to expand',
+                    style:
+                        TextStyle(color: Colors.white, fontSize: 11)),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -846,6 +882,48 @@ class _AlreadyAppliedButtonState extends State<_AlreadyAppliedButton> {
       onPressed: _handleApply,
       style: FilledButton.styleFrom(
         padding: const EdgeInsets.symmetric(vertical: 14),
+      ),
+    );
+  }
+}
+
+// ── Full-screen job cover image viewer ────────────────────────────────────────
+
+class _FullScreenJobImage extends StatelessWidget {
+  const _FullScreenJobImage({required this.url});
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final isRemote = url.startsWith('http');
+    final isLocal = url.isNotEmpty && !isRemote && File(url).existsSync();
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 5.0,
+          child: isRemote
+              ? Image.network(
+                  url,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(
+                      Icons.image_not_supported_outlined,
+                      color: Colors.grey,
+                      size: 64),
+                )
+              : isLocal
+                  ? Image.file(File(url), fit: BoxFit.contain)
+                  : const Icon(
+                      Icons.image_not_supported_outlined,
+                      color: Colors.grey,
+                      size: 64),
+        ),
       ),
     );
   }

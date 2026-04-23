@@ -3,7 +3,9 @@ import 'package:intl/intl.dart';
 
 import '../../../backend/shared/domain_types.dart';
 import '../../../state/app_state.dart';
+import '../../services/models/freelancer_service.dart';
 import '../models/service_order.dart';
+import '../../transactions/screens/project_detail_page.dart';
 import 'service_order_form_page.dart';
 
 /// Shows all service orders for the current user.
@@ -602,28 +604,116 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
 
   void _handleAccept() {
     final noteCtrl = TextEditingController();
+    final order = widget.order;
+
+    // Resolve the service from in-memory state so we can show listed
+    // price / delivery days next to the client's proposed values.
+    FreelancerService? svc;
+    for (final s in [
+      ...AppState.instance.myServices,
+      ...AppState.instance.services,
+    ]) {
+      if (s.id == order.serviceId) {
+        svc = s;
+        break;
+      }
+    }
+
+    // ── Price resolution (mirrors acceptServiceOrder logic) ──────────────
+    final double? clientPrice  = order.proposedBudget;
+    final double? listedPrice  = svc?.priceMax ?? svc?.priceMin;
+    final double? effectiveBudget = clientPrice ?? listedPrice;
+
+    // ── Timeline resolution ───────────────────────────────────────────────
+    final int? clientDays     = order.timelineDays;
+    final int? listedDays     = svc?.deliveryDays;
+    final int? effectiveDays  = clientDays ?? listedDays;
+
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Accept Order'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-                'Accept "${widget.order.serviceTitle}" order from '
-                '${widget.order.clientName}?\n\n'
-                'A project will be created automatically.'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: noteCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Note (optional)',
-                border: OutlineInputBorder(),
-                hintText: 'e.g. Looking forward to working with you!',
+        contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Accept "${order.serviceTitle}" from ${order.clientName}?\n'
+                'A project will be created with the details below.',
               ),
-              maxLines: 2,
-            ),
-          ],
+              const SizedBox(height: 14),
+
+              // ── Price & Timeline summary card ─────────────────────────
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Budget row
+                    _AcceptInfoRow(
+                      icon: Icons.payments_outlined,
+                      label: 'Budget',
+                      effectiveValue: effectiveBudget != null
+                          ? 'RM ${effectiveBudget.toStringAsFixed(2)}'
+                          : 'Not set',
+                      sourceLabel: clientPrice != null
+                          ? "Client's proposed price"
+                          : listedPrice != null
+                              ? 'Your listed price'
+                              : null,
+                      isClientOverride: clientPrice != null,
+                      secondaryNote: clientPrice != null && listedPrice != null
+                          ? 'Your listed price: RM ${listedPrice.toStringAsFixed(2)}'
+                          : null,
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Timeline row
+                    _AcceptInfoRow(
+                      icon: Icons.calendar_today_outlined,
+                      label: 'Deadline',
+                      effectiveValue: effectiveDays != null
+                          ? '$effectiveDays day${effectiveDays == 1 ? '' : 's'}'
+                          : 'Not set',
+                      sourceLabel: clientDays != null
+                          ? "Client's requested timeline"
+                          : listedDays != null
+                              ? 'Your listed delivery time'
+                              : null,
+                      isClientOverride: clientDays != null,
+                      secondaryNote:
+                          clientDays != null && listedDays != null
+                              ? 'Your listed delivery: $listedDays day${listedDays == 1 ? '' : 's'}'
+                              : null,
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 14),
+              TextField(
+                controller: noteCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Note to client (optional)',
+                  border: OutlineInputBorder(),
+                  hintText: 'e.g. Looking forward to working with you!',
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -632,11 +722,30 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
           FilledButton(
             onPressed: () async {
               Navigator.pop(context);
-              _doAction(
-                () => AppState.instance
-                    .acceptServiceOrder(widget.order, noteCtrl.text),
-                'Order accepted! Project created.',
+              setState(() => _loading = true);
+              final err = await AppState.instance
+                  .acceptServiceOrder(widget.order, noteCtrl.text);
+              if (!mounted) return;
+              setState(() => _loading = false);
+              if (err != null) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(err)));
+                return;
+              }
+              // Navigate to the newly created project.
+              final project = AppState.instance.projects.firstWhere(
+                (p) => p.serviceOrderId == widget.order.id,
+                orElse: () => AppState.instance.projects.first,
               );
+              if (mounted) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        ProjectDetailPage(projectId: project.id),
+                  ),
+                );
+              }
             },
             child: const Text('Accept'),
           ),
@@ -912,6 +1021,93 @@ class _Detail extends StatelessWidget {
         const SizedBox(width: 3),
         Text(label,
             style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      ],
+    );
+  }
+}
+
+// ── Accept dialog — price / timeline summary row ────────────────────────────
+
+class _AcceptInfoRow extends StatelessWidget {
+  const _AcceptInfoRow({
+    required this.icon,
+    required this.label,
+    required this.effectiveValue,
+    required this.isClientOverride,
+    this.sourceLabel,
+    this.secondaryNote,
+  });
+
+  final IconData icon;
+  final String label;
+
+  /// The value that WILL be used when the project is created.
+  final String effectiveValue;
+
+  /// Where the value came from (e.g. "Client's proposed price").
+  final String? sourceLabel;
+
+  /// True when the client set a custom value (vs. the freelancer's listing).
+  final bool isClientOverride;
+
+  /// Optional second line — shows the freelancer's listed value for comparison.
+  final String? secondaryNote;
+
+  @override
+  Widget build(BuildContext context) {
+    // Orange = client overrode the listed value (needs attention).
+    // Primary = using the freelancer's own listed value (normal).
+    final color = isClientOverride
+        ? Colors.orange.shade800
+        : Theme.of(context).colorScheme.primary;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Row label
+        Row(
+          children: [
+            Icon(icon, size: 14, color: Colors.black54),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ],
+        ),
+        const SizedBox(height: 3),
+
+        // Effective value — large & prominent
+        Text(
+          effectiveValue,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+
+        // Source label (e.g. "↑ Client's proposed price")
+        if (sourceLabel != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            '↑ $sourceLabel',
+            style: TextStyle(
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+              color: color.withValues(alpha: 0.85),
+            ),
+          ),
+        ],
+
+        // Secondary note — shows listed value when client overrode it
+        if (secondaryNote != null) ...[
+          const SizedBox(height: 1),
+          Text(
+            secondaryNote!,
+            style: const TextStyle(fontSize: 11, color: Colors.black45),
+          ),
+        ],
       ],
     );
   }

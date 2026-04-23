@@ -11,6 +11,8 @@ import '../../../services/stripe_service.dart';
 import '../../../services/supabase_storage_service.dart';
 import '../../../state/app_state.dart';
 import '../../disputes/models/dispute_record.dart';
+import '../../profile/models/profile_user.dart';
+import '../../profile/screens/bank_details_sheet.dart';
 import '../../overdue/services/overdue_service.dart';
 import '../../ratings/models/review_item.dart';
 import '../../ratings/screens/review_create_edit_screen.dart';
@@ -546,13 +548,12 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                 project: _project!,
               ),
             // ── Payout banner (freelancer only) ───────────────────────
-            // Only shown when bank account is NOT yet registered —
-            // prompts the freelancer to add their bank details.
-            // Once registered the banner disappears; the platform
-            // handles the transfer without any extra action needed.
-            if (!isClient && !user.hasPayoutAccount)
+            // Always shown for freelancers:
+            //   • No account registered  → amber "Set Up Now" prompt
+            //   • Account registered     → green card with account info + Edit
+            if (!isClient)
               _PayoutSetupBanner(
-                hasAccount: false,
+                user: user,
                 pendingEarningsMyr: pendingEarnings,
               ),
             // ── Overdue warning banner ────────────────────────────────
@@ -2328,135 +2329,105 @@ class _PaymentStatusBanner extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Payout banner — two states:
-//   • hasAccount = false  →  amber "Set Up Now" card (shows pending amount)
-//   • hasAccount = true   →  blue "Claim Earnings" card (retry transfers)
+//   • No bank account  →  amber "Set Up Now" card  → opens BankDetailsSheet
+//   • Account saved    →  green card showing account info + "Edit" button
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _PayoutSetupBanner extends StatefulWidget {
+class _PayoutSetupBanner extends StatelessWidget {
   const _PayoutSetupBanner({
-    required this.hasAccount,
+    required this.user,
     this.pendingEarningsMyr = 0.0,
-    this.onClaim,
   });
 
-  /// True when the freelancer has already connected a Stripe account.
-  final bool hasAccount;
+  /// The current freelancer — used to read/display bank account details.
+  final ProfileUser user;
 
-  /// Net earnings (after 10% fee) sitting on the platform awaiting transfer.
+  /// Net earnings (after platform fee) awaiting bank transfer.
   final double pendingEarningsMyr;
 
-  /// Non-null when [hasAccount] is true and there are pending transfers.
-  /// Calling it retries the Stripe transfers.
-  final Future<void> Function()? onClaim;
-
-  @override
-  State<_PayoutSetupBanner> createState() => _PayoutSetupBannerState();
-}
-
-class _PayoutSetupBannerState extends State<_PayoutSetupBanner> {
-  bool _loading = false;
-
-  // Launches Stripe Connect onboarding in an external browser
-  Future<void> _onSetUpNow() async {
-    setState(() => _loading = true);
-    try {
-      final url = await StripeService.getOnboardingUrl();
-      final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } on StripePaymentException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not open payout setup. Try again.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  // Retries pending Stripe transfers now that the account is connected
-  Future<void> _onClaim() async {
-    setState(() => _loading = true);
-    try {
-      await widget.onClaim!();
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+  /// Masks all but the last 4 digits: "12345678" → "•••• 5678"
+  static String _maskAccount(String number) {
+    final trimmed = number.replaceAll(' ', '');
+    if (trimmed.length <= 4) return trimmed;
+    return '•••• ${trimmed.substring(trimmed.length - 4)}';
   }
 
   @override
   Widget build(BuildContext context) {
-    final amountStr =
-        'RM ${widget.pendingEarningsMyr.toStringAsFixed(2)}';
-    final hasPending = widget.pendingEarningsMyr > 0;
+    final hasAccount = user.hasBankAccount;
+    final amountStr = 'RM ${pendingEarningsMyr.toStringAsFixed(2)}';
+    final hasPending = pendingEarningsMyr > 0;
 
-    // ── Case B: account connected, transfers still pending ──────────────────
-    if (widget.hasAccount && widget.onClaim != null) {
+    // ── Case B: bank account registered ────────────────────────────────────
+    if (hasAccount) {
       return Card(
-        color: Colors.blue.shade50,
+        color: Colors.green.shade50,
         margin: const EdgeInsets.only(bottom: 10),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: Colors.blue.shade200),
+          side: BorderSide(color: Colors.green.shade200),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.account_balance_wallet_outlined,
-                  color: Colors.blue.shade700, size: 22),
+              Icon(Icons.account_balance,
+                  color: Colors.green.shade700, size: 22),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Pending earnings: $amountStr',
+                      'Payout Account Registered ✓',
                       style: TextStyle(
-                        color: Colors.blue.shade800,
+                        color: Colors.green.shade800,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
                       ),
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 4),
+                    // Bank name + masked account number
                     Text(
-                      'Your bank account is registered. Tap below to '
-                      'initiate a bank transfer for your pending earnings.',
+                      '${user.bankName ?? 'Bank'}  '
+                      '${_maskAccount(user.bankAccountNumber ?? '')}',
                       style: TextStyle(
-                          color: Colors.blue.shade700, fontSize: 12),
+                        color: Colors.green.shade700,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
+                    // Holder name
+                    if (user.bankAccountHolder != null)
+                      Text(
+                        user.bankAccountHolder!,
+                        style: TextStyle(
+                            color: Colors.green.shade600, fontSize: 12),
+                      ),
+                    if (hasPending) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '$amountStr will be transferred within 3–5 business days.',
+                        style: TextStyle(
+                            color: Colors.green.shade700, fontSize: 12),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     SizedBox(
                       height: 32,
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.blue.shade700,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.green.shade700,
+                          side: BorderSide(color: Colors.green.shade400),
                           padding:
                               const EdgeInsets.symmetric(horizontal: 14),
                           textStyle: const TextStyle(fontSize: 12),
                         ),
-                        icon: _loading
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white))
-                            : const Icon(Icons.send_outlined, size: 14),
-                        label: const Text('Claim Earnings'),
-                        onPressed: _loading ? null : _onClaim,
+                        icon: const Icon(Icons.edit_outlined, size: 14),
+                        label: const Text('Edit Details'),
+                        onPressed: () =>
+                            BankDetailsSheet.show(context, user),
                       ),
                     ),
                   ],
@@ -2504,7 +2475,7 @@ class _PayoutSetupBannerState extends State<_PayoutSetupBanner> {
                         ? 'Your earnings are safely held on the platform. '
                           'Add your bank account details to receive them.'
                         : 'Add your bank account so earnings can be transferred '
-                          'payments when a milestone is approved.',
+                          'when a milestone is approved.',
                     style: TextStyle(
                         color: Colors.orange.shade700, fontSize: 12),
                   ),
@@ -2518,15 +2489,11 @@ class _PayoutSetupBannerState extends State<_PayoutSetupBanner> {
                             const EdgeInsets.symmetric(horizontal: 14),
                         textStyle: const TextStyle(fontSize: 12),
                       ),
-                      icon: _loading
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.open_in_new, size: 14),
+                      icon: const Icon(Icons.account_balance_outlined,
+                          size: 14),
                       label: const Text('Set Up Now'),
-                      onPressed: _loading ? null : _onSetUpNow,
+                      onPressed: () =>
+                          BankDetailsSheet.show(context, user),
                     ),
                   ),
                 ],

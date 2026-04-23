@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../../backend/shared/domain_types.dart';
+import '../../../routing/app_router.dart';
 import '../../../state/app_state.dart';
+import '../../jobs/models/job_post.dart';
+import '../../jobs/screens/job_detail_screen.dart';
 import '../models/application_item.dart';
 import 'apply_form_page.dart';
 
@@ -333,15 +337,33 @@ class _ApplicationCard extends StatelessWidget {
     }
   }
 
-  /// Look up job title from the new JobPost list; fall back to truncated ID.
-  String _jobTitle() {
-    final posts = AppState.instance.jobPosts;
-    try {
-      return posts.firstWhere((p) => p.id == item.jobId).title;
-    } catch (_) {
-      // Not found — show a short version of the ID
-      return 'Job ${item.jobId.length > 8 ? item.jobId.substring(0, 8) : item.jobId}…';
+  /// Look up the source job post from in-memory state.
+  JobPost? _lookupPost() {
+    for (final p in [
+      ...AppState.instance.jobPosts,
+      ...AppState.instance.myJobPosts,
+    ]) {
+      if (p.id == item.jobId) return p;
     }
+    return null;
+  }
+
+  /// Human-readable job title; falls back to truncated ID if not found.
+  String _jobTitle(JobPost? post) =>
+      post?.title ??
+      'Job ${item.jobId.length > 8 ? item.jobId.substring(0, 8) : item.jobId}…';
+
+  /// Formats the job post's deadline / project duration into one readable string.
+  String _deadlineText(JobPost post) {
+    if (post.deadline != null) {
+      final formatted = DateFormat('d MMM y').format(post.deadline!);
+      final days = post.deadline!.difference(DateTime.now()).inDays;
+      if (days < 0) return '$formatted (Expired)';
+      if (days == 0) return '$formatted (Today)';
+      return '$formatted ($days days left)';
+    }
+    if (post.projectDuration != null) return post.projectDuration!;
+    return 'Not specified';
   }
 
   @override
@@ -352,6 +374,9 @@ class _ApplicationCard extends StatelessWidget {
     final isFreelancerView =
         user?.role == UserRole.freelancer && item.freelancerId == user?.uid;
     final statusColor = _statusColor(item.status);
+
+    // Look up the source job post once for title, budget and deadline.
+    final post = _lookupPost();
 
     // Live name lookup — avoids showing stale denormalised copy after rename.
     final freelancerName =
@@ -365,11 +390,30 @@ class _ApplicationCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.hardEdge,
       child: InkWell(
-        onTap: () => Navigator.pushNamed(
-          context,
-          '/profile/view',
-          arguments: item.freelancerId,
-        ),
+        onTap: () {
+          if (isFreelancerView) {
+            // Freelancer taps → show the job post they applied to.
+            if (post != null) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => JobDetailScreen(post: post),
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Job details are no longer available.')),
+              );
+            }
+          } else {
+            // Client taps → show the applicant's profile.
+            Navigator.pushNamed(
+              context,
+              AppRoutes.userProfile,
+              arguments: item.freelancerId,
+            );
+          }
+        },
         child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -392,7 +436,7 @@ class _ApplicationCard extends StatelessWidget {
                               fontWeight: FontWeight.bold,
                               fontSize: 15)),
                       Text(
-                        _jobTitle(),
+                        _jobTitle(post),
                         style: const TextStyle(
                             color: Colors.grey, fontSize: 12),
                         overflow: TextOverflow.ellipsis,
@@ -425,6 +469,44 @@ class _ApplicationCard extends StatelessWidget {
             // ── Proposal text ──────────────────────────────────────────────
             Text(item.proposalMessage,
                 style: const TextStyle(height: 1.4)),
+
+            // ── Client's job budget & deadline (freelancer view only) ──────
+            if (isFreelancerView && post != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    // Budget
+                    Expanded(
+                      child: _AppInfoChip(
+                        icon: Icons.payments_outlined,
+                        label: 'Budget',
+                        value: post.budgetDisplay ?? 'Not specified',
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Deadline
+                    Expanded(
+                      child: _AppInfoChip(
+                        icon: Icons.calendar_today_outlined,
+                        label: 'Deadline',
+                        value: _deadlineText(post),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             // ── Client actions (accept/reject) ─────────────────────────────
             if (isClientView && item.status == ApplicationStatus.pending) ...[
@@ -554,6 +636,50 @@ class _ApplicationCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Compact budget / deadline chip inside application card ───────────────────
+
+class _AppInfoChip extends StatelessWidget {
+  const _AppInfoChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 13, color: Colors.black54),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 11, color: Colors.black54),
+            ),
+          ],
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 2,
+        ),
+      ],
     );
   }
 }

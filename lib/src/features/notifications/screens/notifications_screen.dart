@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../routing/app_router.dart';
 import '../../../shared/enums/notification_type.dart';
 import '../../../state/app_state.dart';
+import '../../applications/screens/service_orders_page.dart';
 import '../../chat/screens/chat_screen.dart';
 import '../models/in_app_notification.dart';
 
@@ -64,6 +65,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         // Room not loaded yet — go to the chat list so the user can find it
         Navigator.pushNamed(context, AppRoutes.chatList);
       }
+      return;
+    }
+
+    // New service order → freelancer goes straight to Incoming Orders
+    if (n.type == NotificationType.orderPlaced) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ServiceOrdersPage()),
+      );
       return;
     }
 
@@ -234,8 +244,10 @@ class _NotifTile extends StatelessWidget {
               ),
             ),
 
-            // Navigate chevron if linked to a project or chat room
-            if (n.linkedProjectId != null || n.linkedChatRoomId != null)
+            // Navigate chevron if linked to a project, chat room, or incoming order
+            if (n.linkedProjectId != null ||
+                n.linkedChatRoomId != null ||
+                n.type == NotificationType.orderPlaced)
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child:
