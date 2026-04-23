@@ -37,14 +37,23 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
   final _tagInput = TextEditingController();
 
   String? _category;          // null = not yet selected
-  int _deliveryValue = 1;
+  final _deliveryAmountController = TextEditingController(text: '1');
   String _deliveryUnit = 'Days';
   bool _isLoading = false;
   String? _tagsError;         // inline error for the tags section
   String? _imagesError;       // inline error for the images section
 
   static const _deliveryUnits = ['Days', 'Weeks', 'Months'];
-  static int _maxForUnit(String unit) => 7; // cap at 7 for all units
+
+  /// Max amount per unit: Days→365, Weeks→52, Months→12.
+  static int _maxForUnit(String unit) => switch (unit) {
+    'Weeks'  => 52,
+    'Months' => 12,
+    _        => 365,
+  };
+
+  /// Max digits per unit: Days→3, Weeks/Months→2.
+  static int _maxDigitsForUnit(String unit) => unit == 'Days' ? 3 : 2;
 
   /// Mix of local file paths (new picks) and remote HTTPS URLs (existing).
   final List<String> _portfolioImages = [];
@@ -57,7 +66,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
   late String? _origCategory;
   late List<String> _origTags;
   late List<String> _origImages;
-  late int _origDeliveryValue;
+  late String _origDeliveryValue;
   late String _origDeliveryUnit;
 
   bool get _hasChanges =>
@@ -67,7 +76,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       _category != _origCategory ||
       !_listEq(_tags, _origTags) ||
       !_listEq(_portfolioImages, _origImages) ||
-      _deliveryValue != _origDeliveryValue ||
+      _deliveryAmountController.text.trim() != _origDeliveryValue ||
       _deliveryUnit != _origDeliveryUnit;
 
   static bool _listEq(List<String> a, List<String> b) =>
@@ -94,14 +103,14 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       // Restore delivery: convert days back to amount+unit
       if (s.deliveryDays != null) {
         final days = s.deliveryDays!;
-        if (days % 30 == 0 && days ~/ 30 <= 7) {
-          _deliveryValue = days ~/ 30;
+        if (days % 30 == 0) {
+          _deliveryAmountController.text = (days ~/ 30).toString();
           _deliveryUnit = 'Months';
-        } else if (days % 7 == 0 && days ~/ 7 <= 7) {
-          _deliveryValue = days ~/ 7;
+        } else if (days % 7 == 0) {
+          _deliveryAmountController.text = (days ~/ 7).toString();
           _deliveryUnit = 'Weeks';
         } else {
-          _deliveryValue = days.clamp(1, 7);
+          _deliveryAmountController.text = days.toString();
           _deliveryUnit = 'Days';
         }
       }
@@ -113,7 +122,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
     _origCategory      = _category;
     _origTags          = List.from(_tags);
     _origImages        = List.from(_portfolioImages);
-    _origDeliveryValue = _deliveryValue;
+    _origDeliveryValue = _deliveryAmountController.text.trim();
     _origDeliveryUnit  = _deliveryUnit;
   }
 
@@ -123,6 +132,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
     _descController.dispose();
     _priceController.dispose();
     _tagInput.dispose();
+    _deliveryAmountController.dispose();
     super.dispose();
   }
 
@@ -211,10 +221,12 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
     }
 
     // Convert amount+unit to total days
+    final deliveryAmount =
+        int.tryParse(_deliveryAmountController.text.trim()) ?? 1;
     final deliveryDays = switch (_deliveryUnit) {
-      'Weeks'  => _deliveryValue * 7,
-      'Months' => _deliveryValue * 30,
-      _        => _deliveryValue,
+      'Weeks'  => deliveryAmount * 7,
+      'Months' => deliveryAmount * 30,
+      _        => deliveryAmount,
     };
 
     final user = AppState.instance.currentUser!;
@@ -410,23 +422,28 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                       fontWeight: FontWeight.w600, fontSize: 13)),
               const SizedBox(height: 8),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Amount dropdown (1–7)
+                  // Amount — free-text, digit-limited per unit
                   Expanded(
-                    child: DropdownButtonFormField<int>(
-                      value: _deliveryValue,
+                    child: TextFormField(
+                      controller: _deliveryAmountController,
                       decoration: const InputDecoration(
                         labelText: 'Amount',
                         border: OutlineInputBorder(),
                       ),
-                      items: List.generate(
-                        _maxForUnit(_deliveryUnit),
-                        (i) => DropdownMenuItem(
-                            value: i + 1,
-                            child: Text('${i + 1}')),
-                      ),
-                      onChanged: (v) {
-                        if (v != null) setState(() => _deliveryValue = v);
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(
+                            _maxDigitsForUnit(_deliveryUnit)),
+                      ],
+                      validator: (v) {
+                        final n = int.tryParse(v?.trim() ?? '');
+                        if (n == null || n <= 0) return 'Enter a number';
+                        final max = _maxForUnit(_deliveryUnit);
+                        if (n > max) return 'Max $max ${_deliveryUnit.toLowerCase()}';
+                        return null;
                       },
                     ),
                   ),
@@ -444,12 +461,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                               value: u, child: Text(u)))
                           .toList(),
                       onChanged: (u) {
-                        if (u != null) {
-                          setState(() {
-                            _deliveryUnit = u;
-                            _deliveryValue = 1; // reset when unit changes
-                          });
-                        }
+                        if (u != null) setState(() => _deliveryUnit = u);
                       },
                     ),
                   ),

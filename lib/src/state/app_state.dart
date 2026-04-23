@@ -1689,17 +1689,16 @@ class AppState extends ChangeNotifier {
 
     // ── Resolve total budget ─────────────────────────────────────────────
     // Priority: client's proposed budget → service listed price → null.
-    double? resolvedBudget = order.proposedBudget;
-    if (resolvedBudget == null) {
-      final svc = await _serviceRepo.getById(order.serviceId);
-      resolvedBudget = svc?.priceMax ?? svc?.priceMin;
-    }
+    // Also fetch the service here so we can fall back to its deliveryDays below.
+    final svc = await _serviceRepo.getById(order.serviceId);
+    double? resolvedBudget = order.proposedBudget ?? svc?.priceMax ?? svc?.priceMin;
 
     // ── Resolve end date ─────────────────────────────────────────────────
-    // Use timelineDays from the order as a tentative project deadline.
-    // This ensures milestone date pickers are correctly constrained.
-    final DateTime? resolvedEndDate = order.timelineDays != null
-        ? DateTime.now().add(Duration(days: order.timelineDays!))
+    // Priority: client's expected timeline → freelancer's service delivery days.
+    // This ensures the project always has a visible deadline in both pages.
+    final int? effectiveTimelineDays = order.timelineDays ?? svc?.deliveryDays;
+    final DateTime? resolvedEndDate = effectiveTimelineDays != null
+        ? DateTime.now().add(Duration(days: effectiveTimelineDays))
         : null;
 
     final project = ProjectItem(

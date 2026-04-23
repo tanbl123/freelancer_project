@@ -48,7 +48,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
   _TimelineType _timelineType = _TimelineType.specificDate;
   DateTime? _specificDate;       // used when timelineType == specificDate
   final _durationAmountController = TextEditingController(text: '1');
-  String _durationUnit = 'Weeks';
+  String _durationUnit = 'Days';
   DateTime? _postingDeadline;    // posting close date, used when timelineType == duration
   String? _timelineError;        // inline validation error for the timeline section
 
@@ -104,7 +104,7 @@ class _JobFormScreenState extends State<JobFormScreen> {
         _timelineType = _TimelineType.duration;
         final parts = p.projectDuration!.split(' ');
         if (parts.length == 2) {
-          _durationUnit = _durationUnits.contains(parts[1]) ? parts[1] : 'Weeks';
+          _durationUnit = _durationUnits.contains(parts[1]) ? parts[1] : 'Days';
           _durationAmountController.text = parts[0];
         }
         _postingDeadline = p.deadline;
