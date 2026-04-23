@@ -24,8 +24,10 @@ class ModuleDashboardPage extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(right: 12),
                 child: GestureDetector(
-                  onTap: () =>
-                      Navigator.pushNamed(context, AppRoutes.profile),
+                  onTap: () => Navigator.pushNamedAndRemoveUntil(
+                    context, AppRoutes.dashboard, (_) => false,
+                    arguments: 4, // Profile tab
+                  ),
                   child: CircleAvatar(
                     radius: 18,
                     backgroundColor:
@@ -115,7 +117,10 @@ class ModuleDashboardPage extends StatelessWidget {
                   title: 'Transactions',
                   subtitle: 'Project milestones and progress tracking',
                   icon: Icons.assignment_turned_in,
-                  onTap: () => Navigator.pushNamed(context, AppRoutes.projects),
+                  onTap: () => Navigator.pushNamedAndRemoveUntil(
+                    context, AppRoutes.dashboard, (_) => false,
+                    arguments: 3, // My Projects tab
+                  ),
                 ),
                 ModuleMenuCard(
                   title: 'Reviews & Ratings',
@@ -127,7 +132,10 @@ class ModuleDashboardPage extends StatelessWidget {
                   title: 'User Profile',
                   subtitle: 'View and edit your account information',
                   icon: Icons.person,
-                  onTap: () => Navigator.pushNamed(context, AppRoutes.profile),
+                  onTap: () => Navigator.pushNamedAndRemoveUntil(
+                    context, AppRoutes.dashboard, (_) => false,
+                    arguments: 4, // Profile tab
+                  ),
                 ),
               ],
             ),

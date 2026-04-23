@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../backend/shared/domain_types.dart';
+import '../../../routing/app_router.dart';
 import '../../../state/app_state.dart';
 import '../models/milestone_item.dart';
 import '../models/project_item.dart';
@@ -55,14 +56,24 @@ class _ProjectListPageState extends State<ProjectListPage> {
                         if (isClient)
                           FilledButton.icon(
                             onPressed: () =>
-                                Navigator.pushNamed(context, '/jobs'),
+                                Navigator.pushNamedAndRemoveUntil(
+                                  context,
+                                  AppRoutes.dashboard,
+                                  (_) => false,
+                                  arguments: 0, // Jobs tab
+                                ),
                             icon: const Icon(Icons.work_outline),
                             label: const Text('Browse or Post a Job'),
                           )
                         else
                           FilledButton.icon(
                             onPressed: () =>
-                                Navigator.pushNamed(context, '/jobs'),
+                                Navigator.pushNamedAndRemoveUntil(
+                                  context,
+                                  AppRoutes.dashboard,
+                                  (_) => false,
+                                  arguments: 0, // Jobs tab
+                                ),
                             icon: const Icon(Icons.search),
                             label: const Text('Browse Jobs'),
                           ),
