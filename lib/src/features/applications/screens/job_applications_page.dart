@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../backend/shared/domain_types.dart';
-import '../../../routing/app_router.dart';
 import '../../../state/app_state.dart';
 import '../../jobs/models/job_post.dart';
-import '../../jobs/screens/job_detail_screen.dart';
 import '../models/application_item.dart';
+import 'application_detail_page.dart';
 import 'apply_form_page.dart';
+import 'client_application_detail_page.dart';
 
 class JobApplicationsPage extends StatelessWidget {
   const JobApplicationsPage({super.key});
@@ -392,26 +392,35 @@ class _ApplicationCard extends StatelessWidget {
       child: InkWell(
         onTap: () {
           if (isFreelancerView) {
-            // Freelancer taps → show the job post they applied to.
+            // Freelancer taps → dedicated application detail page
+            // (shows job info + their own proposal, no Apply/Message buttons).
             if (post != null) {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => JobDetailScreen(post: post),
+                  builder: (_) => ApplicationDetailPage(
+                    application: item,
+                    post: post,
+                  ),
                 ),
-              );
+              ).then((_) => AppState.instance.reloadApplications());
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Job details are no longer available.')),
+                const SnackBar(
+                    content: Text('Job details are no longer available.')),
               );
             }
           } else {
-            // Client taps → show the applicant's profile.
-            Navigator.pushNamed(
+            // Client taps → dedicated application detail page showing
+            // which job was applied for + proposal + View Profile button.
+            Navigator.push(
               context,
-              AppRoutes.userProfile,
-              arguments: item.freelancerId,
-            );
+              MaterialPageRoute(
+                builder: (_) => ClientApplicationDetailPage(
+                  application: item,
+                ),
+              ),
+            ).then((_) => AppState.instance.reloadApplications());
           }
         },
         child: Padding(
