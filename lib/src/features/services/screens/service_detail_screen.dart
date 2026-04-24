@@ -18,8 +18,17 @@ import '../widgets/service_badges.dart';
 /// - The service owner (freelancer) or an admin sees Edit / Deactivate /
 ///   Activate / Delete actions via the overflow menu.
 class ServiceDetailScreen extends StatefulWidget {
-  const ServiceDetailScreen({super.key, required this.service});
+  const ServiceDetailScreen({
+    super.key,
+    required this.service,
+    this.readOnly = false,
+  });
   final FreelancerService service;
+
+  /// When true, hides the owner/admin overflow menu (three-dot button).
+  /// Use this when opening the screen purely for viewing context
+  /// (e.g. from ServiceOrderDetailPage → View Service Details).
+  final bool readOnly;
 
   @override
   State<ServiceDetailScreen> createState() => _ServiceDetailScreenState();
@@ -185,7 +194,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       appBar: AppBar(
         title: const Text('Service Details'),
         actions: [
-          if (_isOwner || _isAdmin)
+          if (!widget.readOnly && (_isOwner || _isAdmin))
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
               onSelected: (v) {
@@ -394,7 +403,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
             ),
 
       // ── Bottom CTA (clients only) ──────────────────────────────────────────
-      bottomNavigationBar: !_actionLoading && !_isOwner && isClient
+      bottomNavigationBar: !_actionLoading && !_isOwner && isClient && !widget.readOnly
           ? SafeArea(
               child: Container(
                 padding: const EdgeInsets.symmetric(

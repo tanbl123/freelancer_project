@@ -52,6 +52,22 @@ class ServiceOrder {
   bool get isPending => status == ServiceOrderStatus.pending;
   bool get isAccepted => status == ServiceOrderStatus.accepted;
 
+  /// Human-readable timeline that mirrors what the client entered.
+  /// 105 → "15 weeks", 60 → "2 months", 5 → "5 days".
+  String? get timelineDisplay {
+    final d = timelineDays;
+    if (d == null) return null;
+    if (d % 30 == 0) {
+      final m = d ~/ 30;
+      return '$m month${m == 1 ? '' : 's'}';
+    }
+    if (d % 7 == 0) {
+      final w = d ~/ 7;
+      return '$w week${w == 1 ? '' : 's'}';
+    }
+    return '$d day${d == 1 ? '' : 's'}';
+  }
+
   // ── Supabase map (ISO 8601) ──────────────────────────────────────────────────
   Map<String, dynamic> toSupabaseMap() {
     final now = DateTime.now().toIso8601String();

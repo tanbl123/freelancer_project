@@ -16,8 +16,23 @@ import '../widgets/job_badges.dart';
 /// - Freelancers see "Contact" + "Apply Now" buttons.
 /// - Owners (clients) and admins see Edit / Close / Cancel / Delete via overflow.
 class JobDetailScreen extends StatefulWidget {
-  const JobDetailScreen({super.key, required this.post});
+  const JobDetailScreen({
+    super.key,
+    required this.post,
+    this.hideApplyButton = false,
+    this.readOnly = false,
+  });
   final JobPost post;
+
+  /// When true, the Apply / Applied button is hidden (Message only).
+  /// Use this when navigating from a context where the user has already applied
+  /// (e.g. ApplicationDetailPage → View Job Details).
+  final bool hideApplyButton;
+
+  /// When true, hides the owner/admin overflow menu (three-dot button).
+  /// Use this when opening the screen purely for context
+  /// (e.g. ClientApplicationDetailPage → View Job Details).
+  final bool readOnly;
 
   @override
   State<JobDetailScreen> createState() => _JobDetailScreenState();
@@ -215,7 +230,7 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
       appBar: AppBar(
         title: const Text('Job Details'),
         actions: [
-          if (_isOwner || _isAdmin)
+          if (!widget.readOnly && (_isOwner || _isAdmin))
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
               onSelected: (v) {
@@ -470,11 +485,12 @@ class _JobDetailScreenState extends State<JobDetailScreen> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 12)),
                     ),
-                    const SizedBox(width: 12),
-                    if (_post.isLive)
+                    if (!widget.hideApplyButton && _post.isLive) ...[
+                      const SizedBox(width: 12),
                       Expanded(
                         child: _AlreadyAppliedButton(jobId: _post.id),
                       ),
+                    ],
                   ],
                 ),
               ),

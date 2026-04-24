@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../../../backend/shared/domain_types.dart';
 import '../../../state/app_state.dart';
 import '../../services/models/freelancer_service.dart';
 import '../models/service_order.dart';
 import '../../transactions/screens/project_detail_page.dart';
+import 'client_service_order_detail_page.dart';
+import 'service_order_detail_page.dart';
 import 'service_order_form_page.dart';
 
 /// Shows all service orders for the current user.
@@ -341,228 +342,6 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
         .showSnackBar(SnackBar(content: Text(err ?? successMsg)));
   }
 
-  // ── Freelancer: show full order details in a bottom sheet ─────────────────
-
-  void _showOrderDetail() {
-    final order = widget.order;
-    final dateStr = order.createdAt != null
-        ? DateFormat('d MMM y, h:mm a').format(order.createdAt!)
-        : '';
-    final statusColor = order.status.color;
-
-    // Live name lookup so renames are reflected immediately.
-    final clientName =
-        AppState.instance.users
-            .where((u) => u.uid == order.clientId)
-            .firstOrNull
-            ?.displayName ??
-        order.clientName;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
-        minChildSize: 0.4,
-        maxChildSize: 0.92,
-        builder: (_, scrollCtrl) => Column(
-          children: [
-            // ── Drag handle ────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.only(top: 10, bottom: 4),
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            // ── Header ─────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      order.serviceTitle,
-                      style: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border:
-                          Border.all(color: statusColor.withValues(alpha: 0.4)),
-                    ),
-                    child: Text(
-                      order.status.displayName.toUpperCase(),
-                      style: TextStyle(
-                          color: statusColor,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 20),
-            // ── Scrollable content ──────────────────────────────────────
-            Expanded(
-              child: ListView(
-                controller: scrollCtrl,
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                children: [
-                  // From client
-                  _SheetRow(
-                    icon: Icons.person_outline,
-                    label: 'Client',
-                    value: clientName,
-                    trailing: TextButton(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        Navigator.pushNamed(
-                          context,
-                          '/profile/view',
-                          arguments: order.clientId,
-                        );
-                      },
-                      style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                      child: const Text('View Profile'),
-                    ),
-                  ),
-                  if (dateStr.isNotEmpty)
-                    _SheetRow(
-                      icon: Icons.calendar_today_outlined,
-                      label: 'Submitted',
-                      value: dateStr,
-                    ),
-                  if (order.proposedBudget != null)
-                    _SheetRow(
-                      icon: Icons.attach_money,
-                      label: 'Proposed Price',
-                      value: 'RM ${order.proposedBudget!.toStringAsFixed(0)}',
-                      valueColor: Colors.green.shade700,
-                    ),
-                  if (order.timelineDays != null)
-                    _SheetRow(
-                      icon: Icons.schedule_outlined,
-                      label: 'Expected Timeline',
-                      value: '${order.timelineDays} days',
-                    ),
-                  const SizedBox(height: 12),
-                  // Full request message
-                  Text(
-                    'What they need',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.4),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest
-                          .withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      order.message,
-                      style: const TextStyle(height: 1.55, fontSize: 14),
-                    ),
-                  ),
-                  // Freelancer note if any
-                  if (order.freelancerNote != null &&
-                      order.freelancerNote!.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      'Your Note',
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.4),
-                    ),
-                    const SizedBox(height: 6),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue.shade100),
-                      ),
-                      child: Text(
-                        '"${order.freelancerNote}"',
-                        style: TextStyle(
-                            fontStyle: FontStyle.italic,
-                            color: Colors.blue.shade800,
-                            height: 1.4),
-                      ),
-                    ),
-                  ],
-                  // Pending actions
-                  if (order.isPending) ...[
-                    const SizedBox(height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.close, size: 16),
-                            label: const Text('Reject'),
-                            style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.red,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12)),
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              _handleReject();
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton.icon(
-                            icon: const Icon(Icons.check, size: 16),
-                            label: const Text('Accept'),
-                            style: FilledButton.styleFrom(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12)),
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              _handleAccept();
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _handleEdit() {
     Navigator.push(
       context,
@@ -684,7 +463,7 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
                       icon: Icons.calendar_today_outlined,
                       label: 'Deadline',
                       effectiveValue: effectiveDays != null
-                          ? '$effectiveDays day${effectiveDays == 1 ? '' : 's'}'
+                          ? _formatDays(effectiveDays)
                           : 'Not set',
                       sourceLabel: clientDays != null
                           ? "Client's requested timeline"
@@ -694,7 +473,7 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
                       isClientOverride: clientDays != null,
                       secondaryNote:
                           clientDays != null && listedDays != null
-                              ? 'Your listed delivery: $listedDays day${listedDays == 1 ? '' : 's'}'
+                              ? 'Your listed delivery: ${_formatDays(listedDays)}'
                               : null,
                     ),
                   ],
@@ -802,23 +581,25 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
   Widget build(BuildContext context) {
     final order = widget.order;
     final statusColor = order.status.color;
-    final dateStr = order.createdAt != null
-        ? DateFormat('d MMM y').format(order.createdAt!)
-        : '';
+    final cs = Theme.of(context).colorScheme;
 
     // Live name lookups so renames show immediately on both views.
-    final clientName =
-        AppState.instance.users
+    final clientName = AppState.instance.users
             .where((u) => u.uid == order.clientId)
             .firstOrNull
             ?.displayName ??
         order.clientName;
-    final freelancerName =
-        AppState.instance.users
+    final freelancerName = AppState.instance.users
             .where((u) => u.uid == order.freelancerId)
             .firstOrNull
             ?.displayName ??
         order.freelancerName;
+
+    // "Other party" — whose card are we looking at?
+    final otherName =
+        widget.isFreelancerView ? clientName : freelancerName;
+    final otherInitial =
+        otherName.isNotEmpty ? otherName[0].toUpperCase() : '?';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -830,46 +611,48 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
             )
           : InkWell(
               // Tapping the card opens:
-              //  - Freelancer → full order detail sheet (what client requested)
-              //  - Client & pending → edit form
-              //  - Client & non-pending → freelancer's profile
+              //  - Freelancer → ServiceOrderDetailPage (view + accept/reject)
+              //  - Client     → ClientServiceOrderDetailPage (view + edit/cancel)
               onTap: widget.isFreelancerView
-                  ? _showOrderDetail
-                  : order.isPending
-                      ? _handleEdit
-                      : () => Navigator.pushNamed(
-                            context,
-                            '/profile/view',
-                            arguments: order.freelancerId,
-                          ),
+                  ? () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              ServiceOrderDetailPage(order: order),
+                        ),
+                      ).then((_) => AppState.instance.reloadServiceOrders())
+                  : () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              ClientServiceOrderDetailPage(order: order),
+                        ),
+                      ).then((_) => AppState.instance.reloadServiceOrders()),
               child: Padding(
                 padding: const EdgeInsets.all(14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── Header row ─────────────────────────────────────
+                    // ── Header: avatar + name + service title + status ──
                     Row(
                       children: [
-                        const Icon(Icons.design_services_outlined,
-                            size: 20, color: Colors.grey),
-                        const SizedBox(width: 8),
+                        CircleAvatar(
+                          radius: 20,
+                          child: Text(otherInitial),
+                        ),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(order.serviceTitle,
+                              Text(otherName,
                                   style: const TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      fontSize: 15),
+                                      fontSize: 15)),
+                              Text(order.serviceTitle,
+                                  style: const TextStyle(
+                                      color: Colors.grey, fontSize: 12),
                                   overflow: TextOverflow.ellipsis),
-                              // Name row — tap handled by parent InkWell (detail sheet)
-                              Text(
-                                widget.isFreelancerView
-                                    ? 'From: $clientName'
-                                    : 'To: $freelancerName',
-                                style: const TextStyle(
-                                    color: Colors.grey, fontSize: 12),
-                              ),
                             ],
                           ),
                         ),
@@ -901,42 +684,51 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(height: 1.4)),
-                    const SizedBox(height: 8),
 
-                    // ── Details row ────────────────────────────────────
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 4,
-                      children: [
-                        if (order.proposedBudget != null)
-                          _Detail(
-                            icon: Icons.attach_money,
-                            label:
-                                'RM ${order.proposedBudget!.toStringAsFixed(0)}',
+                    // ── Info box: expected price + timeline ────────────
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainerHighest
+                            .withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _OrderInfoChip(
+                              icon: Icons.payments_outlined,
+                              label: 'Expected Price',
+                              value: order.proposedBudget != null
+                                  ? 'RM ${order.proposedBudget!.toStringAsFixed(0)}'
+                                  : 'Freelancer\'s price',
+                              isFallback: order.proposedBudget == null,
+                            ),
                           ),
-                        if (order.timelineDays != null)
-                          _Detail(
-                            icon: Icons.schedule_outlined,
-                            label: '${order.timelineDays} days',
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _OrderInfoChip(
+                              icon: Icons.schedule_outlined,
+                              label: 'Expected Timeline',
+                              value: order.timelineDisplay ?? 'Freelancer\'s delivery',
+                              isFallback: order.timelineDays == null,
+                            ),
                           ),
-                        if (dateStr.isNotEmpty)
-                          _Detail(
-                            icon: Icons.calendar_today_outlined,
-                            label: dateStr,
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
 
-                    // ── Freelancer note (on accept/reject) ─────────────
+                    // ── Freelancer note (shown after accept/reject) ─────
                     if (order.freelancerNote != null &&
                         order.freelancerNote!.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest
+                          color: cs.surfaceContainerHighest
                               .withValues(alpha: 0.5),
                           borderRadius: BorderRadius.circular(6),
                         ),
@@ -1007,23 +799,71 @@ class _ServiceOrderCardState extends State<_ServiceOrderCard> {
   }
 }
 
-class _Detail extends StatelessWidget {
-  const _Detail({required this.icon, required this.label});
+// ── Compact price / timeline chip inside order card ───────────────────────────
+
+class _OrderInfoChip extends StatelessWidget {
+  const _OrderInfoChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.isFallback = false,
+  });
+
   final IconData icon;
   final String label;
+  final String value;
+
+  /// When true, the value is a fallback (freelancer's listed value),
+  /// shown in grey italic rather than bold primary colour.
+  final bool isFallback;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 13, color: Colors.grey),
-        const SizedBox(width: 3),
-        Text(label,
-            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        Row(
+          children: [
+            Icon(icon, size: 13, color: Colors.black54),
+            const SizedBox(width: 4),
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 11, color: Colors.black54)),
+          ],
+        ),
+        const SizedBox(height: 3),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isFallback ? FontWeight.normal : FontWeight.w600,
+            fontStyle: isFallback ? FontStyle.italic : FontStyle.normal,
+            color: isFallback
+                ? Colors.grey.shade500
+                : Theme.of(context).colorScheme.primary,
+          ),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 2,
+        ),
       ],
     );
   }
+}
+
+// ── Timeline formatting helper ────────────────────────────────────────────────
+
+/// Converts stored days to the most readable unit (mirrors form entry).
+/// 105 → "15 weeks", 60 → "2 months", 5 → "5 days".
+String _formatDays(int d) {
+  if (d % 30 == 0) {
+    final m = d ~/ 30;
+    return '$m month${m == 1 ? '' : 's'}';
+  }
+  if (d % 7 == 0) {
+    final w = d ~/ 7;
+    return '$w week${w == 1 ? '' : 's'}';
+  }
+  return '$d day${d == 1 ? '' : 's'}';
 }
 
 // ── Accept dialog — price / timeline summary row ────────────────────────────
@@ -1109,57 +949,6 @@ class _AcceptInfoRow extends StatelessWidget {
           ),
         ],
       ],
-    );
-  }
-}
-
-// ── Detail bottom-sheet row ────────────────────────────────────────────────
-
-class _SheetRow extends StatelessWidget {
-  const _SheetRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.valueColor,
-    this.trailing,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color? valueColor;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 16, color: Colors.grey),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade500,
-                        fontWeight: FontWeight.w500)),
-                const SizedBox(height: 1),
-                Text(value,
-                    style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: valueColor)),
-              ],
-            ),
-          ),
-          if (trailing != null) trailing!,
-        ],
-      ),
     );
   }
 }

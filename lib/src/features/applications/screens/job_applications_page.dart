@@ -479,8 +479,8 @@ class _ApplicationCard extends StatelessWidget {
             Text(item.proposalMessage,
                 style: const TextStyle(height: 1.4)),
 
-            // ── Client's job budget & deadline (freelancer view only) ──────
-            if (isFreelancerView && post != null) ...[
+            // ── Job budget & deadline (both views) ────────────────────────
+            if (post != null) ...[
               const SizedBox(height: 10),
               Container(
                 width: double.infinity,
@@ -499,7 +499,7 @@ class _ApplicationCard extends StatelessWidget {
                     Expanded(
                       child: _AppInfoChip(
                         icon: Icons.payments_outlined,
-                        label: 'Budget',
+                        label: 'Price',
                         value: post.budgetDisplay ?? 'Not specified',
                       ),
                     ),
@@ -562,15 +562,8 @@ class _ApplicationCard extends StatelessWidget {
                     icon: const Icon(Icons.undo, size: 16),
                     label: const Text('Withdraw'),
                     style: TextButton.styleFrom(
-                        foregroundColor: Colors.orange),
-                    onPressed: () {
-                      AppState.instance.updateApplicationStatus(
-                          item.id, ApplicationStatus.withdrawn);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Application withdrawn.')),
-                      );
-                    },
+                        foregroundColor: Colors.red),
+                    onPressed: () => _confirmWithdraw(context),
                   ),
                 ],
               ),
@@ -578,6 +571,35 @@ class _ApplicationCard extends StatelessWidget {
           ],
         ),
       ),
+      ),
+    );
+  }
+
+  void _confirmWithdraw(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Withdraw Application'),
+        content: const Text(
+            'Are you sure you want to withdraw this application?\n\n'
+            'The client will no longer see your proposal.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.pop(context);
+              AppState.instance.updateApplicationStatus(
+                  item.id, ApplicationStatus.withdrawn);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Application withdrawn.')),
+              );
+            },
+            child: const Text('Withdraw'),
+          ),
+        ],
       ),
     );
   }
