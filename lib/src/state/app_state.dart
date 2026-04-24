@@ -153,6 +153,12 @@ class AppState extends ChangeNotifier {
   /// (which time out on emulators and slow connections).
   Timer? _pollTimer;
 
+  /// Debounce timer for notifyListeners — prevents rapid-fire rebuilds when
+  /// the poll timer, a Realtime stream push, and a manual refresh all fire
+  /// within the same frame and would otherwise rebuild the widget tree
+  /// multiple times in quick succession.
+  Timer? _notifyDebounce;
+
   // Dispute Module state
   DisputeRecord? _activeDispute;
   List<DisputeRecord> _allOpenDisputes = []; // admin only
@@ -345,18 +351,30 @@ class AppState extends ChangeNotifier {
   // ── Initialization ─────────────────────────────────────────────────────────
 
   Future<void> initialize() async {
-    _users = await _db.getAllUsers();
-    _posts = await _db.getActivePosts();
-    _reviews = await _db.getAllReviews();
-    _categories = await _db.fetchCategories();
-
-    // Restore session from Supabase Auth
+    // Restore session first (fast — reads from local Supabase cache)
     final session = Supabase.instance.client.auth.currentSession;
     if (session != null) {
       _currentUser = await _db.getUserById(session.user.id);
-      if (_currentUser != null) {
-        await _reloadUserData();
-      }
+    }
+
+    if (_currentUser != null) {
+      // Logged-in path: load categories + all user data concurrently.
+      // _reloadUserData already fetches users/posts/reviews so we skip the
+      // duplicate initial load that was here before.
+      await Future.wait([
+        _db.fetchCategories().then((v) => _categories = v),
+        _reloadUserData(),
+      ]);
+    } else {
+      // Logged-out path: only load categories (minimum for the login screen).
+      // Posts and reviews load in the background so the login screen appears
+      // instantly, then the Browse tab populates silently.
+      _db.fetchCategories().then((v) => _categories = v);
+      Future.wait([
+        _db.getAllUsers().then((v) => _users = v),
+        _db.getActivePosts().then((v) => _posts = v),
+        _db.getAllReviews().then((v) => _reviews = v),
+      ]).then((_) => _debouncedNotify()).ignore();
     }
     notifyListeners();
 
@@ -424,56 +442,67 @@ class AppState extends ChangeNotifier {
 
   Future<void> _reloadUserData() async {
     if (_currentUser == null) return;
-    // Fetch only applications relevant to this user's role, not all DB rows.
-    _applications = _currentUser!.role == UserRole.freelancer
-        ? await _appRepo.getByFreelancer(_currentUser!.uid)
-        : await _appRepo.getByClient(_currentUser!.uid);
-    _projects = await _db.getProjectsForUser(_currentUser!.uid);
-    // Only load milestones when there are projects — never pass an empty UUID.
-    _milestones = [];
-    _users = await _db.getAllUsers();
-    _posts = await _db.getActivePosts();
-    _reviews = await _db.getAllReviews();
+    final uid = _currentUser!.uid;
+    final role = _currentUser!.role;
 
-    // Load job posts (offline-first) and start connectivity watcher.
-    await _loadJobPostsFeed();
+    // ── Phase 1: CRITICAL data — user sees the dashboard after this ────────
+    // Only data that is visible on the home screen tabs immediately after
+    // login. Runs fully in parallel so total wait = slowest single call.
+    await Future.wait([
+      // Applications (role-scoped) — My Applications / Incoming orders tabs
+      (role == UserRole.freelancer
+              ? _appRepo.getByFreelancer(uid)
+              : _appRepo.getByClient(uid))
+          .then((v) => _applications = v),
+
+      // Projects — active work dashboard
+      _db.getProjectsForUser(uid).then((v) {
+        _projects = v;
+        _milestones = [];
+      }),
+
+      // Service orders (role-scoped) — orders tab
+      _loadServiceOrders(),
+
+      // All users — needed for name lookups on every card immediately
+      _db.getAllUsers().then((v) => _users = v),
+
+      // Freelancer upgrade request + appeals — profile / status banner
+      _requestRepo.getLatest(uid).then((v) => _myFreelancerRequest = v),
+      _appealRepo.getForUser(uid).then((v) => _myAppeals = v),
+
+      // Job + service feeds and role-specific lists — Browse tab
+      _loadJobPostsFeed(),
+      _loadServicesFeed(),
+      if (role == UserRole.client)
+        _jobRepo.getPostsByClient(uid).then((v) => _myJobPosts = v),
+      if (role == UserRole.freelancer)
+        _serviceRepo
+            .getServicesByFreelancer(uid)
+            .then((v) => _myServices = v),
+      if (role == UserRole.admin) ...[
+        _requestRepo.getAll().then((v) => _allFreelancerRequests = v),
+        _appealRepo.getAll().then((v) => _allAppeals = v),
+      ],
+    ]);
+
+    // Start live services immediately after critical data is ready.
     _startConnectivityWatcher();
-    if (_currentUser!.role == UserRole.client) {
-      _myJobPosts =
-          await _jobRepo.getPostsByClient(_currentUser!.uid);
-    }
-
-    // Load service listings (offline-first)
-    await _loadServicesFeed();
-    if (_currentUser!.role == UserRole.freelancer) {
-      _myServices =
-          await _serviceRepo.getServicesByFreelancer(_currentUser!.uid);
-    }
-
-    // Load service orders for both clients (sent) and freelancers (received).
-    await _loadServiceOrders();
-
-    // Load user-module state
-    _myFreelancerRequest =
-        await _requestRepo.getLatest(_currentUser!.uid);
-    _myAppeals = await _appealRepo.getForUser(_currentUser!.uid);
-
-    // Admin: load all requests and appeals (all statuses so tabs stay current)
-    if (_currentUser!.role == UserRole.admin) {
-      _allFreelancerRequests = await _requestRepo.getAll();
-      _allAppeals = await _appealRepo.getAll();
-    }
-
-    // Chat rooms (load for all users)
-    await loadChatRooms();
-
-    // Start realtime notification stream so the badge and inbox update
-    // automatically whenever any user sends a notification to this user.
     _startNotificationsStream();
-
-    // Start polling so applications / orders stay fresh even when the
-    // Supabase Realtime WebSocket is unavailable (emulator, slow network).
     _startPolling();
+
+    // ── Phase 2: NON-CRITICAL data — loads silently in the background ──────
+    // Marketplace posts are only visible on the Marketplace tab.
+    // Reviews are only visible on Profile / Ratings pages.
+    // Chat rooms affect only the unread badge — a 1-2 second delay is fine.
+    // None of these are needed for the dashboard the user sees at login.
+    // We fire them without awaiting so login completes faster, then emit
+    // a single debounced notify when they all finish.
+    Future.wait([
+      _db.getActivePosts().then((v) => _posts = v),
+      _db.getAllReviews().then((v) => _reviews = v),
+      loadChatRooms(),
+    ]).then((_) => _debouncedNotify()).ignore();
   }
 
   void _clearLocalState() {
@@ -492,6 +521,9 @@ class AppState extends ChangeNotifier {
     _connectivitySub = null;
     _notifSub?.cancel();
     _notifSub = null;
+    // Close ALL open Supabase Realtime channels so they don't accumulate
+    // across repeated login/logout cycles and trigger rate limiting.
+    Supabase.instance.client.removeAllChannels();
     _notifications = [];
     _services = [];
     _myServices = [];
@@ -507,6 +539,19 @@ class AppState extends ChangeNotifier {
     _chatUnreadMap = {};
     _reportedReviews = [];
     _stopPolling();
+    _notifyDebounce?.cancel();
+    _notifyDebounce = null;
+  }
+
+  /// Debounced [notifyListeners] — coalesces rapid-fire calls (poll timer +
+  /// Realtime push arriving at the same time) into a single rebuild.
+  /// Falls back to an immediate notify for critical paths that call
+  /// [notifyListeners] directly (those are unaffected by this helper).
+  void _debouncedNotify() {
+    _notifyDebounce?.cancel();
+    _notifyDebounce = Timer(const Duration(milliseconds: 100), () {
+      notifyListeners();
+    });
   }
 
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -3508,11 +3553,17 @@ class AppState extends ChangeNotifier {
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
       if (_currentUser == null) return;
-      // Run both fetches concurrently for speed.
+      // Fetch both concurrently, then emit a single debounced notify so the
+      // poll timer firing at the same time as a Realtime push doesn't cause
+      // two back-to-back widget tree rebuilds.
       await Future.wait([
-        reloadApplications(),
-        reloadServiceOrders(),
+        _loadServiceOrders(),
+        if (_currentUser!.role == UserRole.freelancer)
+          _appRepo.getByFreelancer(_currentUser!.uid).then((v) => _applications = v)
+        else
+          _appRepo.getByClient(_currentUser!.uid).then((v) => _applications = v),
       ]);
+      _debouncedNotify();
     });
   }
 
