@@ -538,7 +538,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
               milestones: _milestones,
             ),
             const SizedBox(height: 10),
-            _BudgetCard(project: _project!, milestones: _milestones),
+            _BudgetCard(project: _project!, milestones: _milestones, payment: paymentRecord),
             const SizedBox(height: 10),
             // ── Payment status banner — freelancers only ──────────────
             if (paymentRecord != null && !isClient)
@@ -1525,9 +1525,10 @@ class _ProjectInfoCard extends StatelessWidget {
 
 class _BudgetCard extends StatelessWidget {
   const _BudgetCard(
-      {required this.project, required this.milestones});
+      {required this.project, required this.milestones, this.payment});
   final ProjectItem project;
   final List<MilestoneItem> milestones;
+  final PaymentRecord? payment;
 
   @override
   Widget build(BuildContext context) {
@@ -1536,18 +1537,36 @@ class _BudgetCard extends StatelessWidget {
     final milestoneTotal =
         milestones.fold(0.0, (s, m) => s + m.paymentAmount);
     final displayTotal = milestoneTotal > 0 ? milestoneTotal : budget;
-    // For single delivery, "paid" = full budget once project is completed.
-    final paid = isSingle
-        ? (project.isCompleted ? displayTotal : 0.0)
-        : milestones
-            .where((m) => m.isCompleted)
-            .fold(0.0, (s, m) => s + m.paymentAmount);
+
+    // For single delivery:
+    // - Normally "paid" is full budget once project.isCompleted
+    // - But when a dispute releases funds (project = cancelled, not completed),
+    //   we must read payment.releasedAmount so the card matches the escrow card.
+    final double paid;
+    if (isSingle) {
+      if (project.isCompleted) {
+        paid = displayTotal;
+      } else {
+        // Use actual released amount (covers dispute resolution payouts)
+        paid = (payment?.releasedAmount ?? 0.0).clamp(0.0, displayTotal);
+      }
+    } else {
+      paid = milestones
+          .where((m) => m.isCompleted)
+          .fold(0.0, (s, m) => s + m.paymentAmount);
+    }
 
     String progressLabel;
     if (displayTotal == 0) {
       progressLabel = 'No price set';
     } else if (isSingle) {
-      progressLabel = project.isCompleted ? 'Fully paid' : 'Pending approval';
+      if (project.isCompleted || paid >= displayTotal - 0.01) {
+        progressLabel = 'Fully paid';
+      } else if (paid > 0) {
+        progressLabel = '${(paid / displayTotal * 100).toStringAsFixed(0)}% paid';
+      } else {
+        progressLabel = 'Pending approval';
+      }
     } else {
       progressLabel =
           '${(paid / displayTotal * 100).toStringAsFixed(0)}% paid';
