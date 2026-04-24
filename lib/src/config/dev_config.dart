@@ -8,10 +8,10 @@ class DevConfig {
   /// Set to [true] before the project showcase to enable real email checking.
   /// Set to [false] during team testing to avoid using up the 100 free credits.
   // During team testing — keep OFF (saves credits):
-  static const bool emailValidationEnabled = false;
+  ///static const bool emailValidationEnabled = false;
 
   // Before showcase — switch ON:
-  ///static const bool emailValidationEnabled = true;
+  static const bool emailValidationEnabled = true;
 
 }
 ///CARD NUMBER: 4242424242424242

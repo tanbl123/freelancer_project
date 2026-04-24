@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../backend/shared/domain_types.dart';
+import '../../../routing/app_router.dart';
 import '../../../state/app_state.dart';
 import '../../jobs/models/job_post.dart';
 import '../../jobs/screens/job_detail_screen.dart';
@@ -92,6 +93,12 @@ class _ApplicationDetailPageState extends State<ApplicationDetailPage> {
         ? DateFormat('d MMM y, h:mm a').format(_app.createdAt!)
         : null;
 
+    final clientName = AppState.instance.users
+            .where((u) => u.uid == _app.clientId)
+            .firstOrNull
+            ?.displayName ??
+        _app.clientId;
+
     return Scaffold(
       appBar: AppBar(title: const Text('My Application')),
       body: ListView(
@@ -152,7 +159,55 @@ class _ApplicationDetailPageState extends State<ApplicationDetailPage> {
           ),
           const SizedBox(height: 12),
 
-          // ── Card 2: My Application ─────────────────────────────────────
+          // ── Card 2: Client ─────────────────────────────────────────────
+          _DetailCard(
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: colors.secondaryContainer,
+                  child: Text(
+                    clientName.isNotEmpty ? clientName[0].toUpperCase() : '?',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: colors.onSecondaryContainer),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(clientName,
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.bold)),
+                      Text('Client',
+                          style:
+                              TextStyle(fontSize: 12, color: colors.primary)),
+                    ],
+                  ),
+                ),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.person_outline, size: 15),
+                  label: const Text('View Profile'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                  onPressed: () => Navigator.pushNamed(
+                    context,
+                    AppRoutes.userProfile,
+                    arguments: _app.clientId,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // ── Card 3: My Application ─────────────────────────────────────
           _DetailCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
