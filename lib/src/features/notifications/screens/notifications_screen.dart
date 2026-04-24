@@ -68,11 +68,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return;
     }
 
-    // New service order → freelancer goes straight to Incoming Orders
+    // New service order → go to Orders page with proper Scaffold + AppBar.
+    // ServiceOrdersPage has no Scaffold of its own (it lives inside the main
+    // tab view), so we wrap it here to avoid the black-background bug.
     if (n.type == NotificationType.orderPlaced) {
+      final title = AppState.instance.isFreelancer
+          ? 'Incoming Orders'
+          : 'My Orders';
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const ServiceOrdersPage()),
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: Text(title)),
+            body: const ServiceOrdersPage(),
+          ),
+        ),
       );
       return;
     }

@@ -209,8 +209,18 @@ class AppRouter {
             builder: (_) => IncomingApplicationsScreen(jobId: jobId));
 
       case AppRoutes.serviceOrders:
+        // ServiceOrdersPage has no Scaffold (it lives inside RaDashboardScreen's
+        // TabBarView). Wrap it here so standalone navigation has a proper
+        // background and AppBar with a back button.
         return MaterialPageRoute(
-            builder: (_) => const ServiceOrdersPage());
+            builder: (_) => Scaffold(
+                  appBar: AppBar(
+                    title: Text(AppState.instance.isFreelancer
+                        ? 'Incoming Orders'
+                        : 'My Orders'),
+                  ),
+                  body: const ServiceOrdersPage(),
+                ));
 
       case AppRoutes.serviceOrderForm:
         final service = settings.arguments as FreelancerService;
