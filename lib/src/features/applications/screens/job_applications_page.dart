@@ -386,6 +386,21 @@ class _ApplicationCard extends StatelessWidget {
             ?.displayName ??
         item.freelancerName;
 
+    // For the freelancer's own applications list, show the CLIENT as the
+    // primary identity (who posted the job), not the freelancer themselves.
+    final clientName =
+        AppState.instance.users
+            .where((u) => u.uid == item.clientId)
+            .firstOrNull
+            ?.displayName ??
+        item.clientId;
+
+    // Header avatar + primary name — flipped per view role.
+    final headerName = isFreelancerView ? clientName : freelancerName;
+    final headerSubtitle = isFreelancerView
+        ? _jobTitle(post)          // job they applied to
+        : _jobTitle(post);         // same for client: which job it's for
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.hardEdge,
@@ -428,24 +443,30 @@ class _ApplicationCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header row: applicant avatar + name + status badge ─────────
+            // ── Header row: avatar + name + status badge ───────────────────
+            // Freelancer view → shows CLIENT (who posted the job)
+            // Client view    → shows FREELANCER (who applied)
             Row(
               children: [
                 CircleAvatar(
                   radius: 20,
-                  child: Text(freelancerName[0].toUpperCase()),
+                  child: Text(
+                    headerName.isNotEmpty
+                        ? headerName[0].toUpperCase()
+                        : '?',
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(freelancerName,
+                      Text(headerName,
                           style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 15)),
                       Text(
-                        _jobTitle(post),
+                        headerSubtitle,
                         style: const TextStyle(
                             color: Colors.grey, fontSize: 12),
                         overflow: TextOverflow.ellipsis,
