@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../shared/enums/account_status.dart';
 import '../../../shared/enums/appeal_status.dart';
 import '../../../state/app_state.dart';
+import '../../chat/screens/chat_screen.dart';
+import '../../user/models/appeal.dart';
 
 /// Restricted or deactivated users can submit an appeal from this screen.
 class AppealScreen extends StatefulWidget {
@@ -67,12 +69,18 @@ class _AppealScreenState extends State<AppealScreen> {
                     status: user?.accountStatus ?? AccountStatus.restricted),
                 const SizedBox(height: 20),
 
-                if (openAppeal != null)
+                if (openAppeal != null) ...[
                   _ExistingAppealCard(
                     status: openAppeal.status,
                     adminResponse: openAppeal.adminResponse,
-                  )
-                else
+                  ),
+                  // Chat with admin button — shown while appeal is active
+                  if (openAppeal.status == AppealStatus.open ||
+                      openAppeal.status == AppealStatus.underReview) ...[
+                    const SizedBox(height: 16),
+                    _AppealChatButton(appeal: openAppeal),
+                  ],
+                ] else
                   _buildForm(),
               ],
             ),
@@ -159,6 +167,51 @@ class _StatusBanner extends StatelessWidget {
                 style: TextStyle(color: color.shade800, height: 1.4)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AppealChatButton extends StatefulWidget {
+  const _AppealChatButton({required this.appeal});
+  final Appeal appeal;
+
+  @override
+  State<_AppealChatButton> createState() => _AppealChatButtonState();
+}
+
+class _AppealChatButtonState extends State<_AppealChatButton> {
+  bool _loading = false;
+
+  Future<void> _openChat() async {
+    setState(() => _loading = true);
+    final room = await AppState.instance.openAppealChat(widget.appeal);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (room != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ChatScreen(room: room)),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open chat. Try again.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      icon: _loading
+          ? const SizedBox(
+              width: 16, height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+          : const Icon(Icons.chat_outlined),
+      label: const Text('Chat with Admin'),
+      onPressed: _loading ? null : _openChat,
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(48),
       ),
     );
   }

@@ -10,6 +10,7 @@ import '../../../routing/app_router.dart';
 import '../../../services/stripe_service.dart';
 import '../../../services/supabase_storage_service.dart';
 import '../../../state/app_state.dart';
+import '../../chat/screens/chat_screen.dart';
 import '../../disputes/models/dispute_record.dart';
 import '../../profile/models/profile_user.dart';
 import '../../profile/screens/bank_details_sheet.dart';
@@ -1866,8 +1867,63 @@ class _DisputeBanner extends StatelessWidget {
                   color: footerColor,
                   fontStyle: FontStyle.italic),
             ),
+
+            // ── Chat with admin button (active disputes only) ─────────────
+            if (!isSettled) ...[
+              const SizedBox(height: 12),
+              _DisputeChatButton(dispute: d),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DisputeChatButton extends StatefulWidget {
+  const _DisputeChatButton({required this.dispute});
+  final DisputeRecord dispute;
+
+  @override
+  State<_DisputeChatButton> createState() => _DisputeChatButtonState();
+}
+
+class _DisputeChatButtonState extends State<_DisputeChatButton> {
+  bool _loading = false;
+
+  Future<void> _openChat() async {
+    setState(() => _loading = true);
+    final room = await AppState.instance.openDisputeChat(widget.dispute);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (room != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ChatScreen(room: room)),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open chat. Try again.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        icon: _loading
+            ? const SizedBox(
+                width: 14, height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.chat_outlined, size: 16),
+        label: const Text('Chat with Admin about Dispute'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.orange.shade700,
+          side: BorderSide(color: Colors.orange.shade300),
+        ),
+        onPressed: _loading ? null : _openChat,
       ),
     );
   }

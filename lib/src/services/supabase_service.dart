@@ -179,9 +179,9 @@ class SupabaseService {
   Future<List<String>> getAdminUserIds() async {
     final rows = await _client
         .from('profiles')
-        .select('id')
+        .select('uid')
         .eq('role', 'admin');
-    return rows.map<String>((r) => r['id'] as String).toList();
+    return rows.map<String>((r) => r['uid'] as String).toList();
   }
 
   Future<void> updateUser(ProfileUser user) async {

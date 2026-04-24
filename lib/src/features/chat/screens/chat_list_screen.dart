@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../shared/enums/chat_room_type.dart';
+import '../../../shared/enums/user_role.dart';
 import '../../../state/app_state.dart';
 import '../models/chat_room.dart';
 import 'chat_screen.dart';
@@ -24,6 +25,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   late TabController _tabCtrl;
   StreamSubscription<List<ChatRoom>>? _roomsSub;
   bool _loading = true;
+  bool _contactLoading = false;
 
   @override
   void initState() {
@@ -75,8 +77,28 @@ class _ChatListScreenState extends State<ChatListScreen>
         .toList();
   }
 
+  Future<void> _contactSupport() async {
+    setState(() => _contactLoading = true);
+    final room = await AppState.instance.contactAdminSupport();
+    if (!mounted) return;
+    setState(() => _contactLoading = false);
+    if (room != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ChatScreen(room: room)),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not reach support. Try again.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isAdmin =
+        AppState.instance.currentUser?.role == UserRole.admin;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Messages'),
@@ -96,6 +118,20 @@ class _ChatListScreenState extends State<ChatListScreen>
           ),
         ],
       ),
+      floatingActionButton: isAdmin
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _contactLoading ? null : _contactSupport,
+              icon: _contactLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.support_agent_outlined),
+              label: const Text('Contact Support'),
+            ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListenableBuilder(

@@ -1049,9 +1049,9 @@ class AppState extends ChangeNotifier {
         _currentUser!, reason, evidenceUrls);
     if (error == null) {
       _myAppeals = await _appealRepo.getForUser(_currentUser!.uid);
-      // Notify all admins so they see it immediately in their notification bell.
       try {
         final adminIds = await _db.getAdminUserIds();
+        // Notify all admins
         for (final adminId in adminIds) {
           await _notifSvc.send(
             NotificationService.makeAppealSubmitted(
@@ -1060,6 +1060,12 @@ class AppState extends ChangeNotifier {
               appellantId: _currentUser!.uid,
             ),
           );
+        }
+        // Auto-create appeal chat room so the user can talk to admin immediately
+        final appeal = _myAppeals.firstOrNull;
+        if (appeal != null) {
+          final room = await _chatSvc.getOrCreateAppealRoom(appeal, adminIds);
+          _upsertRoom(room);
         }
       } catch (_) {}
       notifyListeners();
@@ -2412,6 +2418,13 @@ class AppState extends ChangeNotifier {
       _activeDispute = record;
       _updateProjectInList(
           project.id, (p) => p.copyWith(status: ProjectStatus.disputed));
+
+      // Auto-create dispute chat so both parties can communicate with admin
+      try {
+        final adminIds = await _db.getAdminUserIds();
+        final room = await _chatSvc.getOrCreateDisputeRoom(record, adminIds);
+        _upsertRoom(room);
+      } catch (_) {}
 
       // Notify both parties
       final projectTitle = project.jobTitle ?? 'Project';
@@ -3822,6 +3835,50 @@ class AppState extends ChangeNotifier {
         }
       }
 
+      notifyListeners();
+      return room;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Open (or create) the dispute chat room (client + freelancer + all admins).
+  Future<ChatRoom?> openDisputeChat(DisputeRecord dispute) async {
+    if (_currentUser == null) return null;
+    try {
+      final adminIds = await _db.getAdminUserIds();
+      final room = await _chatSvc.getOrCreateDisputeRoom(dispute, adminIds);
+      _upsertRoom(room);
+      notifyListeners();
+      return room;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Open (or create) the appeal chat room (appellant + all admins).
+  Future<ChatRoom?> openAppealChat(Appeal appeal) async {
+    if (_currentUser == null) return null;
+    try {
+      final adminIds = await _db.getAdminUserIds();
+      final room = await _chatSvc.getOrCreateAppealRoom(appeal, adminIds);
+      _upsertRoom(room);
+      notifyListeners();
+      return room;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Opens a direct chat with the first available admin — general support.
+  Future<ChatRoom?> contactAdminSupport() async {
+    if (_currentUser == null) return null;
+    try {
+      final adminIds = await _db.getAdminUserIds();
+      if (adminIds.isEmpty) return null;
+      final room = await _chatSvc.getOrCreateDirectRoom(
+          _currentUser!.uid, adminIds.first);
+      _upsertRoom(room);
       notifyListeners();
       return room;
     } catch (_) {
