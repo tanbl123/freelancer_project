@@ -1648,7 +1648,7 @@ class SupabaseService {
         .from('dispute_records')
         .select()
         .eq('project_id', projectId)
-        .inFilter('status', ['open', 'under_review'])
+        .inFilter('status', ['open', 'underReview'])
         .maybeSingle();
     return row == null ? null : DisputeRecord.fromMap(row);
   }
@@ -1667,7 +1667,7 @@ class SupabaseService {
     final rows = await _client
         .from('dispute_records')
         .select()
-        .inFilter('status', ['open', 'under_review'])
+        .inFilter('status', ['open', 'underReview'])
         .order('created_at', ascending: false);
     return rows.map(DisputeRecord.fromMap).toList();
   }
