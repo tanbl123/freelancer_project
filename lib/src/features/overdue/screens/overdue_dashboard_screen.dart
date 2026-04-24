@@ -93,17 +93,6 @@ class _OverdueDashboardScreenState
       appBar: AppBar(
         title: const Text('Overdue Overview'),
         actions: [
-          // DEV: force an immediate overdue check then refresh the list.
-          IconButton(
-            tooltip: 'Run overdue check now',
-            icon: const Icon(Icons.play_circle_outline),
-            onPressed: () async {
-              AppState.instance.startOverdueChecker();
-              // Give the check a moment to complete before reloading the list.
-              await Future.delayed(const Duration(seconds: 3));
-              _load();
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _load,

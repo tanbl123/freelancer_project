@@ -9,7 +9,7 @@ class PayoutRecord {
   const PayoutRecord({
     required this.id,
     required this.paymentId,
-    required this.milestoneId,
+    this.milestoneId,
     required this.projectId,
     required this.freelancerId,
     required this.grossAmount,
@@ -28,7 +28,8 @@ class PayoutRecord {
   final String paymentId;
 
   /// Milestone that triggered this payout.
-  final String milestoneId;
+  /// Null for dispute-resolution payouts (not tied to a specific milestone).
+  final String? milestoneId;
 
   final String projectId;
   final String freelancerId;
@@ -56,7 +57,7 @@ class PayoutRecord {
   Map<String, dynamic> toSupabaseMap() => {
         'id': id,
         'payment_id': paymentId,
-        'milestone_id': milestoneId,
+        if (milestoneId != null) 'milestone_id': milestoneId,
         'project_id': projectId,
         'freelancer_id': freelancerId,
         'gross_amount': grossAmount,
@@ -76,7 +77,7 @@ class PayoutRecord {
     return PayoutRecord(
       id: map['id'] as String,
       paymentId: map['payment_id'] as String,
-      milestoneId: map['milestone_id'] as String,
+      milestoneId: map['milestone_id'] as String?,
       projectId: map['project_id'] as String,
       freelancerId: map['freelancer_id'] as String,
       grossAmount: (map['gross_amount'] as num).toDouble(),

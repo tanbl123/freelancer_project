@@ -203,7 +203,7 @@ class DisputeService {
 
           if (releaseAmt > 0.01) {
             final (p, payout) =
-                await _createDisputePayout(partial, releaseAmt, dispute.id);
+                await _createDisputePayout(partial, releaseAmt);
             partial = p;
             disputePayout = payout;
           }
@@ -236,7 +236,7 @@ class DisputeService {
         case DisputeResolution.fullReleaseToFreelancer:
           resolvedFreelancerAmount = remaining;
           final (p, payout) =
-              await _createDisputePayout(payment, remaining, dispute.id);
+              await _createDisputePayout(payment, remaining);
           updatedPayment = p;
           disputePayout = payout;
 
@@ -312,7 +312,6 @@ class DisputeService {
   Future<(PaymentRecord, PayoutRecord)> _createDisputePayout(
     PaymentRecord payment,
     double grossAmount,
-    String disputeId,
   ) async {
     final calc = PaymentService.calculatePayout(
       grossAmount,
@@ -322,10 +321,8 @@ class DisputeService {
     final payout = PayoutRecord(
       id: _uuid.v4(),
       paymentId: payment.id,
-      // Sentinel: use the disputeId itself (a valid UUID) as the milestoneId
-      // so PostgreSQL's uuid column type accepts it. There is no FK constraint
-      // on payout_records.milestone_id, so this is safe.
-      milestoneId: disputeId,
+      // Dispute payouts are not tied to any specific milestone — pass null.
+      // The DB column is nullable (FK constraint removed for this case).
       projectId: payment.projectId,
       freelancerId: payment.freelancerId,
       grossAmount: calc.grossAmount,

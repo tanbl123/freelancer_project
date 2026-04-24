@@ -27,6 +27,7 @@ class _AdminDisputeReviewScreenState extends State<AdminDisputeReviewScreen> {
 
   bool _processing = false;
   double? _remainingHeld;
+  int _milestoneCount = 0; // used to hide Partial Split for single delivery
 
   @override
   void initState() {
@@ -43,11 +44,20 @@ class _AdminDisputeReviewScreenState extends State<AdminDisputeReviewScreen> {
   }
 
   Future<void> _loadPayment() async {
-    final rec =
-        await AppState.instance.loadPaymentForProject(_dispute.projectId);
+    final results = await Future.wait([
+      AppState.instance.loadPaymentForProject(_dispute.projectId),
+      AppState.instance.getMilestonesForProject(_dispute.projectId),
+    ]);
     if (mounted) {
       setState(() {
-        _remainingHeld = rec?.remainingHeld;
+        _remainingHeld = (results[0] as dynamic)?.remainingHeld as double?;
+        _milestoneCount = (results[1] as List).length;
+        // If admin had Partial Split selected but project is single delivery,
+        // reset to a valid option.
+        if (_milestoneCount <= 1 &&
+            _selectedResolution == DisputeResolution.partialSplit) {
+          _selectedResolution = DisputeResolution.fullRefundToClient;
+        }
       });
     }
   }
@@ -280,8 +290,11 @@ class _AdminDisputeReviewScreenState extends State<AdminDisputeReviewScreen> {
                     Text('Resolution', style: tt.titleMedium),
                     const SizedBox(height: 8),
 
-                    // Resolution picker
-                    ...DisputeResolution.values.map((r) => InkWell(
+                    // Resolution picker — hide Partial Split for single delivery
+                    ...DisputeResolution.values
+                        .where((r) => !(r == DisputeResolution.partialSplit &&
+                            _milestoneCount <= 1))
+                        .map((r) => InkWell(
                           onTap: () =>
                               setState(() => _selectedResolution = r),
                           child: Padding(
