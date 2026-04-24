@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../state/app_state.dart';
@@ -160,13 +161,24 @@ class _BankDetailsSheetState extends State<BankDetailsSheet> {
                 labelText: 'Account Number',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.pin_outlined),
+                helperText: 'Digits only, 10–16 characters',
+                counterText: '',
               ),
               keyboardType: TextInputType.number,
+              maxLength: 16,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               validator: (v) {
-                if (v == null || v.trim().isEmpty) {
-                  return 'Enter account number';
+                final cleaned = v?.trim() ?? '';
+                if (cleaned.isEmpty) return 'Enter your account number';
+                if (!RegExp(r'^\d+$').hasMatch(cleaned)) {
+                  return 'Account number must contain digits only';
                 }
-                if (v.trim().length < 8) return 'Account number too short';
+                if (cleaned.length < 10) {
+                  return 'Account number must be at least 10 digits';
+                }
+                if (cleaned.length > 16) {
+                  return 'Account number must be at most 16 digits';
+                }
                 return null;
               },
             ),
@@ -182,8 +194,15 @@ class _BankDetailsSheetState extends State<BankDetailsSheet> {
                 helperText: 'Must match your bank account name exactly',
               ),
               textCapitalization: TextCapitalization.words,
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Enter holder name' : null,
+              validator: (v) {
+                final cleaned = v?.trim() ?? '';
+                if (cleaned.isEmpty) return 'Enter account holder name';
+                if (cleaned.length < 3) return 'Name is too short';
+                if (!RegExp(r"^[a-zA-Z\s'./-]+$").hasMatch(cleaned)) {
+                  return 'Name must contain letters only (no numbers)';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 20),
 

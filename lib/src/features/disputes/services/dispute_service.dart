@@ -322,8 +322,10 @@ class DisputeService {
     final payout = PayoutRecord(
       id: _uuid.v4(),
       paymentId: payment.id,
-      // Sentinel milestoneId indicating a dispute-resolution payout.
-      milestoneId: 'dispute:$disputeId',
+      // Sentinel: use the disputeId itself (a valid UUID) as the milestoneId
+      // so PostgreSQL's uuid column type accepts it. There is no FK constraint
+      // on payout_records.milestone_id, so this is safe.
+      milestoneId: disputeId,
       projectId: payment.projectId,
       freelancerId: payment.freelancerId,
       grossAmount: calc.grossAmount,
